@@ -31,6 +31,7 @@ class GuiServerTests(unittest.TestCase):
         self.assertIn("默认脚本", INDEX_HTML)
         self.assertIn("拖拽", INDEX_HTML)
         self.assertIn("自动切换队列", INDEX_HTML)
+        self.assertIn("真实探测", INDEX_HTML)
         self.assertIn("实时延迟", INDEX_HTML)
         self.assertIn("Skills", INDEX_HTML)
         self.assertIn('id="toast"', INDEX_HTML)
@@ -160,6 +161,53 @@ class GuiServerTests(unittest.TestCase):
                     self.assertEqual(len(configured["abilities"]), 2)
                     self.assertEqual(configured["abilities"][0]["priority"], 90)
                     self.assertEqual(configured["abilities"][1]["priority"], 85)
+                finally:
+                    server.shutdown()
+                    thread.join(timeout=2)
+                    server.server_close()
+
+    def test_gui_model_probe_records_model_health(self) -> None:
+        with patch.dict(os.environ, {"OMNI_HUB_SECRET_BACKEND": "memory"}):
+            with tempfile.TemporaryDirectory() as tmpdir:
+                server = create_gui_server(tmpdir, port=0)
+                thread = threading.Thread(target=server.serve_forever, daemon=True)
+                thread.start()
+                base_url = f"http://{server.server_address[0]}:{server.server_address[1]}"
+                try:
+                    _post_json(
+                        f"{base_url}/api/official-provider-config",
+                        {
+                            "provider": "openai",
+                            "account_id": "openai-main",
+                            "name": "OpenAI Main",
+                            "api_key": "sk-test-raw-secret",
+                            "model_ids": "gpt-5.4",
+                            "priority": 90,
+                        },
+                    )
+                    with patch("omni_hub.gui._probe_base_url", return_value=(11, "")):
+                        with patch(
+                            "omni_hub.gui._send_model_probe",
+                            return_value={
+                                "ok": True,
+                                "http_status": 200,
+                                "latency_ms": 42,
+                                "quota": {"x-ratelimit-remaining-requests": "99"},
+                                "request_id": "req-test",
+                            },
+                        ) as send_probe:
+                            probed = _post_json(
+                                f"{base_url}/api/model-probe",
+                                {"account_id": "openai-main"},
+                            )
+
+                    self.assertEqual(probed["health"]["status"], "healthy")
+                    self.assertEqual(probed["model_health"]["model_id"], "gpt-5.4")
+                    self.assertEqual(probed["model_health"]["latency_ms"], 42)
+                    self.assertIn("x-ratelimit-remaining-requests", probed["model_health"]["last_error"])
+                    send_probe.assert_called_once()
+                    self.assertEqual(send_probe.call_args.args[1], "gpt-5.4")
+                    self.assertEqual(send_probe.call_args.args[2], "sk-test-raw-secret")
                 finally:
                     server.shutdown()
                     thread.join(timeout=2)

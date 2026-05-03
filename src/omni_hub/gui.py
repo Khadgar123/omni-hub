@@ -25,7 +25,7 @@ from .provider_router import (
     ProjectRouteProfile,
     RouteAbility,
 )
-from .secrets import SecretStoreError, has_secret, store_api_key
+from .secrets import SecretStoreError, has_secret, resolve_secret_ref, store_api_key
 
 
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
@@ -458,6 +458,25 @@ def handle_post(
         health = _check_provider(account, store)
         return {"health": store.set_health(health).to_dict()}
 
+    if path == "/api/model-probe":
+        account = store.get_account(_required(payload, "account_id"))
+        account_health, model_health, probe = _probe_model(
+            account,
+            store,
+            model_id=str(payload.get("model_id", "")),
+        )
+        stored_account_health = store.set_health(account_health)
+        stored_model_health = (
+            store.set_health(model_health).to_dict()
+            if model_health.model_id
+            else stored_account_health.to_dict()
+        )
+        return {
+            "health": stored_account_health.to_dict(),
+            "model_health": stored_model_health,
+            "probe": probe,
+        }
+
     if path == "/api/channel-model":
         account_id = _required(payload, "account_id")
         model = ModelSpec(
@@ -695,11 +714,217 @@ def _check_provider(
     )
 
 
-def _probe_base_url(account: ProviderAccount) -> tuple[int | None, str]:
-    parsed = urlparse(account.base_url)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise ValueError("base_url is not a valid HTTP URL")
+def _probe_model(
+    account: ProviderAccount,
+    store: ProviderRouterStore,
+    *,
+    model_id: str = "",
+) -> tuple[ProviderHealth, ProviderHealth, dict[str, Any]]:
+    base_health = _check_provider(account, store)
+    if base_health.status in {HealthStatus.DOWN, HealthStatus.LIMITED}:
+        return base_health, ProviderHealth.unknown(account.account_id), {
+            "ok": False,
+            "stage": "precheck",
+            "error": base_health.last_error,
+        }
 
+    abilities = store.list_abilities(account_id=account.account_id, enabled=True)
+    if model_id:
+        abilities = [ability for ability in abilities if ability.model_id == model_id]
+    if not abilities:
+        health = ProviderHealth(
+            account_id=account.account_id,
+            status=HealthStatus.LIMITED,
+            last_error="no enabled model route for probe",
+        )
+        return health, ProviderHealth.unknown(account.account_id), {
+            "ok": False,
+            "stage": "route",
+            "error": health.last_error,
+        }
+
+    ability = abilities[0]
+    model = store.get_model(ability.model_id)
+    provider_model_id = ability.model_mapping or model.model_id
+    try:
+        api_key = resolve_secret_ref(account.secret_ref)
+    except SecretStoreError as exc:
+        health = ProviderHealth(
+            account_id=account.account_id,
+            model_id=model.model_id,
+            status=HealthStatus.LIMITED,
+            last_error=str(exc),
+        )
+        return _account_health_from_model(health), health, {
+            "ok": False,
+            "stage": "secret",
+            "model_id": model.model_id,
+            "error": str(exc),
+        }
+    if not api_key:
+        health = ProviderHealth(
+            account_id=account.account_id,
+            model_id=model.model_id,
+            status=HealthStatus.LIMITED,
+            last_error=f"secret is not available for {account.secret_ref}",
+        )
+        return _account_health_from_model(health), health, {
+            "ok": False,
+            "stage": "secret",
+            "model_id": model.model_id,
+            "error": health.last_error,
+        }
+
+    result = _send_model_probe(account, provider_model_id, api_key)
+    status = _health_status_from_probe(result)
+    last_error = _probe_summary(result)
+    model_health = ProviderHealth(
+        account_id=account.account_id,
+        model_id=model.model_id,
+        status=status,
+        latency_ms=result.get("latency_ms"),
+        consecutive_failures=0 if result.get("ok") else 1,
+        last_error=last_error,
+    )
+    probe = {
+        **{key: value for key, value in result.items() if key != "body_preview"},
+        "model_id": model.model_id,
+        "provider_model_id": provider_model_id,
+        "account_id": account.account_id,
+    }
+    return _account_health_from_model(model_health), model_health, probe
+
+
+def _send_model_probe(
+    account: ProviderAccount,
+    provider_model_id: str,
+    api_key: str,
+) -> dict[str, Any]:
+    request = _model_probe_request(account, provider_model_id, api_key)
+    opener = _opener_for_account(account)
+    started = monotonic()
+    try:
+        with opener.open(request, timeout=10) as response:
+            raw = response.read(65536)
+            latency_ms = int((monotonic() - started) * 1000)
+            return {
+                "ok": True,
+                "http_status": getattr(response, "status", response.getcode()),
+                "latency_ms": latency_ms,
+                "quota": _quota_signals(response.headers),
+                "request_id": _request_id(response.headers),
+                "body_preview": _safe_body_preview(raw, api_key),
+            }
+    except HTTPError as exc:
+        raw = exc.read(65536)
+        latency_ms = int((monotonic() - started) * 1000)
+        return {
+            "ok": False,
+            "http_status": exc.code,
+            "latency_ms": latency_ms,
+            "quota": _quota_signals(exc.headers),
+            "request_id": _request_id(exc.headers),
+            "error": _safe_body_preview(raw, api_key),
+        }
+    except URLError as exc:
+        latency_ms = int((monotonic() - started) * 1000)
+        return {
+            "ok": False,
+            "http_status": None,
+            "latency_ms": latency_ms,
+            "error": f"network probe failed: {exc.reason}",
+        }
+
+
+def _model_probe_request(
+    account: ProviderAccount,
+    provider_model_id: str,
+    api_key: str,
+) -> Request:
+    if account.provider == "claude":
+        url = _probe_endpoint(account.base_url, "messages")
+        payload = {
+            "model": provider_model_id,
+            "max_tokens": 1,
+            "messages": [{"role": "user", "content": "ping"}],
+        }
+        headers = {
+            "Content-Type": "application/json",
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+        }
+    else:
+        url = _probe_endpoint(account.base_url, "chat/completions")
+        payload = {
+            "model": provider_model_id,
+            "messages": [{"role": "user", "content": "ping"}],
+            "max_tokens": 1,
+            "temperature": 0,
+        }
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+        }
+    return Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers=headers,
+        method="POST",
+    )
+
+
+def _account_health_from_model(model_health: ProviderHealth) -> ProviderHealth:
+    return ProviderHealth(
+        account_id=model_health.account_id,
+        status=model_health.status,
+        latency_ms=model_health.latency_ms,
+        consecutive_failures=model_health.consecutive_failures,
+        last_error=(
+            f"{model_health.model_id}: {model_health.last_error}"
+            if model_health.model_id and model_health.last_error
+            else model_health.last_error
+        ),
+    )
+
+
+def _health_status_from_probe(result: dict[str, Any]) -> HealthStatus:
+    if result.get("ok"):
+        return HealthStatus.HEALTHY
+    status = result.get("http_status")
+    if status in {401, 403, 429}:
+        return HealthStatus.LIMITED
+    if isinstance(status, int) and 400 <= status < 500:
+        return HealthStatus.DEGRADED
+    return HealthStatus.DOWN
+
+
+def _probe_summary(result: dict[str, Any]) -> str:
+    status = result.get("http_status")
+    quota = result.get("quota") or {}
+    request_id = result.get("request_id")
+    if result.get("ok"):
+        details = [f"model probe ok; http={status}"]
+        if request_id:
+            details.append(f"request_id={request_id}")
+        if quota:
+            details.append(
+                "quota="
+                + ",".join(f"{key}:{value}" for key, value in quota.items())
+            )
+        return "; ".join(details)
+    error = str(result.get("error", "")).strip()
+    prefix = f"model probe failed; http={status}"
+    return f"{prefix}; {error}" if error else prefix
+
+
+def _probe_endpoint(base_url: str, suffix: str) -> str:
+    clean = base_url.rstrip("/")
+    if clean.endswith(("/chat/completions", "/messages")):
+        return clean
+    return f"{clean}/{suffix.lstrip('/')}"
+
+
+def _opener_for_account(account: ProviderAccount):
     handler = None
     if account.proxy_url:
         proxy_url = account.proxy_url
@@ -707,7 +932,41 @@ def _probe_base_url(account: ProviderAccount) -> tuple[int | None, str]:
             proxy_url = os.environ.get(proxy_url.split(":", 1)[1], "")
         if proxy_url:
             handler = ProxyHandler({"http": proxy_url, "https": proxy_url})
-    opener = build_opener(handler) if handler else build_opener()
+    return build_opener(handler) if handler else build_opener()
+
+
+def _quota_signals(headers: Any) -> dict[str, str]:
+    signals: dict[str, str] = {}
+    for key in headers.keys():
+        lower = key.lower()
+        if lower.startswith("x-ratelimit") or lower in {
+            "retry-after",
+            "x-request-cost",
+            "x-remaining-credits",
+        }:
+            signals[key] = str(headers.get(key, ""))[:120]
+    return signals
+
+
+def _request_id(headers: Any) -> str:
+    for key in ("request-id", "x-request-id", "cf-ray"):
+        value = headers.get(key)
+        if value:
+            return str(value)[:120]
+    return ""
+
+
+def _safe_body_preview(raw: bytes, api_key: str) -> str:
+    text = raw.decode("utf-8", errors="replace").replace(api_key, "[redacted]")
+    return " ".join(text.split())[:500]
+
+
+def _probe_base_url(account: ProviderAccount) -> tuple[int | None, str]:
+    parsed = urlparse(account.base_url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("base_url is not a valid HTTP URL")
+
+    opener = _opener_for_account(account)
     request = Request(account.base_url, method="HEAD")
     started = monotonic()
     try:

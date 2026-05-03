@@ -588,8 +588,8 @@ INDEX_HTML = r"""<!doctype html>
               <div class="panel-body"><div class="chart" id="latency-chart"></div></div>
             </div>
             <div class="panel">
-              <div class="panel-head"><h3>额度与代理</h3><span class="subtle">阶段 1</span></div>
-              <div class="panel-body subtle">额度来源先记录在渠道高级配置中；代理配置跟随渠道调用，留空就是 unset。后续接真实调用日志后，这里会展示额度、成本、错误率和趋势。</div>
+              <div class="panel-head"><h3>额度与代理</h3><span class="subtle">真实探测</span></div>
+              <div class="panel-body subtle">测试会对优先级最高的模型发起最小请求，记录模型延迟、HTTP 错误码、request id 和响应头里的限流/额度信号。代理配置跟随渠道调用，留空就是 unset。</div>
             </div>
           </div>
           <div class="panel table-box">
@@ -852,8 +852,8 @@ INDEX_HTML = r"""<!doctype html>
         {label: '模型数', render: row => String(poolRows().filter(item => item.account_id === row.account_id).length)},
         {label: '额度来源', render: row => escapeHtml(quotaText(row))},
         {label: '代理', render: row => escapeHtml(proxyText(row))},
-        {label: '错误', render: row => escapeHtml(row.health.last_error || '')},
-        {label: '操作', render: row => `<button class="secondary" data-check-account="${escapeAttr(row.account_id)}">检测</button>`}
+        {label: '结果', render: row => escapeHtml(row.health.last_error || '')},
+        {label: '操作', render: row => `<button class="secondary" data-check-account="${escapeAttr(row.account_id)}">模型探测</button>`}
       ], (data.accounts || []).map(account => ({...account, health: healthFor(account.account_id)})));
       renderLatencyChart(data.accounts || []);
     }
@@ -935,13 +935,14 @@ INDEX_HTML = r"""<!doctype html>
 
     async function checkAccount(accountId) {
       if (!accountId) throw new Error('请先选择配置');
-      const data = await api('/api/provider-check', {
+      const data = await api('/api/model-probe', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({account_id: accountId})
       });
       await refresh();
-      showToast(`检测完成：${data.health.status}`);
+      const model = data.probe?.model_id || '';
+      showToast(`模型探测完成：${data.health.status}${model ? ` · ${model}` : ''}`);
     }
 
     async function updateAccountPriority(accountId, priority) {
