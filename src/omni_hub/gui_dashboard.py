@@ -188,9 +188,30 @@ INDEX_HTML = r"""<!doctype html>
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(138px, 1fr));
       gap: 8px;
-      max-height: 250px;
-      overflow: auto;
-      padding-right: 2px;
+    }
+    .preset-select {
+      display: grid;
+      gap: 8px;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfcfd;
+    }
+    .advanced {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      background: #fbfcfd;
+    }
+    .advanced summary {
+      cursor: pointer;
+      font-weight: 600;
+      color: var(--ink);
+    }
+    .advanced .form-grid { margin-top: 10px; }
+    .split-stack {
+      display: grid;
+      gap: 14px;
     }
     .role-row {
       display: grid;
@@ -332,27 +353,53 @@ INDEX_HTML = r"""<!doctype html>
 
         <section class="view" data-view-panel="channels">
           <div class="workspace">
-            <div class="panel">
-              <div class="panel-head"><h3>添加 API 渠道</h3><span class="subtle">预设 + 自定义</span></div>
-              <div class="panel-body">
-                <form id="channel-form">
-                  <div class="preset-list" id="preset-list"></div>
-                  <div class="form-grid">
-                    <label>渠道 ID<input name="account_id" id="account-id" required></label>
-                    <label>Provider 标识<input name="provider" id="provider-id" required></label>
-                    <label class="wide">显示名称<input name="name" id="provider-name" required></label>
-                    <label class="wide">Base URL<input name="base_url" id="base-url" placeholder="https://example.com/v1" required></label>
-                    <label>密钥引用<input name="secret_ref" id="secret-ref" placeholder="env:OPENROUTER_API_KEY"></label>
-                    <label>代理连接<input name="proxy_url" id="proxy-url" placeholder="留空表示 unset；如 http://127.0.0.1:7890"></label>
-                  </div>
-                  <input name="status" type="hidden" value="active">
-                  <input name="account_group" type="hidden" value="default">
-                  <div class="buttons">
-                    <button class="primary">保存渠道</button>
-                    <button type="button" class="secondary" id="import-pool">导入通用模型池</button>
-                    <button type="button" class="secondary" id="check-channel">检测渠道</button>
-                  </div>
-                </form>
+            <div class="split-stack">
+              <div class="panel">
+                <div class="panel-head"><h3>按中转站配置</h3><span class="subtle">先管理密钥、代理、额度和健康</span></div>
+                <div class="panel-body">
+                  <form id="channel-form">
+                    <div class="preset-select">
+                      <label>中转站厂商<select id="preset-select"></select></label>
+                      <div class="preset-list" id="preset-list"></div>
+                    </div>
+                    <div class="form-grid">
+                      <label>渠道 ID<input name="account_id" id="account-id" required></label>
+                      <label>Provider 标识<input name="provider" id="provider-id" required></label>
+                      <label class="wide">显示名称<input name="name" id="provider-name" required></label>
+                      <label>密钥引用<input name="secret_ref" id="secret-ref" placeholder="env:OPENROUTER_API_KEY"></label>
+                      <label>代理连接<input name="proxy_url" id="proxy-url" placeholder="留空表示 unset；如 http://127.0.0.1:7890"></label>
+                    </div>
+                    <details class="advanced">
+                      <summary>高级配置</summary>
+                      <div class="form-grid">
+                        <label class="wide">接口地址<input name="base_url" id="base-url" placeholder="由预设填充；自定义时手动填写" required></label>
+                      </div>
+                    </details>
+                    <input name="status" type="hidden" value="active">
+                    <input name="account_group" type="hidden" value="default">
+                    <div class="buttons">
+                      <button class="primary">保存渠道</button>
+                      <button type="button" class="secondary" id="check-channel">检测渠道</button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+              <div class="panel">
+                <div class="panel-head"><h3>按模型配置</h3><span class="subtle">模型 ID 默认手写，别名只作填充</span></div>
+                <div class="panel-body">
+                  <form id="model-form">
+                    <div class="preset-list" id="model-preset-list"></div>
+                    <div class="form-grid">
+                      <label>挂到渠道<select name="account_id" id="model-account"></select></label>
+                      <label>模型 ID<input name="model_id" id="model-id" placeholder="例如 claude-sonnet-4.5" required></label>
+                      <label>模型别名<input name="display_name" id="model-name" placeholder="可选；没有明确别名可留空"></label>
+                      <label>Provider 模型名<input name="model_mapping" id="model-mapping" placeholder="和模型 ID 不同时填写"></label>
+                      <label>能力<input name="capabilities" id="model-capabilities" placeholder="text, tools, vision"></label>
+                      <label>优先级<input name="priority" type="number" value="70"></label>
+                    </div>
+                    <button class="primary">添加模型到渠道</button>
+                  </form>
+                </div>
               </div>
             </div>
             <div class="panel table-box">
@@ -423,7 +470,7 @@ INDEX_HTML = r"""<!doctype html>
           <div class="grid">
             <div class="panel">
               <div class="panel-head"><h3>检测机制</h3><span class="subtle">阶段 1</span></div>
-              <div class="panel-body subtle">检测会验证渠道、模型池、密钥引用、代理设置，并尝试探测 Base URL 延迟。后续 worker 会把真实调用延迟、错误率和额度写入同一张监控表。</div>
+              <div class="panel-body subtle">检测会验证渠道、模型池、密钥引用、代理设置，并尝试探测接口延迟。后续 worker 会把真实调用延迟、错误率和额度写入同一张监控表。</div>
             </div>
             <div class="panel">
               <div class="panel-head"><h3>代理规则</h3><span class="subtle">调用时生效</span></div>
@@ -549,11 +596,21 @@ INDEX_HTML = r"""<!doctype html>
     }
 
     function renderPresets() {
-      const presets = state.data?.provider_presets || [];
-      document.getElementById('preset-list').innerHTML = presets.map((preset, index) => (
-        `<button type="button" class="choice ${index === 0 ? 'active' : ''}" data-preset-index="${index}">
+      const presets = [...(state.data?.provider_presets || [])].sort((a, b) => (b.rank || 0) - (a.rank || 0));
+      const hot = presets.slice(0, 8);
+      document.getElementById('preset-select').innerHTML = presets.map((preset, index) => (
+        `<option value="${index}">${escapeHtml(preset.name)}${preset.base_url ? '' : '（需补接口）'}</option>`
+      )).join('');
+      document.getElementById('preset-list').innerHTML = hot.map((preset, index) => (
+        `<button type="button" class="choice ${index === 0 ? 'active' : ''}" data-preset-index="${presets.indexOf(preset)}">
           <strong>${escapeHtml(preset.name)}</strong>
-          <span>${preset.base_url ? '已知地址' : '需补 Base URL'}</span>
+          <span>${preset.category === 'official' ? '官方' : '热门'} · ${preset.base_url ? '已带默认接口' : '需补接口'}</span>
+        </button>`
+      )).join('');
+      document.getElementById('model-preset-list').innerHTML = (state.data?.model_presets || []).slice(0, 7).map((model, index) => (
+        `<button type="button" class="choice" data-model-preset-index="${index}">
+          <strong>${escapeHtml(model.alias)}</strong>
+          <span>${escapeHtml(model.model_id)} · 推荐 ${escapeHtml(model.provider)}</span>
         </button>`
       )).join('');
       if (!state.preset && presets[0]) applyPreset(presets[0], false);
@@ -566,7 +623,7 @@ INDEX_HTML = r"""<!doctype html>
       document.getElementById('provider-name').value = preset.name;
       document.getElementById('base-url').value = preset.base_url || '';
       document.getElementById('secret-ref').value = preset.secret_ref || '';
-      if (notify) showToast(preset.base_url ? `已套用 ${preset.name}` : `${preset.name} 需要补 Base URL`, preset.base_url ? 'ok' : 'warn');
+      if (notify) showToast(preset.base_url ? `已套用 ${preset.name}` : `${preset.name} 需要补接口地址`, preset.base_url ? 'ok' : 'warn');
     }
 
     function renderSelectors() {
@@ -575,6 +632,7 @@ INDEX_HTML = r"""<!doctype html>
       const projects = state.data?.profiles || [];
       const accountOptions = accounts.map(item => `<option value="${escapeAttr(item.account_id)}">${escapeHtml(item.name || item.account_id)}</option>`).join('');
       const modelOptions = models.map(item => `<option value="${escapeAttr(item.model_id)}">${escapeHtml(item.display_name || item.model_id)}</option>`).join('');
+      document.getElementById('model-account').innerHTML = accountOptions || '<option value="">先保存渠道</option>';
       document.querySelectorAll('[data-role]').forEach(row => {
         const role = row.dataset.role;
         const priority = row.dataset.priority;
@@ -619,7 +677,6 @@ INDEX_HTML = r"""<!doctype html>
       renderDataTable('channelsTable', 'API 渠道', [
         {key: 'account_id', label: '渠道'},
         {key: 'name', label: '名称'},
-        {key: 'base_url', label: 'Base URL'},
         {label: '代理', render: row => escapeHtml(proxyText(row))},
         {label: '检测', render: row => pill(healthFor(row.account_id).status || 'unknown')},
         {label: '操作', render: row => `<button class="secondary" data-check-account="${escapeAttr(row.account_id)}">检测</button>`}
@@ -685,6 +742,16 @@ INDEX_HTML = r"""<!doctype html>
       if (presetButton) {
         document.querySelectorAll('[data-preset-index]').forEach(item => item.classList.toggle('active', item === presetButton));
         applyPreset(state.data.provider_presets[Number(presetButton.dataset.presetIndex)]);
+        document.getElementById('preset-select').value = presetButton.dataset.presetIndex;
+      }
+      const modelPresetButton = event.target.closest('[data-model-preset-index]');
+      if (modelPresetButton) {
+        const model = state.data.model_presets[Number(modelPresetButton.dataset.modelPresetIndex)];
+        document.querySelectorAll('[data-model-preset-index]').forEach(item => item.classList.toggle('active', item === modelPresetButton));
+        document.getElementById('model-id').value = model.model_id;
+        document.getElementById('model-name').value = model.alias;
+        document.getElementById('model-capabilities').value = (model.capabilities || []).join(', ');
+        showToast(`已填入模型别名 ${model.alias}`);
       }
       const modeButton = event.target.closest('[data-mode]');
       if (modeButton) {
@@ -712,6 +779,13 @@ INDEX_HTML = r"""<!doctype html>
       const input = document.querySelector(`[data-table-search="${id}"]`);
       if (input) input.focus();
     });
+    document.getElementById('preset-select').addEventListener('change', event => {
+      const index = Number(event.target.value);
+      applyPreset(state.data.provider_presets[index]);
+      document.querySelectorAll('[data-preset-index]').forEach(item => {
+        item.classList.toggle('active', Number(item.dataset.presetIndex) === index);
+      });
+    });
 
     document.getElementById('channel-form').addEventListener('submit', async event => {
       event.preventDefault();
@@ -724,12 +798,13 @@ INDEX_HTML = r"""<!doctype html>
         showToast(err.message, 'bad');
       }
     });
-    document.getElementById('import-pool').addEventListener('click', async () => {
+    document.getElementById('model-form').addEventListener('submit', async event => {
+      event.preventDefault();
+      const payload = formPayload(event.currentTarget);
       try {
-        const accountId = document.getElementById('account-id').value;
-        await api('/api/model-pool-import', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({account_id: accountId})});
+        await api('/api/channel-model', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)});
         await refresh();
-        showToast('模型池已导入');
+        showToast('模型已加入渠道');
       } catch (err) {
         showToast(err.message, 'bad');
       }
@@ -780,7 +855,6 @@ INDEX_HTML = r"""<!doctype html>
           status: data.status,
           channel: invocation.account_name || invocation.account_id,
           model: invocation.provider_model_id || invocation.model_id,
-          base_url: invocation.base_url,
           proxy: invocation.proxy_mode === 'configured' ? invocation.proxy_url : 'unset',
           estimated_cost_usd: invocation.estimated_cost_usd,
           warnings: invocation.warnings || [],

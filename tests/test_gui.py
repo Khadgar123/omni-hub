@@ -18,8 +18,11 @@ class GuiServerTests(unittest.TestCase):
         self.assertIn("项目编组", INDEX_HTML)
         self.assertIn("使用选择", INDEX_HTML)
         self.assertIn("监控检测", INDEX_HTML)
+        self.assertIn("按模型配置", INDEX_HTML)
+        self.assertIn("模型 ID 默认手写", INDEX_HTML)
         self.assertIn("Skills", INDEX_HTML)
         self.assertIn('id="toast"', INDEX_HTML)
+        self.assertNotIn("Base URL", INDEX_HTML)
         self.assertNotIn("Provider 账号", INDEX_HTML)
         self.assertNotIn("Agent 规划", INDEX_HTML)
 
@@ -109,6 +112,41 @@ class GuiServerTests(unittest.TestCase):
                 self.assertEqual(selected["status"], "planned")
                 self.assertEqual(selected["invocation"]["account_id"], "openrouter-main")
                 self.assertEqual(selected["invocation"]["proxy_mode"], "unset")
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
+    def test_gui_adds_model_to_channel_with_manual_model_id(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            server = create_gui_server(tmpdir, port=0)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            base_url = f"http://{server.server_address[0]}:{server.server_address[1]}"
+            try:
+                _post_json(
+                    f"{base_url}/api/providers",
+                    {
+                        "account_id": "openrouter-main",
+                        "provider": "openrouter",
+                        "name": "OpenRouter Main",
+                        "base_url": "https://openrouter.ai/api/v1",
+                        "secret_ref": "env:OPENROUTER_API_KEY",
+                    },
+                )
+                created = _post_json(
+                    f"{base_url}/api/channel-model",
+                    {
+                        "account_id": "openrouter-main",
+                        "model_id": "claude-sonnet-4.5",
+                        "display_name": "Claude Sonnet",
+                        "capabilities": ["text", "tools"],
+                        "priority": 80,
+                    },
+                )
+
+                self.assertEqual(created["model"]["model_id"], "claude-sonnet-4.5")
+                self.assertEqual(created["ability"]["account_id"], "openrouter-main")
             finally:
                 server.shutdown()
                 thread.join(timeout=2)

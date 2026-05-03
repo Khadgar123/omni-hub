@@ -30,33 +30,42 @@ from .provider_router import (
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
 
-PROVIDER_PRESETS: list[dict[str, str]] = [
-    {"name": "CodexOpenAI Official", "slug": "codex-openai", "base_url": "https://api.openai.com/v1", "secret_ref": "env:OPENAI_API_KEY"},
-    {"name": "胜算云", "slug": "shengsuanyun", "base_url": "", "secret_ref": "env:SHENGSUANYUN_API_KEY"},
-    {"name": "AiHubMix", "slug": "aihubmix", "base_url": "", "secret_ref": "env:AIHUBMIX_API_KEY"},
-    {"name": "DMXAPI", "slug": "dmxapi", "base_url": "", "secret_ref": "env:DMXAPI_API_KEY"},
-    {"name": "优云智算", "slug": "youyun", "base_url": "", "secret_ref": "env:YOUYUN_API_KEY"},
-    {"name": "PIPELLM", "slug": "pipellm", "base_url": "", "secret_ref": "env:PIPELLM_API_KEY"},
-    {"name": "OpenRouter", "slug": "openrouter", "base_url": "https://openrouter.ai/api/v1", "secret_ref": "env:OPENROUTER_API_KEY"},
-    {"name": "TheRouter", "slug": "therouter", "base_url": "", "secret_ref": "env:THEROUTER_API_KEY"},
-    {"name": "CodexAzure OpenAI", "slug": "codex-azure-openai", "base_url": "https://YOUR_RESOURCE.openai.azure.com/openai/v1", "secret_ref": "env:AZURE_OPENAI_API_KEY"},
-    {"name": "PackyCode", "slug": "packycode", "base_url": "", "secret_ref": "env:PACKYCODE_API_KEY"},
-    {"name": "Cubence", "slug": "cubence", "base_url": "", "secret_ref": "env:CUBENCE_API_KEY"},
-    {"name": "AIGoCode", "slug": "aigocode", "base_url": "", "secret_ref": "env:AIGOCODE_API_KEY"},
-    {"name": "RightCode", "slug": "rightcode", "base_url": "", "secret_ref": "env:RIGHTCODE_API_KEY"},
-    {"name": "SSSAiCode", "slug": "sssaicode", "base_url": "", "secret_ref": "env:SSSAICODE_API_KEY"},
-    {"name": "Micu", "slug": "micu", "base_url": "", "secret_ref": "env:MICU_API_KEY"},
-    {"name": "CTok.ai", "slug": "ctok", "base_url": "", "secret_ref": "env:CTOK_API_KEY"},
-    {"name": "LionCCAPI", "slug": "lionccapi", "base_url": "", "secret_ref": "env:LIONCCAPI_API_KEY"},
-    {"name": "DDSHub", "slug": "ddshub", "base_url": "", "secret_ref": "env:DDSHUB_API_KEY"},
-    {"name": "E-FlowCode", "slug": "eflowcode", "base_url": "", "secret_ref": "env:EFLOWCODE_API_KEY"},
-    {"name": "LemonData", "slug": "lemondata", "base_url": "", "secret_ref": "env:LEMONDATA_API_KEY"},
-    {"name": "AICodeMirror", "slug": "aicodemirror", "base_url": "", "secret_ref": "env:AICODEMIRROR_API_KEY"},
-    {"name": "AICoding", "slug": "aicoding", "base_url": "", "secret_ref": "env:AICODING_API_KEY"},
-    {"name": "CrazyRouter", "slug": "crazyrouter", "base_url": "", "secret_ref": "env:CRAZYROUTER_API_KEY"},
-    {"name": "自定义配置", "slug": "custom", "base_url": "", "secret_ref": "env:CUSTOM_API_KEY"},
+PROVIDER_PRESETS: list[dict[str, Any]] = [
+    {"name": "OpenRouter", "slug": "openrouter", "base_url": "https://openrouter.ai/api/v1", "secret_ref": "env:OPENROUTER_API_KEY", "rank": 100, "category": "hot"},
+    {"name": "AiHubMix", "slug": "aihubmix", "base_url": "https://aihubmix.com/v1", "secret_ref": "env:AIHUBMIX_API_KEY", "rank": 95, "category": "hot"},
+    {"name": "CodexOpenAI Official", "slug": "codex-openai", "base_url": "https://api.openai.com/v1", "secret_ref": "env:OPENAI_API_KEY", "rank": 92, "category": "official"},
+    {"name": "CodexAzure OpenAI", "slug": "codex-azure-openai", "base_url": "https://YOUR_RESOURCE.openai.azure.com/openai/v1", "secret_ref": "env:AZURE_OPENAI_API_KEY", "rank": 90, "category": "official"},
+    {"name": "CrazyRouter", "slug": "crazyrouter", "base_url": "", "secret_ref": "env:CRAZYROUTER_API_KEY", "rank": 88, "category": "hot"},
+    {"name": "AICoding", "slug": "aicoding", "base_url": "", "secret_ref": "env:AICODING_API_KEY", "rank": 86, "category": "hot"},
+    {"name": "RightCode", "slug": "rightcode", "base_url": "", "secret_ref": "env:RIGHTCODE_API_KEY", "rank": 84, "category": "hot"},
+    {"name": "SSSAiCode", "slug": "sssaicode", "base_url": "", "secret_ref": "env:SSSAICODE_API_KEY", "rank": 82, "category": "hot"},
+    {"name": "Micu", "slug": "micu", "base_url": "", "secret_ref": "env:MICU_API_KEY", "rank": 80, "category": "hot"},
+    {"name": "DMXAPI", "slug": "dmxapi", "base_url": "", "secret_ref": "env:DMXAPI_API_KEY", "rank": 78, "category": "relay"},
+    {"name": "TheRouter", "slug": "therouter", "base_url": "", "secret_ref": "env:THEROUTER_API_KEY", "rank": 76, "category": "relay"},
+    {"name": "胜算云", "slug": "shengsuanyun", "base_url": "", "secret_ref": "env:SHENGSUANYUN_API_KEY", "rank": 74, "category": "relay"},
+    {"name": "优云智算", "slug": "youyun", "base_url": "", "secret_ref": "env:YOUYUN_API_KEY", "rank": 72, "category": "relay"},
+    {"name": "PIPELLM", "slug": "pipellm", "base_url": "", "secret_ref": "env:PIPELLM_API_KEY", "rank": 70, "category": "relay"},
+    {"name": "PackyCode", "slug": "packycode", "base_url": "", "secret_ref": "env:PACKYCODE_API_KEY", "rank": 68, "category": "relay"},
+    {"name": "Cubence", "slug": "cubence", "base_url": "", "secret_ref": "env:CUBENCE_API_KEY", "rank": 66, "category": "relay"},
+    {"name": "AIGoCode", "slug": "aigocode", "base_url": "", "secret_ref": "env:AIGOCODE_API_KEY", "rank": 64, "category": "relay"},
+    {"name": "CTok.ai", "slug": "ctok", "base_url": "", "secret_ref": "env:CTOK_API_KEY", "rank": 62, "category": "relay"},
+    {"name": "LionCCAPI", "slug": "lionccapi", "base_url": "", "secret_ref": "env:LIONCCAPI_API_KEY", "rank": 60, "category": "relay"},
+    {"name": "DDSHub", "slug": "ddshub", "base_url": "", "secret_ref": "env:DDSHUB_API_KEY", "rank": 58, "category": "relay"},
+    {"name": "E-FlowCode", "slug": "eflowcode", "base_url": "", "secret_ref": "env:EFLOWCODE_API_KEY", "rank": 56, "category": "relay"},
+    {"name": "LemonData", "slug": "lemondata", "base_url": "", "secret_ref": "env:LEMONDATA_API_KEY", "rank": 54, "category": "relay"},
+    {"name": "AICodeMirror", "slug": "aicodemirror", "base_url": "", "secret_ref": "env:AICODEMIRROR_API_KEY", "rank": 52, "category": "relay"},
+    {"name": "自定义配置", "slug": "custom", "base_url": "", "secret_ref": "env:CUSTOM_API_KEY", "rank": 1, "category": "custom"},
 ]
 
+MODEL_PRESETS: list[dict[str, Any]] = [
+    {"alias": "GPT-5.4", "model_id": "gpt-5.4", "provider": "codex-openai", "base_url": "https://api.openai.com/v1", "capabilities": ["text", "tools", "vision"], "rank": 100},
+    {"alias": "GPT-5.4 Mini", "model_id": "gpt-5.4-mini", "provider": "codex-openai", "base_url": "https://api.openai.com/v1", "capabilities": ["text", "tools"], "rank": 95},
+    {"alias": "Claude Opus", "model_id": "claude-opus-4.5", "provider": "openrouter", "base_url": "https://openrouter.ai/api/v1", "capabilities": ["text", "tools", "vision"], "rank": 94},
+    {"alias": "Claude Sonnet", "model_id": "claude-sonnet-4.5", "provider": "openrouter", "base_url": "https://openrouter.ai/api/v1", "capabilities": ["text", "tools", "vision"], "rank": 92},
+    {"alias": "Gemini Pro", "model_id": "gemini-3-pro", "provider": "openrouter", "base_url": "https://openrouter.ai/api/v1", "capabilities": ["text", "tools", "vision"], "rank": 90},
+    {"alias": "DeepSeek Reasoner", "model_id": "deepseek-reasoner", "provider": "openrouter", "base_url": "https://openrouter.ai/api/v1", "capabilities": ["text", "tools"], "rank": 86},
+    {"alias": "Qwen Coder", "model_id": "qwen3-coder", "provider": "openrouter", "base_url": "https://openrouter.ai/api/v1", "capabilities": ["text", "tools"], "rank": 82},
+]
 
 MODEL_POOL_PRESETS: list[dict[str, Any]] = [
     {
@@ -213,7 +222,14 @@ def build_state(workspace: Path | str) -> dict[str, Any]:
     store = ProviderRouterStore(workspace, create=False)
     return {
         "stats": store.stats(),
-        "provider_presets": PROVIDER_PRESETS,
+        "provider_presets": sorted(
+            PROVIDER_PRESETS,
+            key=lambda item: (-int(item.get("rank", 0)), str(item.get("name", ""))),
+        ),
+        "model_presets": sorted(
+            MODEL_PRESETS,
+            key=lambda item: (-int(item.get("rank", 0)), str(item.get("alias", ""))),
+        ),
         "accounts": [account.to_dict() for account in store.list_accounts()],
         "models": [model.to_dict() for model in store.list_models()],
         "abilities": [ability.to_dict() for ability in store.list_abilities()],
@@ -273,6 +289,38 @@ def handle_post(
         account = store.get_account(_required(payload, "account_id"))
         health = _check_provider(account, store)
         return {"health": store.set_health(health).to_dict()}
+
+    if path == "/api/channel-model":
+        account_id = _required(payload, "account_id")
+        model = ModelSpec(
+            model_id=_required(payload, "model_id"),
+            display_name=str(payload.get("display_name", "")),
+            status=ModelStatus(str(payload.get("status", "active"))),
+            capabilities=_list_value(payload.get("capabilities")),
+            context_window=_int_value(payload.get("context_window")),
+            input_usd_per_million=_float_value(
+                payload.get("input_usd_per_million")
+            ),
+            output_usd_per_million=_float_value(
+                payload.get("output_usd_per_million")
+            ),
+            supports_batch=bool(payload.get("supports_batch", False)),
+            notes=str(payload.get("notes", "")),
+        )
+        stored_model = store.upsert_model(model)
+        ability = RouteAbility(
+            account_id=account_id,
+            model_id=stored_model.model_id,
+            enabled=bool(payload.get("enabled", True)),
+            priority=_int_value(payload.get("priority"), default=50),
+            weight=_float_value(payload.get("weight"), default=1.0),
+            model_mapping=str(payload.get("model_mapping", "")),
+            notes=str(payload.get("role", "")),
+        )
+        return {
+            "model": stored_model.to_dict(),
+            "ability": store.upsert_ability(ability).to_dict(),
+        }
 
     if path == "/api/models":
         model = ModelSpec(

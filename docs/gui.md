@@ -20,7 +20,10 @@ http://127.0.0.1:8765
 - 通过左侧导航进入总览、渠道模型、项目编组、使用选择、监控检测和 Skills。
 - 渠道模型提供 CC Switch 类中转站预设：CodexOpenAI Official、胜算云、AiHubMix、DMXAPI、优云智算、PIPELLM、OpenRouter、TheRouter、CodexAzure OpenAI、PackyCode、Cubence、AIGoCode、RightCode、SSSAiCode、Micu、CTok.ai、LionCCAPI、DDSHub、E-FlowCode、LemonData、AICodeMirror、AICoding、CrazyRouter 和自定义配置。
 - 每个 API 渠道都可以配置代理连接；留空表示该渠道调用时 `unset` 代理。
-- 一个 API 渠道可以挂多个模型；GUI 提供通用模型池导入，后续由厂商 `/models`、价格表和调用日志自动补全。
+- 一个 API 渠道可以挂多个模型；模型 ID 默认手写，只有明确存在模型别名时才用别名卡片填充。
+- 渠道配置支持两种路径：按中转站配置用于管理密钥、代理、额度和健康；按模型配置用于从模型反推可用渠道和优先级。
+- 厂商和模型预设按热度排序，热门项直接展示，完整列表通过下拉选择；接口地址只在高级配置中出现。
+- 后续由厂商 `/models`、价格表和调用日志自动补全模型池、价格和可用性。
 - 项目编组用于为一个项目配置多个 AI 角色，例如主力、快速、视觉、批量和备用，并允许它们来自不同 API 渠道。
 - 使用选择按项目和任务类型一键选择当前模型，不要求输入长任务文本。
 - 监控检测用于记录渠道健康状态、代理、延迟、失败信息；后续 worker 会补齐用量、额度、错误率和成本趋势。
