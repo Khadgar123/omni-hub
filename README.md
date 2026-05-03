@@ -93,6 +93,18 @@ PYTHONPATH=src python3.12 -m omni_hub.cli skill-register --id url-capture --name
 PYTHONPATH=src python3.12 -m omni_hub.cli skill-list
 ```
 
+推荐 Skill：
+
+```bash
+PYTHONPATH=src python3.12 -m omni_hub.cli skill-recommend --query "youtube capture" --max-risk L1
+```
+
+分析 Skill 组合：
+
+```bash
+PYTHONPATH=src python3.12 -m omni_hub.cli skill-analyze --id url-capture --id vault-proposal --id memory-digest
+```
+
 运行测试：
 
 ```bash
@@ -127,6 +139,7 @@ PYTHONPATH=src python3.12 -m unittest discover -s tests
 - [提案层模型](docs/proposal-model.md)
 - [记忆层模型](docs/memory-model.md)
 - [Skill Registry](docs/skill-registry.md)
+- [Skill Intelligence](docs/skill-intelligence.md)
 - [推荐组合架构](docs/recommended-stack.md)
 - [参考项目](docs/reference-projects.md)
 - [Roadmap](docs/roadmap.md)

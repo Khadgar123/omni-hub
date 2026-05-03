@@ -7,6 +7,12 @@ from .models import OperationSpec, OperationStatus, RiskLevel
 from .policy import PolicyConfig, PolicyDecision, PolicyEngine
 from .proposals import EntityProposal, KnowledgeProposal, RelationProposal
 from .runner import OperationRunner
+from .skill_intel import (
+    SkillConflict,
+    SkillQuality,
+    SkillRecommendation,
+    SkillSetAnalysis,
+)
 from .skills import SkillKind, SkillRegistry, SkillSpec, SkillStatus
 from .vault import VaultReader
 
@@ -26,8 +32,12 @@ __all__ = [
     "PolicyEngine",
     "RiskLevel",
     "RelationProposal",
+    "SkillConflict",
     "SkillKind",
+    "SkillQuality",
+    "SkillRecommendation",
     "SkillRegistry",
+    "SkillSetAnalysis",
     "SkillSpec",
     "SkillStatus",
     "StoredCapture",

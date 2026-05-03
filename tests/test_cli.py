@@ -95,6 +95,48 @@ class CliTests(unittest.TestCase):
             payload = json.loads(list_buffer.getvalue())
             self.assertEqual(payload["output"]["count"], 1)
 
+    def test_skill_recommend(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            original_cwd = os.getcwd()
+            register_buffer = StringIO()
+            recommend_buffer = StringIO()
+            try:
+                os.chdir(tmpdir)
+                with redirect_stdout(register_buffer):
+                    main(
+                        [
+                            "skill-register",
+                            "--id",
+                            "memory-search",
+                            "--name",
+                            "Memory Search",
+                            "--kind",
+                            "memory",
+                            "--description",
+                            "Search canonical local memory.",
+                            "--entrypoint",
+                            "operation:search_memory",
+                            "--risk",
+                            "L0",
+                            "--tag",
+                            "memory",
+                        ]
+                    )
+                with redirect_stdout(recommend_buffer):
+                    exit_code = main(
+                        ["skill-recommend", "--query", "search memory", "--limit", "3"]
+                    )
+            finally:
+                os.chdir(original_cwd)
+
+            self.assertEqual(exit_code, 0)
+            payload = json.loads(recommend_buffer.getvalue())
+            self.assertEqual(payload["output"]["count"], 1)
+            self.assertEqual(
+                payload["output"]["recommendations"][0]["skill_id"],
+                "memory-search",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

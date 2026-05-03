@@ -8,6 +8,7 @@ from .memory import MemoryStore
 from .models import OperationSpec, RiskLevel
 from .proposals import ProposalStore, build_knowledge_proposal
 from .registry import OperationRegistry
+from .skill_intel import analyze_skill_set, recommend_skills
 from .skills import SkillKind, SkillRegistry, SkillSpec, SkillStatus
 from .vault import VaultReader
 
@@ -241,6 +242,43 @@ def make_disable_skill(workspace: Path):
     return disable_skill
 
 
+def make_recommend_skills(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def recommend(spec: OperationSpec) -> dict[str, object]:
+        query = str(spec.payload.get("query", ""))
+        limit = int(spec.payload.get("limit", 10))
+        include_disabled = bool(spec.payload.get("include_disabled", False))
+        max_risk_value = spec.payload.get("max_risk")
+        max_risk = RiskLevel.parse(max_risk_value) if max_risk_value else None
+        recommendations = recommend_skills(
+            SkillRegistry(workspace_root).list(),
+            query,
+            limit=limit,
+            max_risk=max_risk,
+            include_disabled=include_disabled,
+        )
+        return {
+            "query": query,
+            "count": len(recommendations),
+            "recommendations": [item.to_dict() for item in recommendations],
+        }
+
+    return recommend
+
+
+def make_analyze_skills(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def analyze(spec: OperationSpec) -> dict[str, object]:
+        registry = SkillRegistry(workspace_root)
+        skill_ids = list(spec.payload.get("skill_ids", []))
+        skills = [registry.get(str(skill_id)) for skill_id in skill_ids]
+        return analyze_skill_set(skills).to_dict()
+
+    return analyze
+
+
 def build_default_registry(workspace: Path | str = ".") -> OperationRegistry:
     workspace_path = Path(workspace)
     registry = OperationRegistry()
@@ -257,4 +295,6 @@ def build_default_registry(workspace: Path | str = ".") -> OperationRegistry:
     registry.register("list_skills", make_list_skills(workspace_path))
     registry.register("get_skill", make_get_skill(workspace_path))
     registry.register("disable_skill", make_disable_skill(workspace_path))
+    registry.register("recommend_skills", make_recommend_skills(workspace_path))
+    registry.register("analyze_skills", make_analyze_skills(workspace_path))
     return registry

@@ -84,6 +84,15 @@ def build_parser() -> argparse.ArgumentParser:
     skill_disable = subparsers.add_parser("skill-disable")
     skill_disable.add_argument("--id", required=True)
 
+    skill_recommend = subparsers.add_parser("skill-recommend")
+    skill_recommend.add_argument("--query", required=True)
+    skill_recommend.add_argument("--limit", type=int, default=10)
+    skill_recommend.add_argument("--max-risk")
+    skill_recommend.add_argument("--include-disabled", action="store_true")
+
+    skill_analyze = subparsers.add_parser("skill-analyze")
+    skill_analyze.add_argument("--id", action="append", required=True)
+
     policy = subparsers.add_parser("check-policy")
     policy.add_argument("--name", default="manual_check")
     policy.add_argument("--connector", default="local")
@@ -260,6 +269,33 @@ def main(argv: list[str] | None = None) -> int:
             action="disable",
             payload={"skill_id": args.id},
             risk_level=RiskLevel.LOCAL_WRITE,
+        )
+        result = runner.run(spec)
+        _print_json(result.to_dict())
+        return 0 if result.error is None else 1
+
+    if args.command == "skill-recommend":
+        spec = OperationSpec(
+            name="recommend_skills",
+            action="recommend",
+            payload={
+                "query": args.query,
+                "limit": args.limit,
+                "max_risk": args.max_risk,
+                "include_disabled": args.include_disabled,
+            },
+            risk_level=RiskLevel.READ_ONLY,
+        )
+        result = runner.run(spec)
+        _print_json(result.to_dict())
+        return 0 if result.error is None else 1
+
+    if args.command == "skill-analyze":
+        spec = OperationSpec(
+            name="analyze_skills",
+            action="analyze",
+            payload={"skill_ids": args.id},
+            risk_level=RiskLevel.READ_ONLY,
         )
         result = runner.run(spec)
         _print_json(result.to_dict())

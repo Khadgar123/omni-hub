@@ -21,6 +21,7 @@
 
 - OpenAI Agents SDK 包装层
 - Skill registry
+- Skill recommendation / conflict analysis
 - Router：根据任务选择 Skill / Workflow / Connector
 - Guardrail：输入注入、权限越界、发布风险检查
 
