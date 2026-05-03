@@ -102,6 +102,8 @@ class AgentPlanner:
             "account_name": selected.account.name,
             "base_url": selected.account.base_url,
             "secret_ref": selected.account.secret_ref,
+            "proxy_url": selected.account.proxy_url,
+            "proxy_mode": "configured" if selected.account.proxy_url else "unset",
             "model_id": selected.model.model_id,
             "provider_model_id": provider_model_id,
             "project_id": decision.request.project_id,

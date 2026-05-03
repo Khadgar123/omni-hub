@@ -14,10 +14,11 @@ from omni_hub.gui import INDEX_HTML, create_gui_server
 
 class GuiServerTests(unittest.TestCase):
     def test_gui_index_uses_user_facing_dashboard_terms(self) -> None:
-        self.assertIn("API 接入", INDEX_HTML)
-        self.assertIn("路由策略", INDEX_HTML)
-        self.assertIn("项目偏好", INDEX_HTML)
-        self.assertIn("调用预演", INDEX_HTML)
+        self.assertIn("渠道模型", INDEX_HTML)
+        self.assertIn("项目编组", INDEX_HTML)
+        self.assertIn("使用选择", INDEX_HTML)
+        self.assertIn("监控检测", INDEX_HTML)
+        self.assertIn("Skills", INDEX_HTML)
         self.assertIn('id="toast"', INDEX_HTML)
         self.assertNotIn("Provider 账号", INDEX_HTML)
         self.assertNotIn("Agent 规划", INDEX_HTML)
@@ -40,6 +41,7 @@ class GuiServerTests(unittest.TestCase):
                         "name": "OpenAI Main",
                         "base_url": "https://api.openai.com/v1",
                         "secret_ref": "env:OPENAI_API_KEY",
+                        "proxy_url": "http://127.0.0.1:7890",
                     },
                 )
                 _post_json(
@@ -68,8 +70,45 @@ class GuiServerTests(unittest.TestCase):
 
                 self.assertEqual(plan["status"], "planned")
                 self.assertEqual(plan["invocation"]["account_id"], "openai-main")
+                self.assertEqual(plan["invocation"]["proxy_mode"], "configured")
                 self.assertNotIn("task", plan["request"])
                 self.assertIn("task_preview", plan["request"])
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
+    def test_gui_imports_model_pool_and_selects_without_task_text(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            server = create_gui_server(tmpdir, port=0)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            base_url = f"http://{server.server_address[0]}:{server.server_address[1]}"
+            try:
+                _post_json(
+                    f"{base_url}/api/providers",
+                    {
+                        "account_id": "openrouter-main",
+                        "provider": "openrouter",
+                        "name": "OpenRouter Main",
+                        "base_url": "https://openrouter.ai/api/v1",
+                        "secret_ref": "env:OPENROUTER_API_KEY",
+                    },
+                )
+                imported = _post_json(
+                    f"{base_url}/api/model-pool-import",
+                    {"account_id": "openrouter-main"},
+                )
+                self.assertGreaterEqual(len(imported["imported"]), 4)
+
+                selected = _post_json(
+                    f"{base_url}/api/agent-select",
+                    {"project_id": "", "mode": "code", "output_tokens": 300},
+                )
+
+                self.assertEqual(selected["status"], "planned")
+                self.assertEqual(selected["invocation"]["account_id"], "openrouter-main")
+                self.assertEqual(selected["invocation"]["proxy_mode"], "unset")
             finally:
                 server.shutdown()
                 thread.join(timeout=2)

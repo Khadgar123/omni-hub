@@ -41,6 +41,7 @@ class ProviderAccount:
     name: str
     base_url: str
     secret_ref: str = ""
+    proxy_url: str = ""
     status: ProviderAccountStatus = ProviderAccountStatus.ACTIVE
     account_group: str = ""
     notes: str = ""
@@ -55,6 +56,7 @@ class ProviderAccount:
         if not self.base_url.strip():
             raise ValueError("provider account base_url is required")
         validate_secret_ref(self.secret_ref)
+        validate_proxy_url(self.proxy_url)
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
@@ -69,6 +71,7 @@ class ProviderAccount:
             name=row["name"],
             base_url=row["base_url"],
             secret_ref=row["secret_ref"],
+            proxy_url=row["proxy_url"] if "proxy_url" in row.keys() else "",
             status=ProviderAccountStatus(row["status"]),
             account_group=row["account_group"],
             notes=row["notes"],
@@ -390,15 +393,16 @@ class ProviderRouterStore:
             conn.execute(
                 """
                 INSERT INTO provider_accounts (
-                    account_id, provider, name, base_url, secret_ref, status,
-                    account_group, notes, created_at, updated_at
+                    account_id, provider, name, base_url, secret_ref, proxy_url,
+                    status, account_group, notes, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(account_id) DO UPDATE SET
                     provider = excluded.provider,
                     name = excluded.name,
                     base_url = excluded.base_url,
                     secret_ref = excluded.secret_ref,
+                    proxy_url = excluded.proxy_url,
                     status = excluded.status,
                     account_group = excluded.account_group,
                     notes = excluded.notes,
@@ -410,6 +414,7 @@ class ProviderRouterStore:
                     account.name,
                     account.base_url,
                     account.secret_ref,
+                    account.proxy_url,
                     account.status.value,
                     account.account_group,
                     account.notes,
@@ -822,6 +827,20 @@ class ProviderRouterStore:
                 health = self._get_health(conn, account_id, "")
         return health or ProviderHealth.unknown(account_id, model_id)
 
+    def list_health(self) -> list[ProviderHealth]:
+        if not self.db_path.exists():
+            return []
+        with self._connect() as conn:
+            if not self._table_exists(conn, "provider_health"):
+                return []
+            rows = conn.execute(
+                """
+                SELECT * FROM provider_health
+                ORDER BY account_id, model_id
+                """
+            ).fetchall()
+        return [ProviderHealth.from_row(row) for row in rows]
+
     def route(self, request: RouteRequest) -> RouteDecision:
         if not self.db_path.exists():
             return RouteDecision(
@@ -996,6 +1015,7 @@ class ProviderRouterStore:
                     name TEXT NOT NULL,
                     base_url TEXT NOT NULL,
                     secret_ref TEXT NOT NULL,
+                    proxy_url TEXT NOT NULL DEFAULT '',
                     status TEXT NOT NULL,
                     account_group TEXT NOT NULL,
                     notes TEXT NOT NULL,
@@ -1105,6 +1125,12 @@ class ProviderRouterStore:
                 CREATE INDEX IF NOT EXISTS idx_usage_request_logs_created
                     ON usage_request_logs(created_at);
                 """
+            )
+            self._ensure_column(
+                conn,
+                "provider_accounts",
+                "proxy_url",
+                "TEXT NOT NULL DEFAULT ''",
             )
             conn.commit()
 
@@ -1278,6 +1304,17 @@ class ProviderRouterStore:
             return 0
         return int(conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
 
+    def _ensure_column(
+        self,
+        conn: sqlite3.Connection,
+        table: str,
+        column: str,
+        definition: str,
+    ) -> None:
+        rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+        if column not in {row["name"] for row in rows}:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
 
 def normalize_capabilities(capabilities: list[str]) -> list[str]:
     return sorted(
@@ -1329,6 +1366,23 @@ def validate_secret_ref(secret_ref: str) -> None:
             "secret_ref must reference env:, keychain:, or runtime:, not a raw secret"
         )
     raise ValueError("secret_ref must start with env:, keychain:, or runtime:")
+
+
+def validate_proxy_url(proxy_url: str) -> None:
+    if not proxy_url:
+        return
+    stripped = proxy_url.strip()
+    if stripped.lower() == "unset":
+        raise ValueError("proxy_url should be empty instead of unset")
+    if stripped.startswith("env:"):
+        if len(stripped.split(":", 1)[1].strip()) < 2:
+            raise ValueError("proxy_url env target is required")
+        return
+    if stripped.startswith(("http://", "https://", "socks5://", "socks5h://")):
+        return
+    raise ValueError(
+        "proxy_url must be empty, env:, http://, https://, socks5://, or socks5h://"
+    )
 
 
 def _reject_reason(

@@ -1,17 +1,24 @@
 from __future__ import annotations
 
 import json
+import os
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from time import monotonic
 from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.request import ProxyHandler, Request, build_opener
 from urllib.parse import urlparse
 
 from .agent import AgentPlanner, AgentTaskRequest, estimate_input_tokens, task_preview
+from .gui_dashboard import INDEX_HTML
 from .provider_router import (
+    HealthStatus,
     ModelSpec,
     ModelStatus,
     ProviderAccount,
+    ProviderHealth,
     ProviderAccountStatus,
     ProviderRouterStore,
     ProjectRouteOverride,
@@ -21,6 +28,79 @@ from .provider_router import (
 
 
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+
+
+PROVIDER_PRESETS: list[dict[str, str]] = [
+    {"name": "CodexOpenAI Official", "slug": "codex-openai", "base_url": "https://api.openai.com/v1", "secret_ref": "env:OPENAI_API_KEY"},
+    {"name": "胜算云", "slug": "shengsuanyun", "base_url": "", "secret_ref": "env:SHENGSUANYUN_API_KEY"},
+    {"name": "AiHubMix", "slug": "aihubmix", "base_url": "", "secret_ref": "env:AIHUBMIX_API_KEY"},
+    {"name": "DMXAPI", "slug": "dmxapi", "base_url": "", "secret_ref": "env:DMXAPI_API_KEY"},
+    {"name": "优云智算", "slug": "youyun", "base_url": "", "secret_ref": "env:YOUYUN_API_KEY"},
+    {"name": "PIPELLM", "slug": "pipellm", "base_url": "", "secret_ref": "env:PIPELLM_API_KEY"},
+    {"name": "OpenRouter", "slug": "openrouter", "base_url": "https://openrouter.ai/api/v1", "secret_ref": "env:OPENROUTER_API_KEY"},
+    {"name": "TheRouter", "slug": "therouter", "base_url": "", "secret_ref": "env:THEROUTER_API_KEY"},
+    {"name": "CodexAzure OpenAI", "slug": "codex-azure-openai", "base_url": "https://YOUR_RESOURCE.openai.azure.com/openai/v1", "secret_ref": "env:AZURE_OPENAI_API_KEY"},
+    {"name": "PackyCode", "slug": "packycode", "base_url": "", "secret_ref": "env:PACKYCODE_API_KEY"},
+    {"name": "Cubence", "slug": "cubence", "base_url": "", "secret_ref": "env:CUBENCE_API_KEY"},
+    {"name": "AIGoCode", "slug": "aigocode", "base_url": "", "secret_ref": "env:AIGOCODE_API_KEY"},
+    {"name": "RightCode", "slug": "rightcode", "base_url": "", "secret_ref": "env:RIGHTCODE_API_KEY"},
+    {"name": "SSSAiCode", "slug": "sssaicode", "base_url": "", "secret_ref": "env:SSSAICODE_API_KEY"},
+    {"name": "Micu", "slug": "micu", "base_url": "", "secret_ref": "env:MICU_API_KEY"},
+    {"name": "CTok.ai", "slug": "ctok", "base_url": "", "secret_ref": "env:CTOK_API_KEY"},
+    {"name": "LionCCAPI", "slug": "lionccapi", "base_url": "", "secret_ref": "env:LIONCCAPI_API_KEY"},
+    {"name": "DDSHub", "slug": "ddshub", "base_url": "", "secret_ref": "env:DDSHUB_API_KEY"},
+    {"name": "E-FlowCode", "slug": "eflowcode", "base_url": "", "secret_ref": "env:EFLOWCODE_API_KEY"},
+    {"name": "LemonData", "slug": "lemondata", "base_url": "", "secret_ref": "env:LEMONDATA_API_KEY"},
+    {"name": "AICodeMirror", "slug": "aicodemirror", "base_url": "", "secret_ref": "env:AICODEMIRROR_API_KEY"},
+    {"name": "AICoding", "slug": "aicoding", "base_url": "", "secret_ref": "env:AICODING_API_KEY"},
+    {"name": "CrazyRouter", "slug": "crazyrouter", "base_url": "", "secret_ref": "env:CRAZYROUTER_API_KEY"},
+    {"name": "自定义配置", "slug": "custom", "base_url": "", "secret_ref": "env:CUSTOM_API_KEY"},
+]
+
+
+MODEL_POOL_PRESETS: list[dict[str, Any]] = [
+    {
+        "model_id": "text-primary",
+        "display_name": "文本主力",
+        "capabilities": ["text", "tools"],
+        "context_window": 128000,
+        "priority": 90,
+        "weight": 1.0,
+    },
+    {
+        "model_id": "text-fast",
+        "display_name": "快速低价",
+        "capabilities": ["text"],
+        "context_window": 64000,
+        "priority": 70,
+        "weight": 2.0,
+    },
+    {
+        "model_id": "vision-primary",
+        "display_name": "视觉理解",
+        "capabilities": ["text", "vision"],
+        "context_window": 128000,
+        "priority": 65,
+        "weight": 1.0,
+    },
+    {
+        "model_id": "code-primary",
+        "display_name": "代码与工具",
+        "capabilities": ["text", "tools", "code"],
+        "context_window": 128000,
+        "priority": 85,
+        "weight": 1.0,
+    },
+    {
+        "model_id": "batch-cheap",
+        "display_name": "批处理低价",
+        "capabilities": ["text", "batch"],
+        "context_window": 64000,
+        "supports_batch": True,
+        "priority": 55,
+        "weight": 2.0,
+    },
+]
 
 
 def create_gui_server(
@@ -133,9 +213,11 @@ def build_state(workspace: Path | str) -> dict[str, Any]:
     store = ProviderRouterStore(workspace, create=False)
     return {
         "stats": store.stats(),
+        "provider_presets": PROVIDER_PRESETS,
         "accounts": [account.to_dict() for account in store.list_accounts()],
         "models": [model.to_dict() for model in store.list_models()],
         "abilities": [ability.to_dict() for ability in store.list_abilities()],
+        "health": [health.to_dict() for health in store.list_health()],
         "profiles": [profile.to_dict() for profile in store.list_project_profiles()],
         "overrides": [
             override.to_dict() for override in store.list_project_overrides()
@@ -156,11 +238,41 @@ def handle_post(
             name=_required(payload, "name"),
             base_url=_required(payload, "base_url"),
             secret_ref=str(payload.get("secret_ref", "")),
+            proxy_url=str(payload.get("proxy_url", "")),
             status=ProviderAccountStatus(str(payload.get("status", "active"))),
             account_group=str(payload.get("account_group", "")),
             notes=str(payload.get("notes", "")),
         )
         return {"account": store.upsert_account(account).to_dict()}
+
+    if path == "/api/model-pool-import":
+        account = store.get_account(_required(payload, "account_id"))
+        imported = []
+        for spec in MODEL_POOL_PRESETS:
+            model = ModelSpec(
+                model_id=str(spec["model_id"]),
+                display_name=str(spec["display_name"]),
+                capabilities=_list_value(spec.get("capabilities")),
+                context_window=_int_value(spec.get("context_window")),
+                supports_batch=bool(spec.get("supports_batch", False)),
+                notes="starter model pool; replace provider mapping after live sync",
+            )
+            stored_model = store.upsert_model(model)
+            ability = RouteAbility(
+                account_id=account.account_id,
+                model_id=stored_model.model_id,
+                priority=_int_value(spec.get("priority")),
+                weight=_float_value(spec.get("weight"), default=1.0),
+                model_mapping=str(spec.get("model_mapping", "")),
+                notes="imported from GUI starter model pool",
+            )
+            imported.append(store.upsert_ability(ability).to_dict())
+        return {"account": account.to_dict(), "imported": imported}
+
+    if path == "/api/provider-check":
+        account = store.get_account(_required(payload, "account_id"))
+        health = _check_provider(account, store)
+        return {"health": store.set_health(health).to_dict()}
 
     if path == "/api/models":
         model = ModelSpec(
@@ -222,6 +334,31 @@ def handle_post(
         )
         return {"override": store.upsert_project_override(override).to_dict()}
 
+    if path == "/api/project-group":
+        project_id = _required(payload, "project_id")
+        routes = payload.get("routes", [])
+        if not isinstance(routes, list):
+            raise ValueError("routes must be a list")
+        stored = []
+        for item in routes:
+            if not isinstance(item, dict):
+                continue
+            account_id = str(item.get("account_id", "")).strip()
+            model_id = str(item.get("model_id", "")).strip()
+            if not account_id or not model_id:
+                continue
+            override = ProjectRouteOverride(
+                project_id=project_id,
+                account_id=account_id,
+                model_id=model_id,
+                priority=_int_or_none(item.get("priority")),
+                weight=_float_or_none(item.get("weight")),
+                enabled=bool(item.get("enabled", True)),
+                notes=str(item.get("role", "")),
+            )
+            stored.append(store.upsert_project_override(override).to_dict())
+        return {"project_id": project_id, "routes": stored}
+
     if path == "/api/agent-plan":
         task = str(payload.get("task", ""))
         request = AgentTaskRequest(
@@ -241,6 +378,26 @@ def handle_post(
         )
         return AgentPlanner(workspace).plan(request).to_dict()
 
+    if path == "/api/agent-select":
+        mode = str(payload.get("mode", "text"))
+        capabilities = {
+            "text": ["text"],
+            "code": ["text", "tools"],
+            "vision": ["text", "vision"],
+            "batch": ["text", "batch"],
+        }.get(mode, ["text"])
+        request = AgentTaskRequest(
+            project_id=str(payload.get("project_id", "")),
+            task_preview=f"select {mode} model",
+            task_chars=0,
+            capabilities=capabilities,
+            input_tokens=_int_value(payload.get("input_tokens"), default=1000),
+            output_tokens=_int_value(payload.get("output_tokens"), default=800),
+            max_cost_usd=_float_or_none(payload.get("max_cost_usd")),
+            require_batch=mode == "batch" or bool(payload.get("require_batch", False)),
+        )
+        return AgentPlanner(workspace).plan(request).to_dict()
+
     raise ValueError(f"unknown endpoint: {path}")
 
 
@@ -249,6 +406,76 @@ def _required(payload: dict[str, Any], key: str) -> str:
     if not value:
         raise ValueError(f"{key} is required")
     return value
+
+
+def _check_provider(
+    account: ProviderAccount,
+    store: ProviderRouterStore,
+) -> ProviderHealth:
+    model_count = len(store.list_abilities(account_id=account.account_id))
+    if account.status != ProviderAccountStatus.ACTIVE:
+        return ProviderHealth(
+            account_id=account.account_id,
+            status=HealthStatus.DOWN,
+            last_error=f"account status is {account.status.value}",
+        )
+    if not account.secret_ref:
+        return ProviderHealth(
+            account_id=account.account_id,
+            status=HealthStatus.LIMITED,
+            last_error="secret_ref is not configured",
+        )
+    if model_count == 0:
+        return ProviderHealth(
+            account_id=account.account_id,
+            status=HealthStatus.LIMITED,
+            last_error="model pool is empty",
+        )
+
+    try:
+        latency_ms, warning = _probe_base_url(account)
+    except Exception as exc:
+        return ProviderHealth(
+            account_id=account.account_id,
+            status=HealthStatus.DEGRADED,
+            consecutive_failures=1,
+            last_error=str(exc),
+        )
+
+    return ProviderHealth(
+        account_id=account.account_id,
+        status=HealthStatus.HEALTHY if not warning else HealthStatus.DEGRADED,
+        latency_ms=latency_ms,
+        last_error=warning,
+    )
+
+
+def _probe_base_url(account: ProviderAccount) -> tuple[int | None, str]:
+    parsed = urlparse(account.base_url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("base_url is not a valid HTTP URL")
+
+    handler = None
+    if account.proxy_url:
+        proxy_url = account.proxy_url
+        if proxy_url.startswith("env:"):
+            proxy_url = os.environ.get(proxy_url.split(":", 1)[1], "")
+        if proxy_url:
+            handler = ProxyHandler({"http": proxy_url, "https": proxy_url})
+    opener = build_opener(handler) if handler else build_opener()
+    request = Request(account.base_url, method="HEAD")
+    started = monotonic()
+    try:
+        with opener.open(request, timeout=4) as response:
+            response.read(0)
+    except HTTPError as exc:
+        latency_ms = int((monotonic() - started) * 1000)
+        if exc.code < 500:
+            return latency_ms, f"reachable with HTTP {exc.code}"
+        return latency_ms, f"server returned HTTP {exc.code}"
+    except URLError as exc:
+        raise ValueError(f"network probe failed: {exc.reason}") from exc
+    return int((monotonic() - started) * 1000), ""
 
 
 def _list_value(value: Any) -> list[str]:
@@ -283,7 +510,7 @@ def _float_or_none(value: Any) -> float | None:
     return float(value)
 
 
-INDEX_HTML = r"""<!doctype html>
+LEGACY_INDEX_HTML = r"""<!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">

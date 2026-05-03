@@ -1,6 +1,6 @@
 # GUI
 
-万象中枢当前提供一个本地 Web GUI，用于管理 API 渠道、模型来源、路由策略、项目偏好和调用预演。它是阶段 1 的本机控制台，目标是先把“接入 API -> 选择策略 -> 项目差异化 -> 调用前检查”做成一个清晰的操作面板。
+万象中枢当前提供一个本地 Web GUI，用于管理 API 渠道、模型池、代理连接、项目 AI 编组、使用选择、监控检测和 Skills。它是阶段 1 的本机控制台，目标是先把“接入渠道 -> 导入模型池 -> 项目编组 -> 选择使用 -> 持续监控”做成一个清晰的操作面板。
 
 启动：
 
@@ -16,23 +16,26 @@ http://127.0.0.1:8765
 
 ## 当前能力
 
-- 总览本机 API 渠道、已知模型、默认策略、项目偏好、健康记录和调用日志数量。
-- 通过左侧导航进入总览、API 接入、路由策略、项目偏好和调用预演。
-- API 接入提供 OpenAI、OpenRouter、DeepSeek、SiliconFlow 和自定义中转站模板，减少手填字段。
-- 模型目录在 GUI 中只读展示，不再要求用户手工维护；后续由厂商 `/models`、价格表和调用日志自动补全。
-- 路由策略用于设置默认 API 渠道和模型选择顺序。
-- 项目偏好用于为不同项目设置能力、预算和项目专属优先级。
-- 调用预演用于真实花钱前检查当前策略会选中哪个 API 渠道和模型。
+- 总览本机 API 渠道、模型池、项目编组、健康记录和调用日志数量。
+- 通过左侧导航进入总览、渠道模型、项目编组、使用选择、监控检测和 Skills。
+- 渠道模型提供 CC Switch 类中转站预设：CodexOpenAI Official、胜算云、AiHubMix、DMXAPI、优云智算、PIPELLM、OpenRouter、TheRouter、CodexAzure OpenAI、PackyCode、Cubence、AIGoCode、RightCode、SSSAiCode、Micu、CTok.ai、LionCCAPI、DDSHub、E-FlowCode、LemonData、AICodeMirror、AICoding、CrazyRouter 和自定义配置。
+- 每个 API 渠道都可以配置代理连接；留空表示该渠道调用时 `unset` 代理。
+- 一个 API 渠道可以挂多个模型；GUI 提供通用模型池导入，后续由厂商 `/models`、价格表和调用日志自动补全。
+- 项目编组用于为一个项目配置多个 AI 角色，例如主力、快速、视觉、批量和备用，并允许它们来自不同 API 渠道。
+- 使用选择按项目和任务类型一键选择当前模型，不要求输入长任务文本。
+- 监控检测用于记录渠道健康状态、代理、延迟、失败信息；后续 worker 会补齐用量、额度、错误率和成本趋势。
+- Skills 页面参考 CC Switch 的设计方向：GitHub/ZIP/本地安装、跨客户端同步、symlink/file copy、卸载前备份、冲突检测和项目推荐。
 - 各个表格支持搜索和每页 8 条分页浏览。
 - 所有按钮点击后都会给出成功或失败反馈。
 
 ## 页面结构
 
 - `总览`：展示本机状态指标、快速入口和当前接入概览。
-- `API 接入`：通过模板登记官方 API、中转站、公司网关或本地网关。
-- `路由策略`：配置默认 account/model priority、weight 和 provider 侧模型名映射。
-- `项目偏好`：配置项目 profile 和项目级 route override。
-- `调用预演`：根据项目、能力、预算和输出 token 生成一次 dry run 调用计划。
+- `渠道模型`：通过预设或自定义配置登记官方 API、中转站、公司网关或本地网关，配置代理并导入模型池。
+- `项目编组`：为一个项目配置多个 AI 角色和项目级 route override。
+- `使用选择`：按项目和任务类型选择当前可用模型，返回 base URL、provider model、secret ref 和代理状态。
+- `监控检测`：检测渠道配置、代理、Base URL 连通性、延迟和错误信息。
+- `Skills`：Skill registry、安装、同步、备份、冲突检测和项目推荐的入口。
 
 ## 安全边界
 
