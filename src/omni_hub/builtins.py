@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .agent import AgentPlanner, AgentTaskRequest
 from .connectors.web import build_resource_from_body, fetch_url
 from .content_store import ContentStore
 from .memory import MemoryStore
@@ -531,6 +532,29 @@ def make_provider_router_stats(workspace: Path):
     return provider_router_stats
 
 
+def make_plan_agent_task(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def plan_agent_task(spec: OperationSpec) -> dict[str, object]:
+        payload = spec.payload
+        request = AgentTaskRequest(
+            project_id=str(payload.get("project_id", "")),
+            task_preview=str(payload.get("task_preview", "")),
+            task_chars=int(payload.get("task_chars", 0)),
+            capabilities=list(payload.get("capabilities", [])),
+            input_tokens=int(payload.get("input_tokens", 0)),
+            output_tokens=int(payload.get("output_tokens", 0)),
+            max_cost_usd=payload.get("max_cost_usd"),
+            require_batch=bool(payload.get("require_batch", False)),
+            preferred_providers=list(payload.get("preferred_providers", [])),
+            preferred_accounts=list(payload.get("preferred_accounts", [])),
+            limit=int(payload.get("limit", 5)),
+        )
+        return AgentPlanner(workspace_root).plan(request).to_dict()
+
+    return plan_agent_task
+
+
 def build_default_registry(workspace: Path | str = ".") -> OperationRegistry:
     workspace_path = Path(workspace)
     registry = OperationRegistry()
@@ -571,4 +595,5 @@ def build_default_registry(workspace: Path | str = ".") -> OperationRegistry:
     registry.register("set_provider_health", make_set_provider_health(workspace_path))
     registry.register("route_simulate", make_route_simulate(workspace_path))
     registry.register("provider_router_stats", make_provider_router_stats(workspace_path))
+    registry.register("plan_agent_task", make_plan_agent_task(workspace_path))
     return registry

@@ -310,6 +310,74 @@ class CliTests(unittest.TestCase):
                 "anthropic-main",
             )
 
+    def test_agent_plan_cli_uses_router(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            original_cwd = os.getcwd()
+            buffers = [StringIO() for _ in range(5)]
+            try:
+                os.chdir(tmpdir)
+                commands = [
+                    [
+                        "provider-add",
+                        "--id",
+                        "openai-main",
+                        "--provider",
+                        "openai",
+                        "--name",
+                        "OpenAI Main",
+                        "--base-url",
+                        "https://api.openai.com/v1",
+                        "--secret-ref",
+                        "env:OPENAI_API_KEY",
+                    ],
+                    ["model-add", "--id", "gpt-5.4", "--capability", "text"],
+                    [
+                        "route-ability-set",
+                        "--account",
+                        "openai-main",
+                        "--model",
+                        "gpt-5.4",
+                        "--priority",
+                        "10",
+                    ],
+                    [
+                        "route-profile-set",
+                        "--project",
+                        "agent-dev",
+                        "--capability",
+                        "text",
+                        "--prefer-provider",
+                        "openai",
+                    ],
+                ]
+                for index, command in enumerate(commands):
+                    with redirect_stdout(buffers[index]):
+                        self.assertEqual(main(command), 0)
+                with redirect_stdout(buffers[4]):
+                    exit_code = main(
+                        [
+                            "agent-plan",
+                            "--project",
+                            "agent-dev",
+                            "--task",
+                            "summarize this project context",
+                            "--output-tokens",
+                            "300",
+                        ]
+                    )
+            finally:
+                os.chdir(original_cwd)
+
+            self.assertEqual(exit_code, 0)
+            payload = json.loads(buffers[4].getvalue())
+            self.assertEqual(payload["output"]["status"], "planned")
+            self.assertEqual(
+                payload["output"]["invocation"]["account_id"],
+                "openai-main",
+            )
+            self.assertNotIn("task", payload["output"]["request"])
+            self.assertIn("task_preview", payload["output"]["request"])
+
 
 if __name__ == "__main__":
     unittest.main()

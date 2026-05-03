@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .agent import estimate_input_tokens, task_preview
 from .builtins import build_default_registry
 from .models import OperationSpec, RiskLevel
 from .runner import OperationRunner
@@ -12,6 +13,24 @@ from .runner import OperationRunner
 
 def _print_json(data: dict[str, Any]) -> None:
     print(json.dumps(data, ensure_ascii=False, indent=2))
+
+
+def _agent_task_payload(args: argparse.Namespace) -> dict[str, Any]:
+    preview = task_preview(args.task)
+    input_tokens = args.input_tokens or estimate_input_tokens(args.task)
+    return {
+        "project_id": args.project,
+        "task_preview": preview,
+        "task_chars": len(args.task),
+        "capabilities": args.capability,
+        "input_tokens": input_tokens,
+        "output_tokens": args.output_tokens,
+        "max_cost_usd": args.max_cost,
+        "require_batch": args.require_batch,
+        "preferred_providers": args.prefer_provider,
+        "preferred_accounts": args.prefer_account,
+        "limit": args.limit,
+    }
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -179,6 +198,18 @@ def build_parser() -> argparse.ArgumentParser:
     route_simulate.add_argument("--prefer-provider", action="append", default=[])
     route_simulate.add_argument("--prefer-account", action="append", default=[])
     route_simulate.add_argument("--limit", type=int, default=10)
+
+    agent_plan = subparsers.add_parser("agent-plan")
+    agent_plan.add_argument("--project", default="")
+    agent_plan.add_argument("--task", default="")
+    agent_plan.add_argument("--capability", action="append", default=[])
+    agent_plan.add_argument("--input-tokens", type=int, default=0)
+    agent_plan.add_argument("--output-tokens", type=int, default=0)
+    agent_plan.add_argument("--max-cost", type=float)
+    agent_plan.add_argument("--require-batch", action="store_true")
+    agent_plan.add_argument("--prefer-provider", action="append", default=[])
+    agent_plan.add_argument("--prefer-account", action="append", default=[])
+    agent_plan.add_argument("--limit", type=int, default=5)
 
     subparsers.add_parser("provider-router-stats")
 
@@ -591,6 +622,17 @@ def main(argv: list[str] | None = None) -> int:
         spec = OperationSpec(
             name="provider_router_stats",
             action="stats",
+            risk_level=RiskLevel.READ_ONLY,
+        )
+        result = runner.run(spec)
+        _print_json(result.to_dict())
+        return 0 if result.error is None else 1
+
+    if args.command == "agent-plan":
+        spec = OperationSpec(
+            name="plan_agent_task",
+            action="plan_agent_task",
+            payload=_agent_task_payload(args),
             risk_level=RiskLevel.READ_ONLY,
         )
         result = runner.run(spec)

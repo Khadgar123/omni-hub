@@ -18,6 +18,7 @@
 - `CLI`：先用本地命令跑通内核，后续再接飞书、Discord、GitHub、Obsidian 和 Web 控制台。
 - `Capture`：v0.2 已开始支持 URL 捕获、HTML 元数据提取、YouTube URL 识别和本地 Inbox 卡片生成。
 - `Provider Router`：v0.3 已开始支持本地 SQLite provider/account/model/ability/health 注册与路由模拟。
+- `Agent Planner`：自有 agent 调用前先走 Provider Router，支持项目级模型优先级。
 
 ## 快速开始
 
@@ -147,6 +148,14 @@ PYTHONPATH=src python3.12 -m omni_hub.cli project-route-set --project writing --
 ```bash
 PYTHONPATH=src python3.12 -m omni_hub.cli route-simulate --project writing --capability text
 ```
+
+规划一次我们自己的 agent 调用：
+
+```bash
+PYTHONPATH=src python3.12 -m omni_hub.cli agent-plan --project writing --task "帮我整理这个项目的上下文" --capability text --output-tokens 800
+```
+
+`agent-plan` 只生成调用计划，不真实请求外部模型。它会先查询 Provider Router，并返回将使用的 provider、account、model、provider 侧模型名、secret ref、成本估算和路由原因。
 
 运行测试：
 

@@ -225,3 +225,19 @@ project context
 ```
 
 这样可以让 LLM 先做基础筛选，但最后的执行仍经过可审计的本地控制面。
+
+## 与自有 Agent 的关系
+
+万象中枢自己的 agent 不应该在代码里手写模型名，也不应该去修改 Codex、Claude、Gemini、Cursor 等外部客户端配置。当前实现提供 `agent-plan` 作为自有 agent 的调用前入口：
+
+```text
+agent task
+  -> task profile
+  -> route-simulate equivalent
+  -> planned invocation
+  -> future model call adapter
+```
+
+`agent-plan` 会返回 provider、account、base URL、secret ref、内部 model id、provider 侧 model id、成本估算、路由原因和 warning。它目前只规划调用，不发起外部 API 请求。
+
+为了降低审计日志泄露风险，CLI 不把完整 `--task` 写入 operation payload，只写入截断后的 `task_preview` 和 `task_chars`。后续真实执行时，完整 prompt 应在 agent runtime 内部流转，并由专门的 prompt/audit 策略决定是否落盘。
