@@ -402,7 +402,7 @@ def handle_post(
                 priority=_int_or_none(item.get("priority")),
                 weight=_float_or_none(item.get("weight")),
                 enabled=bool(item.get("enabled", True)),
-                notes=str(item.get("role", "")),
+                notes=_route_note(item),
             )
             stored.append(store.upsert_project_override(override).to_dict())
         return {"project_id": project_id, "routes": stored}
@@ -454,6 +454,14 @@ def _required(payload: dict[str, Any], key: str) -> str:
     if not value:
         raise ValueError(f"{key} is required")
     return value
+
+
+def _route_note(item: dict[str, Any]) -> str:
+    role = str(item.get("role", "")).strip()
+    skills = _list_value(item.get("skills"))
+    if skills:
+        return f"{role}; skills={', '.join(skills)}" if role else f"skills={', '.join(skills)}"
+    return role
 
 
 def _check_provider(

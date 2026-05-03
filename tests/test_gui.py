@@ -14,12 +14,15 @@ from omni_hub.gui import INDEX_HTML, create_gui_server
 
 class GuiServerTests(unittest.TestCase):
     def test_gui_index_uses_user_facing_dashboard_terms(self) -> None:
-        self.assertIn("渠道模型", INDEX_HTML)
+        self.assertIn("模型配置", INDEX_HTML)
         self.assertIn("项目编组", INDEX_HTML)
         self.assertIn("使用选择", INDEX_HTML)
         self.assertIn("监控检测", INDEX_HTML)
         self.assertIn("按模型配置", INDEX_HTML)
-        self.assertIn("模型 ID 默认手写", INDEX_HTML)
+        self.assertIn("按中转站批量配置", INDEX_HTML)
+        self.assertIn("设为首选", INDEX_HTML)
+        self.assertIn("实时延迟", INDEX_HTML)
+        self.assertIn("模型 ID 手写", INDEX_HTML)
         self.assertIn("Skills", INDEX_HTML)
         self.assertIn('id="toast"', INDEX_HTML)
         self.assertNotIn("Base URL", INDEX_HTML)
@@ -147,6 +150,54 @@ class GuiServerTests(unittest.TestCase):
 
                 self.assertEqual(created["model"]["model_id"], "claude-sonnet-4.5")
                 self.assertEqual(created["ability"]["account_id"], "openrouter-main")
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
+    def test_gui_project_group_stores_agent_skills(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            server = create_gui_server(tmpdir, port=0)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            base_url = f"http://{server.server_address[0]}:{server.server_address[1]}"
+            try:
+                _post_json(
+                    f"{base_url}/api/providers",
+                    {
+                        "account_id": "openrouter-main",
+                        "provider": "openrouter",
+                        "name": "OpenRouter Main",
+                        "base_url": "https://openrouter.ai/api/v1",
+                        "secret_ref": "env:OPENROUTER_API_KEY",
+                    },
+                )
+                _post_json(
+                    f"{base_url}/api/channel-model",
+                    {
+                        "account_id": "openrouter-main",
+                        "model_id": "gpt-5.4",
+                        "capabilities": ["text", "tools"],
+                        "priority": 80,
+                    },
+                )
+                grouped = _post_json(
+                    f"{base_url}/api/project-group",
+                    {
+                        "project_id": "omni-hub",
+                        "routes": [
+                            {
+                                "role": "代码Agent",
+                                "account_id": "openrouter-main",
+                                "model_id": "gpt-5.4",
+                                "skills": "github, browser",
+                                "priority": 90,
+                            }
+                        ],
+                    },
+                )
+
+                self.assertEqual(grouped["routes"][0]["notes"], "代码Agent; skills=github, browser")
             finally:
                 server.shutdown()
                 thread.join(timeout=2)

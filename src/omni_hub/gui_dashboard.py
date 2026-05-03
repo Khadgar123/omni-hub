@@ -213,9 +213,32 @@ INDEX_HTML = r"""<!doctype html>
       display: grid;
       gap: 14px;
     }
+    .segment {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px;
+      padding: 4px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #edf1f5;
+    }
+    .segment button {
+      min-height: 34px;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--muted);
+    }
+    .segment button.active {
+      background: #fff;
+      color: var(--ink);
+      box-shadow: 0 1px 2px rgba(20, 33, 43, .08);
+    }
+    [data-config-mode] { display: none; }
+    [data-config-mode].active { display: block; }
     .role-row {
       display: grid;
-      grid-template-columns: 96px minmax(130px, 1fr) minmax(130px, 1fr) 72px;
+      grid-template-columns: 88px minmax(130px, 1fr) minmax(130px, 1fr) minmax(120px, 1fr) 72px;
       gap: 8px;
       align-items: end;
       padding: 10px;
@@ -227,6 +250,30 @@ INDEX_HTML = r"""<!doctype html>
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
       gap: 8px;
+    }
+    .chart {
+      min-height: 160px;
+      display: grid;
+      gap: 8px;
+      align-content: end;
+    }
+    .bar-row {
+      display: grid;
+      grid-template-columns: minmax(110px, 180px) minmax(0, 1fr) 72px;
+      gap: 8px;
+      align-items: center;
+    }
+    .bar-track {
+      height: 12px;
+      border-radius: 999px;
+      background: #e8edf2;
+      overflow: hidden;
+    }
+    .bar-fill {
+      height: 100%;
+      min-width: 2px;
+      border-radius: inherit;
+      background: var(--blue);
     }
     .table-box { min-width: 0; overflow: hidden; }
     .table-tools {
@@ -314,11 +361,11 @@ INDEX_HTML = r"""<!doctype html>
     <aside>
       <div class="brand">
         <h1>万象中枢</h1>
-        <p>本地 AI 渠道、模型池与 Skill 控制台</p>
+        <p>本地模型配置、项目 Agent 与 Skill 控制台</p>
       </div>
       <nav>
         <button class="nav-item" data-view="overview">总览</button>
-        <button class="nav-item" data-view="channels">渠道模型</button>
+        <button class="nav-item" data-view="channels">模型配置</button>
         <button class="nav-item" data-view="projects">项目编组</button>
         <button class="nav-item" data-view="select">使用选择</button>
         <button class="nav-item" data-view="monitor">监控检测</button>
@@ -330,7 +377,7 @@ INDEX_HTML = r"""<!doctype html>
         <div class="topbar">
           <div class="title">
             <h2 id="page-title">总览</h2>
-            <p id="page-subtitle">渠道、模型池、代理、用量和项目 AI 编组。</p>
+            <p id="page-subtitle">模型配置、渠道、代理、用量和项目 AI 编组。</p>
           </div>
           <button class="secondary" id="refresh">刷新</button>
         </div>
@@ -338,15 +385,15 @@ INDEX_HTML = r"""<!doctype html>
 
       <main class="content">
         <section class="view" data-view-panel="overview">
-          <div class="notice">渠道可以是官方 API、中转站、公司网关或本地代理网关。每个渠道下面挂一组模型池；项目再从多个渠道和模型中编组，不需要每次写长文本预演。</div>
+          <div class="notice">主对象是模型：同一个模型可以挂多条中转站配置，并分别监控延迟、额度、代理和优先级。中转站批量配置只是模型配置页里的另一种录入方式。</div>
           <div class="metrics" id="metrics"></div>
           <div class="grid">
-            <button class="action" data-jump="channels"><strong>添加渠道并导入模型池</strong><span>支持你列出的 CC Switch 类中转站预设</span></button>
-            <button class="action" data-jump="projects"><strong>为项目编组多个 AI</strong><span>主力、快速、视觉、批量、备用可以来自不同 API</span></button>
-            <button class="action" data-jump="monitor"><strong>检测和监控</strong><span>连接状态、代理、延迟、失败和用量入口</span></button>
+            <button class="action" data-jump="channels"><strong>配置模型</strong><span>一个模型可挂多个中转站配置并切优先级</span></button>
+            <button class="action" data-jump="projects"><strong>分配给项目 Agent</strong><span>为不同 agent 指定模型和 skills</span></button>
+            <button class="action" data-jump="monitor"><strong>看延迟和额度</strong><span>检测、实时刷新和可视化监控</span></button>
           </div>
           <div class="panel table-box">
-            <div class="panel-head"><h3>当前状态</h3><span class="subtle">渠道、模型池、项目编组</span></div>
+            <div class="panel-head"><h3>当前状态</h3><span class="subtle">模型配置、渠道、项目编组</span></div>
             <div id="overviewTable"></div>
           </div>
         </section>
@@ -354,8 +401,32 @@ INDEX_HTML = r"""<!doctype html>
         <section class="view" data-view-panel="channels">
           <div class="workspace">
             <div class="split-stack">
-              <div class="panel">
-                <div class="panel-head"><h3>按中转站配置</h3><span class="subtle">先管理密钥、代理、额度和健康</span></div>
+              <div class="segment">
+                <button type="button" class="active" data-config-tab="model">按模型配置</button>
+                <button type="button" data-config-tab="provider">按中转站批量配置</button>
+              </div>
+              <div class="panel active" data-config-mode="model">
+                <div class="panel-head"><h3>按模型配置</h3><span class="subtle">默认方式：模型 ID 手写，别名只作填充</span></div>
+                <div class="panel-body">
+                  <form id="model-form">
+                    <div class="preset-list" id="model-preset-list"></div>
+                    <div class="form-grid">
+                      <label>模型 ID<input name="model_id" id="model-id" placeholder="例如 claude-sonnet-4.5" required></label>
+                      <label>模型别名<input name="display_name" id="model-name" placeholder="可选；没有明确别名可留空"></label>
+                      <label>添加到中转站<select name="account_id" id="model-account"></select></label>
+                      <label>Provider 模型名<input name="model_mapping" id="model-mapping" placeholder="和模型 ID 不同时填写"></label>
+                      <label>能力<input name="capabilities" id="model-capabilities" placeholder="text, tools, vision"></label>
+                      <label>优先级<input name="priority" type="number" value="70"></label>
+                    </div>
+                    <div class="buttons">
+                      <button class="primary">添加模型配置</button>
+                      <button type="button" class="secondary" id="check-model-config">检测该配置</button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+              <div class="panel" data-config-mode="provider">
+                <div class="panel-head"><h3>按中转站批量配置</h3><span class="subtle">一次配置密钥、代理、额度，再挂多种模型</span></div>
                 <div class="panel-body">
                   <form id="channel-form">
                     <div class="preset-select">
@@ -368,6 +439,7 @@ INDEX_HTML = r"""<!doctype html>
                       <label class="wide">显示名称<input name="name" id="provider-name" required></label>
                       <label>密钥引用<input name="secret_ref" id="secret-ref" placeholder="env:OPENROUTER_API_KEY"></label>
                       <label>代理连接<input name="proxy_url" id="proxy-url" placeholder="留空表示 unset；如 http://127.0.0.1:7890"></label>
+                      <label class="wide">额度监控来源<input name="notes" id="quota-ref" placeholder="例如 dashboard:OpenRouter 或 quota_ref:env:OPENROUTER_QUOTA_URL"></label>
                     </div>
                     <details class="advanced">
                       <summary>高级配置</summary>
@@ -384,28 +456,11 @@ INDEX_HTML = r"""<!doctype html>
                   </form>
                 </div>
               </div>
-              <div class="panel">
-                <div class="panel-head"><h3>按模型配置</h3><span class="subtle">模型 ID 默认手写，别名只作填充</span></div>
-                <div class="panel-body">
-                  <form id="model-form">
-                    <div class="preset-list" id="model-preset-list"></div>
-                    <div class="form-grid">
-                      <label>挂到渠道<select name="account_id" id="model-account"></select></label>
-                      <label>模型 ID<input name="model_id" id="model-id" placeholder="例如 claude-sonnet-4.5" required></label>
-                      <label>模型别名<input name="display_name" id="model-name" placeholder="可选；没有明确别名可留空"></label>
-                      <label>Provider 模型名<input name="model_mapping" id="model-mapping" placeholder="和模型 ID 不同时填写"></label>
-                      <label>能力<input name="capabilities" id="model-capabilities" placeholder="text, tools, vision"></label>
-                      <label>优先级<input name="priority" type="number" value="70"></label>
-                    </div>
-                    <button class="primary">添加模型到渠道</button>
-                  </form>
-                </div>
-              </div>
             </div>
             <div class="panel table-box">
-              <div class="panel-head"><h3>渠道与模型池</h3><span class="subtle">一个渠道可挂多个模型</span></div>
-              <div id="channelsTable"></div>
+              <div class="panel-head"><h3>模型配置矩阵</h3><span class="subtle">单个模型的多中转站配置</span></div>
               <div id="poolTable"></div>
+              <div id="channelsTable"></div>
             </div>
           </div>
         </section>
@@ -417,11 +472,11 @@ INDEX_HTML = r"""<!doctype html>
               <div class="panel-body">
                 <form id="project-form">
                   <label>项目 ID<input name="project_id" id="project-id" placeholder="auto-driving-research" required></label>
-                  <div class="role-row" data-role="主力" data-priority="95"></div>
-                  <div class="role-row" data-role="快速" data-priority="75"></div>
-                  <div class="role-row" data-role="视觉" data-priority="88"></div>
-                  <div class="role-row" data-role="批量" data-priority="60"></div>
-                  <div class="role-row" data-role="备用" data-priority="30"></div>
+                  <div class="role-row" data-role="研究Agent" data-priority="95"></div>
+                  <div class="role-row" data-role="代码Agent" data-priority="90"></div>
+                  <div class="role-row" data-role="视觉Agent" data-priority="88"></div>
+                  <div class="role-row" data-role="批量Agent" data-priority="60"></div>
+                  <div class="role-row" data-role="备用Agent" data-priority="30"></div>
                   <div class="buttons">
                     <button class="primary">保存项目编组</button>
                     <button type="button" class="secondary" data-jump="select">去选择使用</button>
@@ -469,16 +524,16 @@ INDEX_HTML = r"""<!doctype html>
         <section class="view" data-view-panel="monitor">
           <div class="grid">
             <div class="panel">
-              <div class="panel-head"><h3>检测机制</h3><span class="subtle">阶段 1</span></div>
-              <div class="panel-body subtle">检测会验证渠道、模型池、密钥引用、代理设置，并尝试探测接口延迟。后续 worker 会把真实调用延迟、错误率和额度写入同一张监控表。</div>
+              <div class="panel-head"><h3>实时延迟</h3><button class="secondary" id="realtime-toggle">开始实时刷新</button></div>
+              <div class="panel-body"><div class="chart" id="latency-chart"></div></div>
             </div>
             <div class="panel">
-              <div class="panel-head"><h3>代理规则</h3><span class="subtle">调用时生效</span></div>
-              <div class="panel-body subtle">渠道配置了代理就随调用传递代理；留空则明确 unset，不继承该渠道的代理配置。</div>
+              <div class="panel-head"><h3>额度与代理</h3><span class="subtle">阶段 1</span></div>
+              <div class="panel-body subtle">额度来源先记录在渠道高级配置中；代理配置跟随渠道调用，留空就是 unset。后续接真实调用日志后，这里会展示额度、成本、错误率和趋势。</div>
             </div>
           </div>
           <div class="panel table-box">
-            <div class="panel-head"><h3>渠道健康与用量</h3><button class="secondary" id="check-all">检测全部</button></div>
+            <div class="panel-head"><h3>模型配置健康与用量</h3><button class="secondary" id="check-all">检测全部</button></div>
             <div id="monitorTable"></div>
           </div>
         </section>
@@ -500,14 +555,14 @@ INDEX_HTML = r"""<!doctype html>
   <script>
     const PAGE_SIZE = 8;
     const views = {
-      overview: ['总览', '渠道、模型池、代理、用量和项目 AI 编组。'],
-      channels: ['渠道模型', '从预设或自定义端点创建 API 渠道，并为渠道导入模型池。'],
-      projects: ['项目编组', '为一个项目配置多个 AI 角色和不同来源的模型。'],
+      overview: ['总览', '模型配置、渠道、代理、用量和项目 AI 编组。'],
+      channels: ['模型配置', '默认按模型配置；同一模型可挂多条中转站配置。'],
+      projects: ['项目编组', '为项目 Agent 分配模型和 Skills。'],
       select: ['使用选择', '按项目和任务类型选择当前应使用的模型。'],
-      monitor: ['监控检测', '检测渠道连通性、代理、延迟、失败和用量入口。'],
+      monitor: ['监控检测', '检测模型配置、实时延迟、额度、代理和失败。'],
       skills: ['Skills', '技能安装、同步、质量评分和项目推荐的控制面。']
     };
-    const state = {data: null, view: 'overview', preset: null, mode: 'text'};
+    const state = {data: null, view: 'overview', preset: null, mode: 'text', realtime: false, realtimeTimer: null};
     const tableState = {};
 
     const api = async (url, options = {}) => {
@@ -534,6 +589,11 @@ INDEX_HTML = r"""<!doctype html>
       return `<span class="pill ${cls}">${escapeHtml(text)}</span>`;
     };
     const proxyText = account => account.proxy_url ? account.proxy_url : 'unset';
+    const quotaText = account => {
+      const notes = account.notes || '';
+      const found = notes.split('\n').find(line => /quota|额度|balance|dashboard/i.test(line));
+      return found || '未配置';
+    };
     const searchText = row => JSON.stringify(row).toLowerCase();
 
     function setView(view) {
@@ -594,6 +654,9 @@ INDEX_HTML = r"""<!doctype html>
         health: healthFor(ability.account_id)
       }));
     }
+    function modelConfigKey(row) {
+      return `${row.account_id}::${row.model_id}`;
+    }
 
     function renderPresets() {
       const presets = [...(state.data?.provider_presets || [])].sort((a, b) => (b.rank || 0) - (a.rank || 0));
@@ -638,8 +701,9 @@ INDEX_HTML = r"""<!doctype html>
         const priority = row.dataset.priority;
         row.innerHTML = `
           <strong>${escapeHtml(role)}</strong>
+          <label>模型<select data-role-model>${modelOptions || '<option value="">先添加模型配置</option>'}</select></label>
           <label>渠道<select data-role-account>${accountOptions || '<option value="">先添加渠道</option>'}</select></label>
-          <label>模型<select data-role-model>${modelOptions || '<option value="">先导入模型池</option>'}</select></label>
+          <label>Skills<input data-role-skills placeholder="research, browser, github"></label>
           <label>优先级<input data-role-priority type="number" value="${escapeAttr(priority)}"></label>`;
       });
       document.getElementById('select-project').innerHTML =
@@ -651,7 +715,7 @@ INDEX_HTML = r"""<!doctype html>
       const labels = {
         provider_accounts: 'API 渠道',
         model_catalog: '模型',
-        route_abilities: '模型池',
+        route_abilities: '模型配置',
         project_route_profiles: '项目',
         project_route_overrides: '编组',
         provider_health: '检测记录',
@@ -678,16 +742,25 @@ INDEX_HTML = r"""<!doctype html>
         {key: 'account_id', label: '渠道'},
         {key: 'name', label: '名称'},
         {label: '代理', render: row => escapeHtml(proxyText(row))},
+        {label: '额度来源', render: row => escapeHtml(quotaText(row))},
         {label: '检测', render: row => pill(healthFor(row.account_id).status || 'unknown')},
         {label: '操作', render: row => `<button class="secondary" data-check-account="${escapeAttr(row.account_id)}">检测</button>`}
       ], data.accounts || []);
-      renderDataTable('poolTable', '模型池', [
-        {key: 'account_id', label: '渠道'},
-        {key: 'model_id', label: '内部模型'},
-        {label: '显示名', render: row => escapeHtml(row.model.display_name || row.model_id)},
+      renderDataTable('poolTable', '模型配置矩阵', [
+        {key: 'model_id', label: '模型'},
+        {label: '别名', render: row => escapeHtml(row.model.display_name || '')},
+        {label: '中转站配置', render: row => escapeHtml(row.account.name || row.account_id)},
         {label: '能力', render: row => escapeHtml((row.model.capabilities || []).join(', '))},
         {key: 'priority', label: '优先级'},
-        {key: 'model_mapping', label: 'Provider 模型名'}
+        {label: '延迟', render: row => row.health.latency_ms == null ? '待检测' : `${row.health.latency_ms} ms`},
+        {label: '额度', render: row => escapeHtml(quotaText(row.account))},
+        {label: '状态', render: row => pill(row.health.status || 'unknown')},
+        {label: '操作', render: row => `
+          <div class="buttons">
+            <button class="secondary" data-check-account="${escapeAttr(row.account_id)}">检测</button>
+            <button class="secondary" data-priority-config="${escapeAttr(modelConfigKey(row))}" data-priority-value="100">设为首选</button>
+            <button class="secondary" data-priority-config="${escapeAttr(modelConfigKey(row))}" data-priority-value="20">备用</button>
+          </div>`}
       ], poolRows());
       renderDataTable('profilesTable', '项目偏好', [
         {key: 'project_id', label: '项目'},
@@ -700,17 +773,33 @@ INDEX_HTML = r"""<!doctype html>
         {key: 'account_id', label: '渠道'},
         {key: 'model_id', label: '模型'},
         {key: 'priority', label: '优先级'},
-        {key: 'notes', label: '角色'}
+        {key: 'notes', label: 'Agent / Skills'}
       ], data.overrides || []);
       renderDataTable('monitorTable', '监控', [
         {key: 'account_id', label: '渠道'},
         {label: '状态', render: row => pill(row.health.status || 'unknown')},
         {label: '延迟', render: row => row.health.latency_ms == null ? '待探测' : `${row.health.latency_ms} ms`},
         {label: '模型数', render: row => String(poolRows().filter(item => item.account_id === row.account_id).length)},
+        {label: '额度来源', render: row => escapeHtml(quotaText(row))},
         {label: '代理', render: row => escapeHtml(proxyText(row))},
         {label: '错误', render: row => escapeHtml(row.health.last_error || '')},
         {label: '操作', render: row => `<button class="secondary" data-check-account="${escapeAttr(row.account_id)}">检测</button>`}
       ], (data.accounts || []).map(account => ({...account, health: healthFor(account.account_id)})));
+      renderLatencyChart(data.accounts || []);
+    }
+
+    function renderLatencyChart(accounts) {
+      const rows = accounts.map(account => ({account, health: healthFor(account.account_id)}));
+      const max = Math.max(1000, ...rows.map(row => row.health.latency_ms || 0));
+      document.getElementById('latency-chart').innerHTML = rows.length ? rows.map(row => {
+        const latency = row.health.latency_ms;
+        const width = latency == null ? 2 : Math.max(2, Math.min(100, latency / max * 100));
+        return `<div class="bar-row">
+          <span>${escapeHtml(row.account.name || row.account.account_id)}</span>
+          <div class="bar-track"><div class="bar-fill" style="width:${width}%"></div></div>
+          <span class="subtle">${latency == null ? '-' : `${latency}ms`}</span>
+        </div>`;
+      }).join('') : '<div class="subtle">暂无检测数据</div>';
     }
 
     async function refresh(showMessage = false) {
@@ -732,12 +821,38 @@ INDEX_HTML = r"""<!doctype html>
       showToast(`检测完成：${data.health.status}`);
     }
 
+    async function updateConfigPriority(key, priority) {
+      const [accountId, modelId] = key.split('::');
+      const row = poolRows().find(item => item.account_id === accountId && item.model_id === modelId);
+      if (!row) throw new Error('模型配置不存在');
+      await api('/api/route-abilities', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          account_id: accountId,
+          model_id: modelId,
+          priority,
+          weight: row.weight || 1,
+          model_mapping: row.model_mapping || '',
+          enabled: true
+        })
+      });
+      await refresh();
+      showToast(priority >= 100 ? '已设为首选' : '已降为备用');
+    }
+
     document.querySelectorAll('[data-view]').forEach(button => button.addEventListener('click', () => setView(button.dataset.view)));
     document.getElementById('refresh').addEventListener('click', () => refresh(true));
     window.addEventListener('hashchange', () => setView(location.hash.replace('#', '') || 'overview'));
     document.addEventListener('click', event => {
       const jump = event.target.closest('[data-jump]');
       if (jump) setView(jump.dataset.jump);
+      const configTab = event.target.closest('[data-config-tab]');
+      if (configTab) {
+        document.querySelectorAll('[data-config-tab]').forEach(item => item.classList.toggle('active', item === configTab));
+        document.querySelectorAll('[data-config-mode]').forEach(item => item.classList.toggle('active', item.dataset.configMode === configTab.dataset.configTab));
+        showToast(configTab.dataset.configTab === 'model' ? '已切换到按模型配置' : '已切换到按中转站批量配置');
+      }
       const presetButton = event.target.closest('[data-preset-index]');
       if (presetButton) {
         document.querySelectorAll('[data-preset-index]').forEach(item => item.classList.toggle('active', item === presetButton));
@@ -761,6 +876,8 @@ INDEX_HTML = r"""<!doctype html>
       }
       const checkButton = event.target.closest('[data-check-account]');
       if (checkButton) checkAccount(checkButton.dataset.checkAccount).catch(err => showToast(err.message, 'bad'));
+      const priorityButton = event.target.closest('[data-priority-config]');
+      if (priorityButton) updateConfigPriority(priorityButton.dataset.priorityConfig, Number(priorityButton.dataset.priorityValue)).catch(err => showToast(err.message, 'bad'));
       const pageButton = event.target.closest('[data-page]');
       if (pageButton) {
         const id = pageButton.dataset.page;
@@ -804,7 +921,7 @@ INDEX_HTML = r"""<!doctype html>
       try {
         await api('/api/channel-model', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)});
         await refresh();
-        showToast('模型已加入渠道');
+        showToast('模型配置已保存');
       } catch (err) {
         showToast(err.message, 'bad');
       }
@@ -814,6 +931,24 @@ INDEX_HTML = r"""<!doctype html>
         await checkAccount(document.getElementById('account-id').value);
       } catch (err) {
         showToast(err.message, 'bad');
+      }
+    });
+    document.getElementById('check-model-config').addEventListener('click', async () => {
+      try {
+        await checkAccount(document.getElementById('model-account').value);
+      } catch (err) {
+        showToast(err.message, 'bad');
+      }
+    });
+    document.getElementById('realtime-toggle').addEventListener('click', event => {
+      state.realtime = !state.realtime;
+      event.target.textContent = state.realtime ? '停止实时刷新' : '开始实时刷新';
+      if (state.realtime) {
+        state.realtimeTimer = setInterval(() => refresh(false), 10000);
+        showToast('实时刷新已开启');
+      } else {
+        clearInterval(state.realtimeTimer);
+        showToast('实时刷新已停止');
       }
     });
     document.getElementById('check-all').addEventListener('click', async () => {
@@ -828,6 +963,7 @@ INDEX_HTML = r"""<!doctype html>
         role: row.dataset.role,
         account_id: row.querySelector('[data-role-account]').value,
         model_id: row.querySelector('[data-role-model]').value,
+        skills: row.querySelector('[data-role-skills]').value,
         priority: row.querySelector('[data-role-priority]').value,
         weight: 1,
         enabled: true
