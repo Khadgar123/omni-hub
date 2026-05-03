@@ -1,0 +1,23 @@
+# macOS
+.DS_Store
+
+# Editor state
+.vscode/
+.idea/
+
+# Obsidian volatile state
+.obsidian/workspace.json
+.obsidian/workspace-mobile.json
+.obsidian/cache/
+
+# Local trash / exports
+.trash/
+exports/
+
+# Secrets
+.env
+.env.*
+*.pem
+*.key
+id_rsa
+id_ed25519
