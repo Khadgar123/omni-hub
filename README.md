@@ -141,6 +141,8 @@ PYTHONPATH=src python3.12 -m unittest discover -s tests
 - [Skill Registry](docs/skill-registry.md)
 - [Skill Intelligence](docs/skill-intelligence.md)
 - [推荐组合架构](docs/recommended-stack.md)
+- [本地控制平面参考项目](docs/local-control-plane-references.md)
+- [Provider Router 设计](docs/provider-router-design.md)
 - [参考项目](docs/reference-projects.md)
 - [Roadmap](docs/roadmap.md)
 

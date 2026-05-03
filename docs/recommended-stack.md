@@ -32,13 +32,35 @@ omni-hub
 
 | 层 | 当前实现 | 下一步 |
 | --- | --- | --- |
-| 控制平面 | Operation / Policy / Audit / Skill registry / Skill intelligence | Approval queue / Router |
+| 控制平面 | Operation / Policy / Audit / Skill registry / Skill intelligence | Approval queue / Provider Router |
 | 捕获层 | URL / YouTube URL / Markdown vault | 更多连接器 |
 | 提案层 | 摘要、实体、关系提案 | LLM 提案生成器 |
 | 记忆层 | SQLite documents / entities / relations | Graphiti / Mem0 adapter |
 | 工作流层 | 暂未接入 | n8n webhook adapter |
 | 智能编排 | 暂未接入 | OpenAI Agents SDK adapter |
 | 安全边界 | 风险等级 / sandbox_required | 实际 sandbox executor |
+
+## 阶段 1 本地控制面
+
+广泛对比 CC Switch、LiteLLM、Portkey Gateway、One API、OpenUsage、mTarsier 后，阶段 1 不应只做一个网页 Provider 面板。更稳妥的本地形态是：
+
+```text
+omni-hubd local daemon
+├── Unix socket API
+├── SQLite state store
+├── Provider Router
+├── usage / cost / quota log
+├── health check / circuit breaker
+├── client config backup
+└── audit log
+
+clients
+├── CLI
+├── macOS desktop app
+└── 127.0.0.1 Web dashboard fallback
+```
+
+详细依据见 [本地控制平面参考项目](local-control-plane-references.md) 和 [Provider Router 设计](provider-router-design.md)。
 
 ## 为什么这样分
 

@@ -28,6 +28,9 @@ build/
 .trash/
 exports/
 
+# Local source references for architecture research
+references/
+
 # Secrets
 .env
 .env.*
