@@ -457,7 +457,7 @@ INDEX_HTML = r"""<!doctype html>
 
       <main class="content">
         <section class="view" data-view-panel="overview">
-          <div class="notice">先按官方厂商配置：OpenAI、Claude、Qwen、DeepSeek、GLM、MiniMax。每个厂商可以保存多套配置，配置列表支持修改、测试、复制脚本、查额度、监控和优先级排序；路由会按优先级选择，故障时自动切到下一级。</div>
+          <div class="notice">先按官方厂商配置：OpenAI、Claude、Qwen、DeepSeek、GLM、MiniMax。每个厂商可以保存多套配置，配置列表支持修改、流式健康检查、模型发现、复制脚本、查额度、监控和优先级排序；路由会按优先级选择，故障时自动切到下一级。</div>
           <div class="metrics" id="metrics"></div>
           <div class="grid">
             <button class="action" data-jump="channels"><strong>配置官方厂商</strong><span>填写 API Key，一键加入厂商配置列表</span></button>
@@ -504,7 +504,8 @@ INDEX_HTML = r"""<!doctype html>
                     <input name="status" type="hidden" value="active">
                     <div class="buttons">
                       <button class="primary">一键添加到列表</button>
-                      <button type="button" class="secondary" id="test-official-draft">测试当前配置</button>
+                      <button type="button" class="secondary" id="fetch-models">发现模型</button>
+                      <button type="button" class="secondary" id="test-official-draft">流式健康检查</button>
                       <button type="button" class="secondary" id="copy-script">复制默认脚本</button>
                     </div>
                     <pre class="script-box" id="script-preview"></pre>
@@ -588,8 +589,8 @@ INDEX_HTML = r"""<!doctype html>
               <div class="panel-body"><div class="chart" id="latency-chart"></div></div>
             </div>
             <div class="panel">
-              <div class="panel-head"><h3>额度与代理</h3><span class="subtle">真实探测</span></div>
-              <div class="panel-body subtle">测试会对优先级最高的模型发起最小请求，记录模型延迟、HTTP 错误码、request id 和响应头里的限流/额度信号。代理配置跟随渠道调用，留空就是 unset。</div>
+              <div class="panel-head"><h3>额度与代理</h3><span class="subtle">流式健康检查</span></div>
+              <div class="panel-body subtle">健康检查会按渠道协议发起最小流式请求，收到首个 chunk 即判定连通；余额查询走厂商专用接口。代理配置跟随渠道调用，留空就是 unset。</div>
             </div>
           </div>
           <div class="panel table-box">
@@ -853,7 +854,7 @@ INDEX_HTML = r"""<!doctype html>
         {label: '额度来源', render: row => escapeHtml(quotaText(row))},
         {label: '代理', render: row => escapeHtml(proxyText(row))},
         {label: '结果', render: row => escapeHtml(row.health.last_error || '')},
-        {label: '操作', render: row => `<button class="secondary" data-check-account="${escapeAttr(row.account_id)}">模型探测</button>`}
+        {label: '操作', render: row => `<button class="secondary" data-check-account="${escapeAttr(row.account_id)}">健康检查</button>`}
       ], (data.accounts || []).map(account => ({...account, health: healthFor(account.account_id)})));
       renderLatencyChart(data.accounts || []);
     }
@@ -880,7 +881,7 @@ INDEX_HTML = r"""<!doctype html>
           </div>
           <div class="buttons">
             <button class="secondary" data-account-action="edit" data-account-id="${escapeAttr(account.account_id)}">修改</button>
-            <button class="secondary" data-account-action="test" data-account-id="${escapeAttr(account.account_id)}">测试</button>
+            <button class="secondary" data-account-action="test" data-account-id="${escapeAttr(account.account_id)}">健康检查</button>
             <button class="secondary" data-account-action="copy" data-account-id="${escapeAttr(account.account_id)}">复制</button>
             <button class="secondary" data-account-action="quota" data-account-id="${escapeAttr(account.account_id)}">查额度</button>
             <button class="secondary" data-account-action="monitor" data-account-id="${escapeAttr(account.account_id)}">监控</button>
@@ -935,14 +936,15 @@ INDEX_HTML = r"""<!doctype html>
 
     async function checkAccount(accountId) {
       if (!accountId) throw new Error('请先选择配置');
-      const data = await api('/api/model-probe', {
+      const data = await api('/api/stream-check', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({account_id: accountId})
       });
       await refresh();
-      const model = data.probe?.model_id || '';
-      showToast(`模型探测完成：${data.health.status}${model ? ` · ${model}` : ''}`);
+      const model = data.stream_check?.model_id || '';
+      const latency = data.stream_check?.responseTimeMs;
+      showToast(`健康检查完成：${data.stream_check?.status || data.health.status}${model ? ` · ${model}` : ''}${latency == null ? '' : ` · ${latency}ms`}`);
     }
 
     async function updateAccountPriority(accountId, priority) {
@@ -1020,8 +1022,35 @@ INDEX_HTML = r"""<!doctype html>
     async function showQuota(accountId) {
       const account = accountById(accountId);
       if (!account.account_id) throw new Error('配置不存在');
-      const quota = quotaText(account);
-      await copyText(quota, quota === '未配置' ? '该配置还没有额度入口' : '额度入口已复制');
+      const data = await api('/api/balance-check', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({account_id: accountId})
+      });
+      if (!data.success) {
+        const fallback = quotaText(account);
+        showToast(data.error === 'unsupported balance provider' && fallback !== '未配置' ? `该厂商未接入余额接口；可去 ${fallback}` : `额度查询失败：${data.error || '未支持'}`, 'warn');
+        return;
+      }
+      const rows = data.data || [];
+      const text = rows.map(row => `${row.plan_name || '余额'} ${row.remaining ?? '-'} ${row.unit || ''}`).join('；') || '余额接口无数据';
+      showToast(`额度查询完成：${text}`);
+    }
+
+    async function fetchModelsForDraft() {
+      const payload = formPayload(document.getElementById('official-form'));
+      const data = await api('/api/model-fetch', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+      });
+      const models = data.models || [];
+      if (!models.length) {
+        showToast('没有发现可用模型', 'warn');
+        return;
+      }
+      document.getElementById('model-ids').value = models.map(item => item.id).join('\n');
+      showToast(`已发现 ${models.length} 个模型`);
     }
 
     async function saveOfficialConfig(notify = true) {
@@ -1122,6 +1151,13 @@ INDEX_HTML = r"""<!doctype html>
       try {
         const data = await saveOfficialConfig(false);
         await checkAccount(data.account.account_id);
+      } catch (err) {
+        showToast(err.message, 'bad');
+      }
+    });
+    document.getElementById('fetch-models').addEventListener('click', async () => {
+      try {
+        await fetchModelsForDraft();
       } catch (err) {
         showToast(err.message, 'bad');
       }

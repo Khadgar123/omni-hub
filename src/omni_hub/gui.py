@@ -5,7 +5,7 @@ import os
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from time import monotonic
+from time import monotonic, time
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import ProxyHandler, Request, build_opener
@@ -29,6 +29,18 @@ from .secrets import SecretStoreError, has_secret, resolve_secret_ref, store_api
 
 
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+
+
+STREAM_CHECK_DEFAULTS: dict[str, Any] = {
+    "timeout_secs": 45,
+    "max_retries": 2,
+    "degraded_threshold_ms": 6000,
+    "test_prompt": "Who are you?",
+}
+
+
+MODEL_FETCH_TIMEOUT_SECS = 15
+BALANCE_CHECK_TIMEOUT_SECS = 10
 
 
 OFFICIAL_PROVIDER_PRESETS: list[dict[str, Any]] = [
@@ -251,6 +263,9 @@ class OmniHubGuiHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/state":
             self._send_json(build_state(self.workspace))
             return
+        if parsed.path == "/api/stream-check-config":
+            self._send_json({"stream_check": dict(STREAM_CHECK_DEFAULTS)})
+            return
         if parsed.path == "/api/health":
             self._send_json({"ok": True})
             return
@@ -458,12 +473,13 @@ def handle_post(
         health = _check_provider(account, store)
         return {"health": store.set_health(health).to_dict()}
 
-    if path == "/api/model-probe":
+    if path in {"/api/stream-check", "/api/model-probe"}:
         account = store.get_account(_required(payload, "account_id"))
-        account_health, model_health, probe = _probe_model(
+        account_health, model_health, stream_check = _stream_check_provider(
             account,
             store,
             model_id=str(payload.get("model_id", "")),
+            config=_stream_check_config(payload),
         )
         stored_account_health = store.set_health(account_health)
         stored_model_health = (
@@ -471,11 +487,23 @@ def handle_post(
             if model_health.model_id
             else stored_account_health.to_dict()
         )
-        return {
+        output = {
             "health": stored_account_health.to_dict(),
             "model_health": stored_model_health,
-            "probe": probe,
+            "stream_check": stream_check,
         }
+        if path == "/api/model-probe":
+            output["probe"] = stream_check
+            output["deprecated"] = "use /api/stream-check"
+        return output
+
+    if path == "/api/model-fetch":
+        fetched = _fetch_models_from_payload(payload, store)
+        return {"models": fetched["models"], "candidates": fetched["candidates"]}
+
+    if path == "/api/balance-check":
+        account = store.get_account(_required(payload, "account_id"))
+        return _balance_check(account)
 
     if path == "/api/channel-model":
         account_id = _required(payload, "account_id")
@@ -714,20 +742,14 @@ def _check_provider(
     )
 
 
-def _probe_model(
+def _stream_check_provider(
     account: ProviderAccount,
     store: ProviderRouterStore,
     *,
     model_id: str = "",
+    config: dict[str, Any] | None = None,
 ) -> tuple[ProviderHealth, ProviderHealth, dict[str, Any]]:
-    base_health = _check_provider(account, store)
-    if base_health.status in {HealthStatus.DOWN, HealthStatus.LIMITED}:
-        return base_health, ProviderHealth.unknown(account.account_id), {
-            "ok": False,
-            "stage": "precheck",
-            "error": base_health.last_error,
-        }
-
+    config = config or dict(STREAM_CHECK_DEFAULTS)
     abilities = store.list_abilities(account_id=account.account_id, enabled=True)
     if model_id:
         abilities = [ability for ability in abilities if ability.model_id == model_id]
@@ -735,11 +757,13 @@ def _probe_model(
         health = ProviderHealth(
             account_id=account.account_id,
             status=HealthStatus.LIMITED,
-            last_error="no enabled model route for probe",
+            last_error="no enabled model route for stream check",
         )
         return health, ProviderHealth.unknown(account.account_id), {
             "ok": False,
             "stage": "route",
+            "status": "failed",
+            "success": False,
             "error": health.last_error,
         }
 
@@ -758,6 +782,8 @@ def _probe_model(
         return _account_health_from_model(health), health, {
             "ok": False,
             "stage": "secret",
+            "status": "failed",
+            "success": False,
             "model_id": model.model_id,
             "error": str(exc),
         }
@@ -771,13 +797,20 @@ def _probe_model(
         return _account_health_from_model(health), health, {
             "ok": False,
             "stage": "secret",
+            "status": "failed",
+            "success": False,
             "model_id": model.model_id,
             "error": health.last_error,
         }
 
-    result = _send_model_probe(account, provider_model_id, api_key)
-    status = _health_status_from_probe(result)
-    last_error = _probe_summary(result)
+    result = _send_stream_check(
+        account,
+        provider_model_id,
+        api_key,
+        config=config,
+    )
+    status = _health_status_from_stream_check(result, config)
+    last_error = _stream_check_summary(result)
     model_health = ProviderHealth(
         account_id=account.account_id,
         model_id=model.model_id,
@@ -786,34 +819,116 @@ def _probe_model(
         consecutive_failures=0 if result.get("ok") else 1,
         last_error=last_error,
     )
-    probe = {
-        **{key: value for key, value in result.items() if key != "body_preview"},
+    stream_check = {
+        **{
+            key: value
+            for key, value in result.items()
+            if key not in {"body_preview"}
+        },
         "model_id": model.model_id,
         "provider_model_id": provider_model_id,
         "account_id": account.account_id,
+        "status": _stream_check_public_status(result, config),
+        "success": bool(result.get("ok")),
+        "message": _stream_check_public_message(result),
+        "responseTimeMs": result.get("latency_ms"),
+        "httpStatus": result.get("http_status"),
+        "modelUsed": provider_model_id,
+        "testedAt": int(time()),
+        "retryCount": int(result.get("retry_count", 0)),
+        "errorCategory": _detect_error_category(
+            int(result.get("http_status") or 0),
+            str(result.get("error", "")),
+        ),
     }
-    return _account_health_from_model(model_health), model_health, probe
+    return _account_health_from_model(model_health), model_health, stream_check
 
 
-def _send_model_probe(
+def _stream_check_config(payload: dict[str, Any]) -> dict[str, Any]:
+    config = dict(STREAM_CHECK_DEFAULTS)
+    if "timeout_secs" in payload:
+        config["timeout_secs"] = max(_int_value(payload.get("timeout_secs")), 1)
+    if "max_retries" in payload:
+        config["max_retries"] = max(_int_value(payload.get("max_retries")), 0)
+    if "degraded_threshold_ms" in payload:
+        config["degraded_threshold_ms"] = max(
+            _int_value(payload.get("degraded_threshold_ms")),
+            1,
+        )
+    if str(payload.get("test_prompt", "")).strip():
+        config["test_prompt"] = str(payload["test_prompt"]).strip()
+    return config
+
+
+def _send_stream_check(
     account: ProviderAccount,
     provider_model_id: str,
     api_key: str,
+    *,
+    config: dict[str, Any],
 ) -> dict[str, Any]:
-    request = _model_probe_request(account, provider_model_id, api_key)
+    max_retries = max(int(config.get("max_retries", 0)), 0)
+    last_result: dict[str, Any] | None = None
+    for attempt in range(max_retries + 1):
+        result = _send_stream_check_once(
+            account,
+            provider_model_id,
+            api_key,
+            timeout_secs=max(int(config.get("timeout_secs", 45)), 1),
+            test_prompt=str(config.get("test_prompt", "Who are you?")),
+        )
+        result["retry_count"] = attempt
+        last_result = result
+        if result.get("ok") or not _stream_check_should_retry(result):
+            return result
+    return last_result or {
+        "ok": False,
+        "http_status": None,
+        "latency_ms": None,
+        "retry_count": max_retries,
+        "error": "stream check failed",
+    }
+
+
+def _send_stream_check_once(
+    account: ProviderAccount,
+    provider_model_id: str,
+    api_key: str,
+    *,
+    timeout_secs: int,
+    test_prompt: str,
+) -> dict[str, Any]:
+    request, api_format = _stream_check_request(
+        account,
+        provider_model_id,
+        api_key,
+        test_prompt=test_prompt,
+    )
     opener = _opener_for_account(account)
     started = monotonic()
     try:
-        with opener.open(request, timeout=10) as response:
-            raw = response.read(65536)
+        with opener.open(request, timeout=timeout_secs) as response:
+            first_chunk = response.read(1)
             latency_ms = int((monotonic() - started) * 1000)
+            if not first_chunk:
+                return {
+                    "ok": False,
+                    "http_status": getattr(response, "status", response.getcode()),
+                    "latency_ms": latency_ms,
+                    "quota": _quota_signals(response.headers),
+                    "request_id": _request_id(response.headers),
+                    "api_format": api_format,
+                    "endpoint": _redact_url(request.full_url),
+                    "error": "No response data received",
+                }
             return {
                 "ok": True,
                 "http_status": getattr(response, "status", response.getcode()),
                 "latency_ms": latency_ms,
                 "quota": _quota_signals(response.headers),
                 "request_id": _request_id(response.headers),
-                "body_preview": _safe_body_preview(raw, api_key),
+                "api_format": api_format,
+                "endpoint": _redact_url(request.full_url),
             }
     except HTTPError as exc:
         raw = exc.read(65536)
@@ -824,6 +939,8 @@ def _send_model_probe(
             "latency_ms": latency_ms,
             "quota": _quota_signals(exc.headers),
             "request_id": _request_id(exc.headers),
+            "api_format": api_format,
+            "endpoint": _redact_url(request.full_url),
             "error": _safe_body_preview(raw, api_key),
         }
     except URLError as exc:
@@ -832,44 +949,78 @@ def _send_model_probe(
             "ok": False,
             "http_status": None,
             "latency_ms": latency_ms,
-            "error": f"network probe failed: {exc.reason}",
+            "api_format": api_format,
+            "endpoint": _redact_url(request.full_url),
+            "error": f"network stream check failed: {exc.reason}",
         }
 
 
-def _model_probe_request(
+def _stream_check_request(
     account: ProviderAccount,
     provider_model_id: str,
     api_key: str,
+    *,
+    test_prompt: str,
 ) -> Request:
-    if account.provider == "claude":
-        url = _probe_endpoint(account.base_url, "messages")
+    api_format = _account_api_format(account)
+    if api_format == "anthropic":
+        url = _api_endpoint(account.base_url, "messages")
         payload = {
             "model": provider_model_id,
             "max_tokens": 1,
-            "messages": [{"role": "user", "content": "ping"}],
+            "messages": [{"role": "user", "content": test_prompt}],
+            "stream": True,
         }
         headers = {
             "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            "Accept-Encoding": "identity",
             "x-api-key": api_key,
             "anthropic-version": "2023-06-01",
         }
-    else:
-        url = _probe_endpoint(account.base_url, "chat/completions")
+    elif api_format == "openai_responses":
+        actual_model, reasoning_effort = _parse_model_with_effort(provider_model_id)
+        url = _api_endpoint(account.base_url, "responses")
         payload = {
-            "model": provider_model_id,
-            "messages": [{"role": "user", "content": "ping"}],
-            "max_tokens": 1,
-            "temperature": 0,
+            "model": actual_model,
+            "input": [{"role": "user", "content": test_prompt}],
+            "stream": True,
+            "max_output_tokens": 1,
+        }
+        if reasoning_effort:
+            payload["reasoning"] = {"effort": reasoning_effort}
+        headers = _bearer_json_headers(api_key, stream=True)
+    elif api_format == "gemini_native":
+        actual_model = _normalize_gemini_model_id(provider_model_id)
+        url = _gemini_stream_endpoint(account.base_url, actual_model)
+        payload = {
+            "contents": [
+                {"role": "user", "parts": [{"text": test_prompt}]},
+            ],
         }
         headers = {
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}",
+            "Accept": "text/event-stream",
+            "x-goog-api-key": api_key,
         }
-    return Request(
-        url,
-        data=json.dumps(payload).encode("utf-8"),
-        headers=headers,
-        method="POST",
+    else:
+        url = _api_endpoint(account.base_url, "chat/completions")
+        payload = {
+            "model": provider_model_id,
+            "messages": [{"role": "user", "content": test_prompt}],
+            "max_tokens": 1,
+            "temperature": 0,
+            "stream": True,
+        }
+        headers = _bearer_json_headers(api_key, stream=True)
+    return (
+        Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        ),
+        api_format,
     )
 
 
@@ -887,8 +1038,16 @@ def _account_health_from_model(model_health: ProviderHealth) -> ProviderHealth:
     )
 
 
-def _health_status_from_probe(result: dict[str, Any]) -> HealthStatus:
+def _health_status_from_stream_check(
+    result: dict[str, Any],
+    config: dict[str, Any],
+) -> HealthStatus:
     if result.get("ok"):
+        latency_ms = result.get("latency_ms")
+        if isinstance(latency_ms, int) and latency_ms > int(
+            config.get("degraded_threshold_ms", 6000)
+        ):
+            return HealthStatus.DEGRADED
         return HealthStatus.HEALTHY
     status = result.get("http_status")
     if status in {401, 403, 429}:
@@ -898,12 +1057,15 @@ def _health_status_from_probe(result: dict[str, Any]) -> HealthStatus:
     return HealthStatus.DOWN
 
 
-def _probe_summary(result: dict[str, Any]) -> str:
+def _stream_check_summary(result: dict[str, Any]) -> str:
     status = result.get("http_status")
     quota = result.get("quota") or {}
     request_id = result.get("request_id")
     if result.get("ok"):
-        details = [f"model probe ok; http={status}"]
+        details = [
+            f"stream check ok; http={status}",
+            f"format={result.get('api_format')}",
+        ]
         if request_id:
             details.append(f"request_id={request_id}")
         if quota:
@@ -913,15 +1075,521 @@ def _probe_summary(result: dict[str, Any]) -> str:
             )
         return "; ".join(details)
     error = str(result.get("error", "")).strip()
-    prefix = f"model probe failed; http={status}"
+    category = _detect_error_category(int(status or 0), error)
+    prefix = f"stream check failed; http={status}"
+    if category:
+        prefix = f"{prefix}; category={category}"
     return f"{prefix}; {error}" if error else prefix
 
 
-def _probe_endpoint(base_url: str, suffix: str) -> str:
+def _stream_check_public_status(
+    result: dict[str, Any],
+    config: dict[str, Any],
+) -> str:
+    if not result.get("ok"):
+        return "failed"
+    latency_ms = result.get("latency_ms")
+    if isinstance(latency_ms, int) and latency_ms > int(
+        config.get("degraded_threshold_ms", 6000)
+    ):
+        return "degraded"
+    return "operational"
+
+
+def _stream_check_public_message(result: dict[str, Any]) -> str:
+    if result.get("ok"):
+        return "Check succeeded"
+    status = result.get("http_status")
+    if isinstance(status, int):
+        return _classify_http_status(status)
+    return str(result.get("error", "Check failed"))
+
+
+def _stream_check_should_retry(result: dict[str, Any]) -> bool:
+    status = result.get("http_status")
+    return status is None or status == 429 or (isinstance(status, int) and status >= 500)
+
+
+def _classify_http_status(status: int) -> str:
+    if status in {400, 422}:
+        return "Request rejected"
+    if status in {401, 403}:
+        return "Authentication failed"
+    if status == 404:
+        return "Endpoint or model not found"
+    if status == 429:
+        return "Rate limited or quota exceeded"
+    if status >= 500:
+        return "Provider server error"
+    return f"HTTP {status}"
+
+
+def _detect_error_category(status: int, body: str) -> str | None:
+    lower = body.lower()
+    if any(
+        item in lower
+        for item in (
+            "coding_plan_hour_quota_exceeded",
+            "coding_plan_week_quota_exceeded",
+            "coding_plan_month_quota_exceeded",
+            "insufficient_quota",
+            "quota exceeded",
+        )
+    ):
+        return "quotaExceeded"
+    if not (400 <= status < 500) or "model" not in lower:
+        return None
+    if any(
+        item in lower
+        for item in (
+            "model_not_found",
+            "model not found",
+            "does not exist",
+            "invalid_model",
+            "invalid model",
+            "unknown_model",
+            "unknown model",
+            "is not a valid model",
+            "not_found_error",
+        )
+    ):
+        return "modelNotFound"
+    return None
+
+
+def _account_api_format(account: ProviderAccount) -> str:
+    notes_format = _note_value(account.notes, "api_format")
+    if notes_format:
+        return notes_format
+    provider = account.provider.lower()
+    if provider in {"claude", "anthropic"}:
+        return "anthropic"
+    if provider == "gemini":
+        return "gemini_native"
+    if "codex" in provider:
+        return "openai_responses"
+    return "openai_chat"
+
+
+def _api_endpoint(base_url: str, suffix: str) -> str:
     clean = base_url.rstrip("/")
-    if clean.endswith(("/chat/completions", "/messages")):
+    if clean.endswith(("/chat/completions", "/messages", "/responses")):
         return clean
     return f"{clean}/{suffix.lstrip('/')}"
+
+
+def _gemini_stream_endpoint(base_url: str, model: str) -> str:
+    clean = base_url.rstrip("/")
+    if ":streamGenerateContent" in clean:
+        return clean
+    if clean.endswith("/models"):
+        return f"{clean}/{model}:streamGenerateContent?alt=sse"
+    if "/v1beta" in clean or "/v1/" in clean:
+        return f"{clean}/models/{model}:streamGenerateContent?alt=sse"
+    return f"{clean}/v1beta/models/{model}:streamGenerateContent?alt=sse"
+
+
+def _bearer_json_headers(api_key: str, *, stream: bool = False) -> dict[str, str]:
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+        "Accept-Encoding": "identity",
+    }
+    if stream:
+        headers["Accept"] = "text/event-stream"
+    return headers
+
+
+def _parse_model_with_effort(model: str) -> tuple[str, str | None]:
+    for separator in ("@", "#"):
+        if separator in model:
+            actual_model, effort = model.rsplit(separator, 1)
+            effort = effort.strip()
+            if actual_model.strip() and effort in {"minimal", "low", "medium", "high"}:
+                return actual_model.strip(), effort
+    return model, None
+
+
+def _normalize_gemini_model_id(model: str) -> str:
+    clean = model.strip().lstrip("/")
+    return clean.removeprefix("models/")
+
+
+MODEL_FETCH_COMPAT_SUFFIXES = (
+    "/api/claudecode",
+    "/api/anthropic",
+    "/apps/anthropic",
+    "/api/coding",
+    "/claudecode",
+    "/anthropic",
+    "/step_plan",
+    "/coding",
+    "/claude",
+)
+
+
+def _fetch_models_from_payload(
+    payload: dict[str, Any],
+    store: ProviderRouterStore,
+) -> dict[str, Any]:
+    account_id = str(payload.get("account_id", "")).strip()
+    if account_id:
+        account = store.get_account(account_id)
+        api_key = resolve_secret_ref(account.secret_ref)
+        base_url = account.base_url
+        is_full_url = bool(payload.get("is_full_url", False))
+        models_url = str(payload.get("models_url", "")).strip()
+    else:
+        base_url = _required(payload, "base_url")
+        account = ProviderAccount(
+            account_id="draft-model-fetch",
+            provider=str(payload.get("provider", "draft")).strip() or "draft",
+            name="Draft Model Fetch",
+            base_url=base_url,
+            secret_ref=str(payload.get("secret_ref", "")),
+            proxy_url=str(payload.get("proxy_url", "")),
+        )
+        api_key = str(payload.get("api_key", "")).strip()
+        if not api_key and account.secret_ref:
+            api_key = resolve_secret_ref(account.secret_ref)
+        is_full_url = bool(payload.get("is_full_url", False))
+        models_url = str(payload.get("models_url", "")).strip()
+
+    if not api_key:
+        raise ValueError("API Key is required to fetch models")
+
+    candidates = _build_models_url_candidates(
+        base_url,
+        is_full_url=is_full_url,
+        models_url_override=models_url,
+    )
+    models = _fetch_models_from_candidates(account, api_key, candidates)
+    return {"models": models, "candidates": candidates}
+
+
+def _fetch_models_from_candidates(
+    account: ProviderAccount,
+    api_key: str,
+    candidates: list[str],
+) -> list[dict[str, str]]:
+    opener = _opener_for_account(account)
+    last_error = "no candidates"
+    for url in candidates:
+        request = Request(
+            url,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Accept": "application/json",
+            },
+            method="GET",
+        )
+        try:
+            with opener.open(request, timeout=MODEL_FETCH_TIMEOUT_SECS) as response:
+                raw = response.read(1_000_000)
+        except HTTPError as exc:
+            body = _safe_body_preview(exc.read(4096), api_key)
+            if exc.code in {404, 405}:
+                last_error = f"HTTP {exc.code}: {body}"
+                continue
+            raise ValueError(f"HTTP {exc.code}: {body}") from exc
+        except URLError as exc:
+            raise ValueError(f"Request failed: {exc.reason}") from exc
+
+        parsed = json.loads(raw.decode("utf-8"))
+        entries = parsed.get("data", []) if isinstance(parsed, dict) else []
+        if not isinstance(entries, list):
+            raise ValueError("Failed to parse models response: data is not a list")
+        models = []
+        for item in entries:
+            if not isinstance(item, dict) or not item.get("id"):
+                continue
+            models.append(
+                {
+                    "id": str(item["id"]),
+                    "owned_by": str(item.get("owned_by", "")),
+                }
+            )
+        return sorted(models, key=lambda item: item["id"])
+    raise ValueError(f"All model endpoint candidates failed: {last_error}")
+
+
+def _build_models_url_candidates(
+    base_url: str,
+    *,
+    is_full_url: bool = False,
+    models_url_override: str = "",
+) -> list[str]:
+    override = models_url_override.strip()
+    if override:
+        return [override]
+
+    clean = base_url.strip().rstrip("/")
+    if not clean:
+        raise ValueError("base_url is required")
+
+    candidates: list[str] = []
+    if is_full_url:
+        marker = "/v1/"
+        if marker in clean:
+            candidates.append(f"{clean.split(marker, 1)[0]}/v1/models")
+        elif "/" in clean.removeprefix("https://").removeprefix("http://"):
+            candidates.append(f"{clean.rsplit('/', 1)[0]}/v1/models")
+        if not candidates:
+            raise ValueError("cannot derive models endpoint from full URL")
+        return _unique(candidates)
+
+    if clean.endswith("/v1"):
+        candidates.append(f"{clean}/models")
+    else:
+        candidates.append(f"{clean}/v1/models")
+
+    stripped = _strip_model_fetch_compat_suffix(clean)
+    if stripped:
+        root = stripped.rstrip("/")
+        candidates.append(f"{root}/v1/models")
+        candidates.append(f"{root}/models")
+    return _unique(candidates)
+
+
+def _strip_model_fetch_compat_suffix(base_url: str) -> str:
+    for suffix in MODEL_FETCH_COMPAT_SUFFIXES:
+        if base_url.endswith(suffix):
+            return base_url[: -len(suffix)]
+    return ""
+
+
+def _unique(items: list[str]) -> list[str]:
+    output: list[str] = []
+    for item in items:
+        if item not in output:
+            output.append(item)
+    return output
+
+
+def _balance_check(account: ProviderAccount) -> dict[str, Any]:
+    try:
+        api_key = resolve_secret_ref(account.secret_ref)
+    except SecretStoreError as exc:
+        return {
+            "account_id": account.account_id,
+            "success": False,
+            "data": None,
+            "error": str(exc),
+            "checked_at": int(time()),
+        }
+    if not api_key:
+        return {
+            "account_id": account.account_id,
+            "success": False,
+            "data": None,
+            "error": f"secret is not available for {account.secret_ref}",
+            "checked_at": int(time()),
+        }
+
+    result = _query_provider_balance(account, api_key)
+    return {
+        "account_id": account.account_id,
+        "provider": account.provider,
+        "quota_ref": _note_value(account.notes, "quota_ref"),
+        "checked_at": int(time()),
+        **result,
+    }
+
+
+def _query_provider_balance(
+    account: ProviderAccount,
+    api_key: str,
+) -> dict[str, Any]:
+    provider = _detect_balance_provider(account.base_url)
+    if provider == "deepseek":
+        return _query_balance_json(
+            account,
+            api_key,
+            "https://api.deepseek.com/user/balance",
+            lambda body: [
+                {
+                    "plan_name": str(info.get("currency", "CNY")),
+                    "remaining": _json_float(info, "total_balance"),
+                    "total": None,
+                    "used": None,
+                    "unit": str(info.get("currency", "CNY")),
+                    "is_valid": bool(body.get("is_available", True)),
+                }
+                for info in body.get("balance_infos", [])
+                if isinstance(info, dict)
+            ],
+        )
+    if provider == "stepfun":
+        return _query_balance_json(
+            account,
+            api_key,
+            "https://api.stepfun.com/v1/accounts",
+            lambda body: [
+                {
+                    "plan_name": "StepFun",
+                    "remaining": _json_float(body, "balance"),
+                    "total": None,
+                    "used": None,
+                    "unit": "CNY",
+                    "is_valid": True,
+                }
+            ],
+        )
+    if provider in {"siliconflow-cn", "siliconflow-en"}:
+        is_cn = provider == "siliconflow-cn"
+        host = "api.siliconflow.cn" if is_cn else "api.siliconflow.com"
+        unit = "CNY" if is_cn else "USD"
+        return _query_balance_json(
+            account,
+            api_key,
+            f"https://{host}/v1/user/info",
+            lambda body: [
+                {
+                    "plan_name": "SiliconFlow" if is_cn else "SiliconFlow (EN)",
+                    "remaining": _json_float(body.get("data", {}), "totalBalance"),
+                    "total": None,
+                    "used": None,
+                    "unit": unit,
+                    "is_valid": True,
+                }
+            ],
+        )
+    if provider == "openrouter":
+        return _query_balance_json(
+            account,
+            api_key,
+            "https://openrouter.ai/api/v1/credits",
+            lambda body: [
+                {
+                    "plan_name": "OpenRouter",
+                    "remaining": (
+                        _json_float(body.get("data", body), "total_credits") or 0
+                    )
+                    - (_json_float(body.get("data", body), "total_usage") or 0),
+                    "total": _json_float(body.get("data", body), "total_credits"),
+                    "used": _json_float(body.get("data", body), "total_usage"),
+                    "unit": "USD",
+                    "is_valid": True,
+                }
+            ],
+        )
+    if provider == "novita":
+        return _query_balance_json(
+            account,
+            api_key,
+            "https://api.novita.ai/v3/user/balance",
+            lambda body: [
+                {
+                    "plan_name": "Novita AI",
+                    "remaining": (_json_float(body, "availableBalance") or 0) / 10000,
+                    "total": None,
+                    "used": None,
+                    "unit": "USD",
+                    "is_valid": True,
+                }
+            ],
+        )
+    return {
+        "success": False,
+        "data": None,
+        "error": "unsupported balance provider",
+    }
+
+
+def _query_balance_json(
+    account: ProviderAccount,
+    api_key: str,
+    url: str,
+    parser: Any,
+) -> dict[str, Any]:
+    request = Request(
+        url,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Accept": "application/json",
+        },
+        method="GET",
+    )
+    opener = _opener_for_account(account)
+    try:
+        with opener.open(request, timeout=BALANCE_CHECK_TIMEOUT_SECS) as response:
+            body = json.loads(response.read(1_000_000).decode("utf-8"))
+    except HTTPError as exc:
+        body_text = _safe_body_preview(exc.read(4096), api_key)
+        return {
+            "success": False,
+            "data": [
+                {
+                    "is_valid": False,
+                    "invalid_message": f"Authentication failed (HTTP {exc.code})"
+                    if exc.code in {401, 403}
+                    else f"API error (HTTP {exc.code})",
+                }
+            ],
+            "error": f"HTTP {exc.code}: {body_text}",
+        }
+    except URLError as exc:
+        return {"success": False, "data": None, "error": f"Network error: {exc.reason}"}
+    except json.JSONDecodeError as exc:
+        return {"success": False, "data": None, "error": f"Failed to parse response: {exc}"}
+
+    try:
+        data = parser(body)
+    except Exception as exc:
+        return {"success": False, "data": None, "error": f"Failed to parse balance: {exc}"}
+    return {"success": True, "data": data or None, "error": None}
+
+
+def _detect_balance_provider(base_url: str) -> str:
+    url = base_url.lower()
+    if "api.deepseek.com" in url:
+        return "deepseek"
+    if "api.stepfun.ai" in url or "api.stepfun.com" in url:
+        return "stepfun"
+    if "api.siliconflow.cn" in url:
+        return "siliconflow-cn"
+    if "api.siliconflow.com" in url:
+        return "siliconflow-en"
+    if "openrouter.ai" in url:
+        return "openrouter"
+    if "api.novita.ai" in url:
+        return "novita"
+    return ""
+
+
+def _json_float(obj: Any, key: str) -> float | None:
+    if not isinstance(obj, dict):
+        return None
+    value = obj.get(key)
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return None
+    return None
+
+
+def _note_value(notes: str, key: str) -> str:
+    prefix = f"{key}="
+    for line in notes.splitlines():
+        if line.startswith(prefix):
+            return line.split("=", 1)[1].strip()
+    return ""
+
+
+def _redact_url(url: str) -> str:
+    parsed = urlparse(url)
+    if not parsed.query:
+        return url
+    query = "&".join(
+        part
+        for part in parsed.query.split("&")
+        if not part.lower().startswith(("key=", "api_key=", "access_token="))
+    )
+    base = url.split("?", 1)[0]
+    return f"{base}?{query}" if query else base
 
 
 def _opener_for_account(account: ProviderAccount):

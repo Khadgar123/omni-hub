@@ -31,7 +31,8 @@ class GuiServerTests(unittest.TestCase):
         self.assertIn("默认脚本", INDEX_HTML)
         self.assertIn("拖拽", INDEX_HTML)
         self.assertIn("自动切换队列", INDEX_HTML)
-        self.assertIn("真实探测", INDEX_HTML)
+        self.assertIn("流式健康检查", INDEX_HTML)
+        self.assertIn("发现模型", INDEX_HTML)
         self.assertIn("实时延迟", INDEX_HTML)
         self.assertIn("Skills", INDEX_HTML)
         self.assertIn('id="toast"', INDEX_HTML)
@@ -166,7 +167,7 @@ class GuiServerTests(unittest.TestCase):
                     thread.join(timeout=2)
                     server.server_close()
 
-    def test_gui_model_probe_records_model_health(self) -> None:
+    def test_gui_stream_check_records_model_health(self) -> None:
         with patch.dict(os.environ, {"OMNI_HUB_SECRET_BACKEND": "memory"}):
             with tempfile.TemporaryDirectory() as tmpdir:
                 server = create_gui_server(tmpdir, port=0)
@@ -185,33 +186,52 @@ class GuiServerTests(unittest.TestCase):
                             "priority": 90,
                         },
                     )
-                    with patch("omni_hub.gui._probe_base_url", return_value=(11, "")):
-                        with patch(
-                            "omni_hub.gui._send_model_probe",
-                            return_value={
-                                "ok": True,
-                                "http_status": 200,
-                                "latency_ms": 42,
-                                "quota": {"x-ratelimit-remaining-requests": "99"},
-                                "request_id": "req-test",
-                            },
-                        ) as send_probe:
-                            probed = _post_json(
-                                f"{base_url}/api/model-probe",
-                                {"account_id": "openai-main"},
-                            )
+                    with patch(
+                        "omni_hub.gui._send_stream_check_once",
+                        return_value={
+                            "ok": True,
+                            "http_status": 200,
+                            "latency_ms": 42,
+                            "quota": {"x-ratelimit-remaining-requests": "99"},
+                            "request_id": "req-test",
+                            "api_format": "openai_chat",
+                            "endpoint": "https://api.openai.com/v1/chat/completions",
+                        },
+                    ) as stream_check:
+                        checked = _post_json(
+                            f"{base_url}/api/stream-check",
+                            {"account_id": "openai-main"},
+                        )
 
-                    self.assertEqual(probed["health"]["status"], "healthy")
-                    self.assertEqual(probed["model_health"]["model_id"], "gpt-5.4")
-                    self.assertEqual(probed["model_health"]["latency_ms"], 42)
-                    self.assertIn("x-ratelimit-remaining-requests", probed["model_health"]["last_error"])
-                    send_probe.assert_called_once()
-                    self.assertEqual(send_probe.call_args.args[1], "gpt-5.4")
-                    self.assertEqual(send_probe.call_args.args[2], "sk-test-raw-secret")
+                    self.assertEqual(checked["health"]["status"], "healthy")
+                    self.assertEqual(checked["stream_check"]["status"], "operational")
+                    self.assertEqual(checked["stream_check"]["api_format"], "openai_chat")
+                    self.assertEqual(checked["model_health"]["model_id"], "gpt-5.4")
+                    self.assertEqual(checked["model_health"]["latency_ms"], 42)
+                    self.assertIn("x-ratelimit-remaining-requests", checked["model_health"]["last_error"])
+                    stream_check.assert_called_once()
+                    self.assertEqual(stream_check.call_args.args[1], "gpt-5.4")
+                    self.assertEqual(stream_check.call_args.args[2], "sk-test-raw-secret")
                 finally:
                     server.shutdown()
                     thread.join(timeout=2)
                     server.server_close()
+
+    def test_gui_model_fetch_candidates_match_cc_switch_shape(self) -> None:
+        from omni_hub.gui import _build_models_url_candidates
+
+        self.assertEqual(
+            _build_models_url_candidates("https://api.example.com/v1"),
+            ["https://api.example.com/v1/models"],
+        )
+        self.assertEqual(
+            _build_models_url_candidates("https://api.deepseek.com/anthropic"),
+            [
+                "https://api.deepseek.com/anthropic/v1/models",
+                "https://api.deepseek.com/v1/models",
+                "https://api.deepseek.com/models",
+            ],
+        )
 
     def test_gui_adds_model_to_channel_with_manual_model_id(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

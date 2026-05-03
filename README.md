@@ -163,7 +163,7 @@ PYTHONPATH=src python3.12 -m omni_hub.cli agent-plan --project writing --task "�
 PYTHONPATH=src python3.12 -m omni_hub.cli gui
 ```
 
-默认打开 `http://127.0.0.1:8765`。GUI 是中文本地控制台，包含总览、模型配置、项目编组、使用选择、监控检测和 Skills；模型配置页先按官方厂商配置 OpenAI、Claude、Qwen、DeepSeek、GLM 和 MiniMax，填写 API Key 或密钥引用后一键加入配置列表。网页填写的 API Key 默认写入 macOS Keychain，SQLite 只保存 `keychain:` 引用。列表支持修改、真实模型探测、复制默认脚本、查额度、监控，以及通过拖拽或上移/下移调整调用优先级；路由会按优先级选择，故障时自动切到下一级。模型探测会对优先级最高的模型发起最小请求，记录模型延迟、HTTP 错误码、request id 和响应头里的限流/额度信号，可能产生极小 API 费用。项目页可以为不同 Agent 角色选择模型、渠道和 Skills。它只管理万象中枢自己的本地状态，不改写 Codex、Claude、Gemini、Cursor 等外部客户端配置。
+默认打开 `http://127.0.0.1:8765`。GUI 是中文本地控制台，包含总览、模型配置、项目编组、使用选择、监控检测和 Skills；模型配置页先按官方厂商配置 OpenAI、Claude、Qwen、DeepSeek、GLM 和 MiniMax，填写 API Key 或密钥引用后一键加入配置列表。网页填写的 API Key 默认写入 macOS Keychain，SQLite 只保存 `keychain:` 引用。列表支持修改、流式健康检查、模型发现、复制默认脚本、查额度、监控，以及通过拖拽或上移/下移调整调用优先级；路由会按优先级选择，故障时自动切到下一级。健康检查会对优先级最高的模型发起最小流式请求，记录模型延迟、HTTP 错误码、request id 和响应头里的限流/额度信号，可能产生极小 API 费用；模型发现走 OpenAI 兼容 `/v1/models` 候选接口；余额查询走厂商专用接口。项目页可以为不同 Agent 角色选择模型、渠道和 Skills。它只管理万象中枢自己的本地状态，不改写 Codex、Claude、Gemini、Cursor 等外部客户端配置。
 
 运行测试：
 
