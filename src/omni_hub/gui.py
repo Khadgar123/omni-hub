@@ -4,6 +4,7 @@ import json
 import os
 import re
 import shlex
+import webbrowser
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -11,7 +12,7 @@ from time import monotonic, time
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import ProxyHandler, Request, build_opener
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 
 from .agent import AgentPlanner, AgentTaskRequest, estimate_input_tokens, task_preview
 from .gui_dashboard import INDEX_HTML
@@ -43,6 +44,19 @@ STREAM_CHECK_DEFAULTS: dict[str, Any] = {
 
 MODEL_FETCH_TIMEOUT_SECS = 15
 BALANCE_CHECK_TIMEOUT_SECS = 10
+
+CURSORLINK_DEFAULT_API_BASE_URL = "https://apicursor.com/v1"
+CURSORLINK_USAGE_BASE_URL = "https://cursorlink.net"
+CURSORLINK_MODEL_ALIASES = [
+    "op-4.6",
+    "so-4.6",
+    "cx-5.5",
+    "cx-5.5-high",
+    "cx-5.5-xhigh",
+    "cx-5.4",
+    "cx-5.4-high",
+    "cx-5.4-xhigh",
+]
 
 
 OFFICIAL_PROVIDER_PRESETS: list[dict[str, Any]] = [
@@ -132,6 +146,7 @@ PROVIDER_PRESETS: list[dict[str, Any]] = [
     {"name": "AiHubMix", "slug": "aihubmix", "base_url": "https://aihubmix.com/v1", "secret_ref": "env:AIHUBMIX_API_KEY", "rank": 95, "category": "hot"},
     {"name": "CodexOpenAI Official", "slug": "codex-openai", "base_url": "https://api.openai.com/v1", "secret_ref": "env:OPENAI_API_KEY", "rank": 92, "category": "official"},
     {"name": "CodexAzure OpenAI", "slug": "codex-azure-openai", "base_url": "https://YOUR_RESOURCE.openai.azure.com/openai/v1", "secret_ref": "env:AZURE_OPENAI_API_KEY", "rank": 90, "category": "official"},
+    {"name": "CursorLink", "slug": "cursorlink", "base_url": CURSORLINK_DEFAULT_API_BASE_URL, "secret_ref": "env:CURSORLINK_API_KEY", "rank": 89, "category": "hot"},
     {"name": "CrazyRouter", "slug": "crazyrouter", "base_url": "", "secret_ref": "env:CRAZYROUTER_API_KEY", "rank": 88, "category": "hot"},
     {"name": "AICoding", "slug": "aicoding", "base_url": "", "secret_ref": "env:AICODING_API_KEY", "rank": 86, "category": "hot"},
     {"name": "RightCode", "slug": "rightcode", "base_url": "", "secret_ref": "env:RIGHTCODE_API_KEY", "rank": 84, "category": "hot"},
@@ -160,6 +175,10 @@ MODEL_PRESETS: list[dict[str, Any]] = [
     {"alias": "Claude Opus", "model_id": "claude-opus-4.5", "provider": "openrouter", "base_url": "https://openrouter.ai/api/v1", "capabilities": ["text", "tools", "vision"], "rank": 94},
     {"alias": "Claude Sonnet", "model_id": "claude-sonnet-4.5", "provider": "openrouter", "base_url": "https://openrouter.ai/api/v1", "capabilities": ["text", "tools", "vision"], "rank": 92},
     {"alias": "Gemini Pro", "model_id": "gemini-3-pro", "provider": "openrouter", "base_url": "https://openrouter.ai/api/v1", "capabilities": ["text", "tools", "vision"], "rank": 90},
+    {"alias": "CursorLink CX 5.5", "model_id": "cx-5.5", "provider": "cursorlink", "base_url": CURSORLINK_DEFAULT_API_BASE_URL, "capabilities": ["text", "tools", "reasoning"], "rank": 89},
+    {"alias": "CursorLink CX 5.5 XHigh", "model_id": "cx-5.5-xhigh", "provider": "cursorlink", "base_url": CURSORLINK_DEFAULT_API_BASE_URL, "capabilities": ["text", "tools", "reasoning"], "rank": 88},
+    {"alias": "CursorLink Sonnet 4.6", "model_id": "so-4.6", "provider": "cursorlink", "base_url": CURSORLINK_DEFAULT_API_BASE_URL, "capabilities": ["text", "tools", "reasoning"], "rank": 87},
+    {"alias": "CursorLink Opus 4.6", "model_id": "op-4.6", "provider": "cursorlink", "base_url": CURSORLINK_DEFAULT_API_BASE_URL, "capabilities": ["text", "tools", "reasoning"], "rank": 86},
     {"alias": "DeepSeek Reasoner", "model_id": "deepseek-reasoner", "provider": "openrouter", "base_url": "https://openrouter.ai/api/v1", "capabilities": ["text", "tools"], "rank": 86},
     {"alias": "Qwen Coder", "model_id": "qwen3-coder", "provider": "openrouter", "base_url": "https://openrouter.ai/api/v1", "capabilities": ["text", "tools"], "rank": 82},
 ]
@@ -235,6 +254,7 @@ def serve_gui(
     host: str = "127.0.0.1",
     port: int = 8765,
     allow_non_localhost: bool = False,
+    open_browser: bool = False,
 ) -> None:
     server = create_gui_server(
         workspace,
@@ -243,7 +263,11 @@ def serve_gui(
         allow_non_localhost=allow_non_localhost,
     )
     bound_host, bound_port = server.server_address[:2]
-    print(f"Omni Hub GUI running at http://{bound_host}:{bound_port}")
+    display_host = "127.0.0.1" if bound_host in {"0.0.0.0", "::"} else bound_host
+    gui_url = f"http://{display_host}:{bound_port}"
+    print(f"Omni Hub GUI running at {gui_url}")
+    if open_browser:
+        webbrowser.open(gui_url)
     print("Press Ctrl+C to stop.")
     try:
         server.serve_forever()
@@ -353,9 +377,16 @@ def handle_post(
     store = ProviderRouterStore(workspace)
     if path == "/api/official-provider-config":
         preset = _official_provider_preset(_required(payload, "provider"))
-        account_id = str(payload.get("account_id", "")).strip() or (
-            f"{preset['slug']}-main"
+        base_url = str(payload.get("base_url", "")).strip() or str(preset["base_url"])
+        account_group = _provider_channel_group(preset, base_url)
+        requested_account_id = str(payload.get("account_id", "")).strip()
+        account_id = requested_account_id or _default_account_id_for_preset(
+            preset,
+            base_url,
         )
+        legacy_default_ids = {f"{preset['slug']}-main", f"{preset['slug']}-official"}
+        if account_group == "relay" and requested_account_id in legacy_default_ids:
+            account_id = _default_account_id_for_preset(preset, base_url)
         api_key = str(payload.get("api_key", "")).strip()
         secret_ref = str(payload.get("secret_ref", "")).strip()
         secret_mode = "ref"
@@ -387,6 +418,7 @@ def handle_post(
             item
             for item in [
                 f"official_provider={preset['slug']}",
+                f"channel_group={account_group}",
                 f"quota_ref={quota_ref}" if quota_ref else "",
                 f"api_key_storage={secret_mode}" if secret_mode != "ref" else "",
                 _payload_note(payload, "api_format"),
@@ -423,12 +455,11 @@ def handle_post(
             account_id=account_id,
             provider=str(preset["provider"]),
             name=str(payload.get("name", "")).strip() or str(preset["name"]),
-            base_url=str(payload.get("base_url", "")).strip()
-            or str(preset["base_url"]),
+            base_url=base_url,
             secret_ref=secret_ref,
             proxy_url=str(payload.get("proxy_url", "")).strip(),
             status=ProviderAccountStatus(str(payload.get("status", "active"))),
-            account_group="official",
+            account_group=account_group,
             notes=notes,
         )
         stored_account = store.upsert_account(account)
@@ -543,6 +574,14 @@ def handle_post(
     if path == "/api/balance-check":
         account = store.get_account(_required(payload, "account_id"))
         return _balance_check(account)
+
+    if path == "/api/provider-duplicate":
+        return _duplicate_provider_account(store, _required(payload, "account_id"))
+
+    if path == "/api/provider-delete":
+        account_id = _required(payload, "account_id")
+        store.delete_account(account_id)
+        return {"deleted": account_id}
 
     if path == "/api/provider-script":
         account = store.get_account(_required(payload, "account_id"))
@@ -734,6 +773,89 @@ def _official_provider_preset(slug: str) -> dict[str, Any]:
         if normalized in {str(preset["slug"]).lower(), str(preset["provider"]).lower()}:
             return preset
     raise ValueError(f"unknown official provider: {slug}")
+
+
+def _provider_channel_group(preset: dict[str, Any], base_url: str) -> str:
+    return "official" if _same_base_url(base_url, str(preset.get("base_url", ""))) else "relay"
+
+
+def _same_base_url(left: str, right: str) -> bool:
+    return left.strip().rstrip("/").lower() == right.strip().rstrip("/").lower()
+
+
+def _default_account_id_for_preset(preset: dict[str, Any], base_url: str) -> str:
+    slug = str(preset["slug"])
+    if _provider_channel_group(preset, base_url) == "official":
+        return f"{slug}-official"
+    parsed = urlparse(base_url.strip())
+    host = parsed.netloc or parsed.path.split("/", 1)[0]
+    suffix = re.sub(r"[^a-z0-9]+", "-", host.lower()).strip("-") or "relay"
+    account_id = f"{slug}-{suffix}".strip("-")
+    return account_id[:64].rstrip("-") or f"{slug}-relay"
+
+
+def _duplicate_provider_account(
+    store: ProviderRouterStore,
+    account_id: str,
+) -> dict[str, Any]:
+    source = store.get_account(account_id)
+    new_account_id = _next_account_copy_id(store, account_id)
+    notes = "\n".join(
+        item
+        for item in [
+            source.notes.strip(),
+            f"duplicated_from={source.account_id}",
+        ]
+        if item
+    )
+    copied_account = store.upsert_account(
+        ProviderAccount(
+            account_id=new_account_id,
+            provider=source.provider,
+            name=f"{source.name} 副本",
+            base_url=source.base_url,
+            secret_ref=source.secret_ref,
+            proxy_url=source.proxy_url,
+            status=source.status,
+            account_group=source.account_group,
+            notes=notes,
+        )
+    )
+    abilities = []
+    for ability in store.list_abilities(account_id=source.account_id):
+        copied = RouteAbility(
+            account_id=copied_account.account_id,
+            model_id=ability.model_id,
+            enabled=ability.enabled,
+            priority=max(ability.priority - 1, 0),
+            weight=ability.weight,
+            model_mapping=ability.model_mapping,
+            notes="\n".join(
+                item
+                for item in [
+                    ability.notes.strip(),
+                    f"duplicated_from={source.account_id}",
+                ]
+                if item
+            ),
+        )
+        abilities.append(store.upsert_ability(copied).to_dict())
+    return {"account": copied_account.to_dict(), "abilities": abilities}
+
+
+def _next_account_copy_id(store: ProviderRouterStore, account_id: str) -> str:
+    base = re.sub(r"[^a-z0-9_.-]+", "-", account_id.lower()).strip("-._")
+    if not base:
+        base = "provider"
+    base = base[:56].rstrip("-._")
+    for index in range(1, 1000):
+        suffix = "-copy" if index == 1 else f"-copy{index}"
+        candidate = f"{base[:64 - len(suffix)]}{suffix}"
+        try:
+            store.get_account(candidate)
+        except KeyError:
+            return candidate
+    raise ValueError(f"too many copies for account: {account_id}")
 
 
 def _check_provider(
@@ -1734,7 +1856,11 @@ def _query_provider_balance(
                 }
             ],
         )
+    if provider == "cursorlink":
+        return _query_cursorlink_balance(account, api_key)
     template = _note_value(account.notes, "usage_template") or "auto"
+    if template == "cursorlink":
+        return _query_cursorlink_balance(account, api_key)
     if template in {"auto", "generic", "newapi"}:
         generic = _query_generic_balance(account, api_key, template=template)
         if generic["success"] or not provider:
@@ -1813,6 +1939,19 @@ def _newapi_usage_headers(account: ProviderAccount, api_key: str) -> dict[str, s
     if user_id:
         headers["New-Api-User"] = user_id
     return headers
+
+
+def _query_cursorlink_balance(account: ProviderAccount, api_key: str) -> dict[str, Any]:
+    root = _balance_root_url(
+        _note_value(account.notes, "usage_base_url") or CURSORLINK_USAGE_BASE_URL
+    )
+    usage_endpoint = _note_value(account.notes, "usage_endpoint") or "/api/cursor/queryCredits"
+    return _query_balance_form(
+        account,
+        _join_url(root, usage_endpoint),
+        {"apiKey": api_key},
+        _parse_cursorlink_balance,
+    )
 
 
 def _unique_balance_candidates(
@@ -1897,6 +2036,7 @@ def _parse_generic_balance(body: dict[str, Any]) -> list[dict[str, Any]]:
         _json_float(data, "used")
         or _json_float(quota_data, "used")
         or _json_float(data, "total_usage")
+        or _json_float(data, "totalCreditsUsed")
     )
     if remaining is None and total is not None and used is not None:
         remaining = total - used
@@ -1913,6 +2053,52 @@ def _parse_generic_balance(body: dict[str, Any]) -> list[dict[str, Any]]:
             "used": used,
             "unit": unit,
             "is_valid": bool(is_valid),
+        }
+    ]
+
+
+def _parse_cursorlink_balance(body: dict[str, Any]) -> list[dict[str, Any]]:
+    data = body.get("data", body)
+    if not isinstance(data, dict):
+        return []
+    code = data.get("code", body.get("code"))
+    msg = str(data.get("msg") or body.get("msg") or "")
+    remaining = _json_float(data, "credits")
+    used = _json_float(data, "totalCreditsUsed")
+    total = (remaining + used) if remaining is not None and used is not None else None
+    status = str(data.get("status") or "")
+    is_valid = code in (0, "0", None) and status.lower() not in {"banned", "deleted"}
+    if remaining is None:
+        return [
+            {
+                "plan_name": str(data.get("plan") or "CursorLink"),
+                "remaining": None,
+                "total": None,
+                "used": used,
+                "unit": "USD",
+                "is_valid": False,
+                "invalid_message": msg or "CursorLink balance response did not include credits",
+            }
+        ]
+    return [
+        {
+            "plan_name": str(data.get("plan") or "CursorLink"),
+            "remaining": remaining,
+            "total": total,
+            "used": used,
+            "unit": "USD",
+            "is_valid": bool(is_valid),
+            "invalid_message": "" if is_valid else msg,
+            "extra": {
+                key: value
+                for key, value in {
+                    "total_requests": data.get("totalRequests"),
+                    "expires_at": data.get("expiresAt"),
+                    "remain_days": data.get("remainDays"),
+                    "status": data.get("status"),
+                }.items()
+                if value not in (None, "")
+            },
         }
     ]
 
@@ -1963,6 +2149,54 @@ def _query_balance_json(
     return {"success": True, "data": data or None, "error": None}
 
 
+def _query_balance_form(
+    account: ProviderAccount,
+    url: str,
+    fields: dict[str, str],
+    parser: Any,
+) -> dict[str, Any]:
+    body = urlencode(fields).encode("utf-8")
+    request = Request(
+        url,
+        data=body,
+        headers={
+            "Accept": "application/json",
+            "Content-Type": "application/x-www-form-urlencoded",
+            "User-Agent": "omni-hub/0.1",
+        },
+        method="POST",
+    )
+    opener = _opener_for_account(account)
+    secret = fields.get("apiKey") or fields.get("secretKey") or ""
+    try:
+        with opener.open(request, timeout=BALANCE_CHECK_TIMEOUT_SECS) as response:
+            response_body = json.loads(response.read(1_000_000).decode("utf-8"))
+    except HTTPError as exc:
+        body_text = _safe_body_preview(exc.read(4096), secret)
+        return {
+            "success": False,
+            "data": [
+                {
+                    "is_valid": False,
+                    "invalid_message": f"Authentication failed (HTTP {exc.code})"
+                    if exc.code in {401, 403}
+                    else f"API error (HTTP {exc.code})",
+                }
+            ],
+            "error": f"{url}: HTTP {exc.code}: {body_text}",
+        }
+    except URLError as exc:
+        return {"success": False, "data": None, "error": f"{url}: Network error: {exc.reason}"}
+    except json.JSONDecodeError as exc:
+        return {"success": False, "data": None, "error": f"{url}: Failed to parse response: {exc}"}
+
+    try:
+        data = parser(response_body)
+    except Exception as exc:
+        return {"success": False, "data": None, "error": f"{url}: Failed to parse balance: {exc}"}
+    return {"success": True, "data": data or None, "error": None}
+
+
 def _detect_balance_provider(base_url: str) -> str:
     url = base_url.lower()
     if "api.deepseek.com" in url:
@@ -1977,6 +2211,8 @@ def _detect_balance_provider(base_url: str) -> str:
         return "openrouter"
     if "api.novita.ai" in url:
         return "novita"
+    if "apicursor.com" in url or "cursoropenai.com" in url:
+        return "cursorlink"
     return ""
 
 

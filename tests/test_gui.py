@@ -16,6 +16,7 @@ from omni_hub.gui import (
     OFFICIAL_PROVIDER_PRESETS,
     _fetch_models_from_payload,
     _model_entries,
+    _parse_cursorlink_balance,
     _parse_newapi_balance,
     _provider_script_response,
     create_gui_server,
@@ -35,16 +36,19 @@ class GuiServerTests(unittest.TestCase):
         self.assertIn("默认模型", INDEX_HTML)
         self.assertIn("Codex 配置", INDEX_HTML)
         self.assertIn('id="provider-modal"', INDEX_HTML)
-        self.assertIn("默认脚本", INDEX_HTML)
+        self.assertIn("导出 export 脚本", INDEX_HTML)
         self.assertIn("拖拽", INDEX_HTML)
         self.assertIn("自动切换队列", INDEX_HTML)
-        self.assertIn("模型探测", INDEX_HTML)
+        self.assertIn("测试连接", INDEX_HTML)
         self.assertIn("发现模型", INDEX_HTML)
         self.assertIn("接口地址", INDEX_HTML)
         self.assertIn("API 格式", INDEX_HTML)
         self.assertIn("并发上限", INDEX_HTML)
         self.assertIn("项目模型包", INDEX_HTML)
         self.assertIn("实时延迟", INDEX_HTML)
+        self.assertIn("复制条目", INDEX_HTML)
+        self.assertIn("删除", INDEX_HTML)
+        self.assertIn("CursorLink", INDEX_HTML)
         self.assertIn("Skills", INDEX_HTML)
         self.assertIn('id="toast"', INDEX_HTML)
         self.assertNotIn("使用选择", INDEX_HTML)
@@ -226,6 +230,85 @@ class GuiServerTests(unittest.TestCase):
                     state = _get_json(f"{base_url}/api/state")
                     self.assertNotIn("sk-local", json.dumps(state))
                     self.assertIn("sk-local-secret", secret_file.read_text())
+                finally:
+                    server.shutdown()
+                    thread.join(timeout=2)
+                    server.server_close()
+
+    def test_gui_relay_channel_does_not_overwrite_official_default_slot(self) -> None:
+        with patch.dict(os.environ, {"OMNI_HUB_SECRET_BACKEND": "memory"}):
+            with tempfile.TemporaryDirectory() as tmpdir:
+                server = create_gui_server(tmpdir, port=0)
+                thread = threading.Thread(target=server.serve_forever, daemon=True)
+                thread.start()
+                base_url = f"http://{server.server_address[0]}:{server.server_address[1]}"
+                try:
+                    configured = _post_json(
+                        f"{base_url}/api/official-provider-config",
+                        {
+                            "provider": "openai",
+                            "account_id": "openai-main",
+                            "name": "OpenAI Relay",
+                            "base_url": "https://api.vip1129.cc",
+                            "api_key": "sk-relay-secret",
+                            "model_ids": "gpt-5.5",
+                        },
+                    )
+
+                    self.assertEqual(
+                        configured["account"]["account_id"],
+                        "openai-api-vip1129-cc",
+                    )
+                    self.assertEqual(configured["account"]["account_group"], "relay")
+                    self.assertIn("channel_group=relay", configured["account"]["notes"])
+                    state = _get_json(f"{base_url}/api/state")
+                    account_ids = {item["account_id"] for item in state["accounts"]}
+                    self.assertNotIn("openai-main", account_ids)
+                finally:
+                    server.shutdown()
+                    thread.join(timeout=2)
+                    server.server_close()
+
+    def test_gui_can_duplicate_and_delete_provider_channel(self) -> None:
+        with patch.dict(os.environ, {"OMNI_HUB_SECRET_BACKEND": "memory"}):
+            with tempfile.TemporaryDirectory() as tmpdir:
+                server = create_gui_server(tmpdir, port=0)
+                thread = threading.Thread(target=server.serve_forever, daemon=True)
+                thread.start()
+                base_url = f"http://{server.server_address[0]}:{server.server_address[1]}"
+                try:
+                    configured = _post_json(
+                        f"{base_url}/api/official-provider-config",
+                        {
+                            "provider": "openai",
+                            "account_id": "openai-main",
+                            "name": "OpenAI Main",
+                            "base_url": "https://api.openai.com/v1",
+                            "api_key": "sk-test",
+                            "model_ids": "gpt-a\ngpt-b",
+                            "priority": 90,
+                        },
+                    )
+                    copied = _post_json(
+                        f"{base_url}/api/provider-duplicate",
+                        {"account_id": configured["account"]["account_id"]},
+                    )
+
+                    self.assertEqual(copied["account"]["account_id"], "openai-main-copy")
+                    self.assertEqual(
+                        copied["account"]["secret_ref"],
+                        configured["account"]["secret_ref"],
+                    )
+                    self.assertEqual(len(copied["abilities"]), 2)
+                    self.assertEqual(copied["abilities"][0]["priority"], 89)
+
+                    _post_json(
+                        f"{base_url}/api/provider-delete",
+                        {"account_id": "openai-main-copy"},
+                    )
+                    state = _get_json(f"{base_url}/api/state")
+                    account_ids = {account["account_id"] for account in state["accounts"]}
+                    self.assertNotIn("openai-main-copy", account_ids)
                 finally:
                     server.shutdown()
                     thread.join(timeout=2)
@@ -473,6 +556,26 @@ class GuiServerTests(unittest.TestCase):
         self.assertEqual(parsed[0]["remaining"], 68.73)
         self.assertEqual(parsed[0]["unit"], "USD")
         self.assertTrue(parsed[0]["is_valid"])
+
+    def test_gui_cursorlink_balance_parser_matches_query_credits(self) -> None:
+        parsed = _parse_cursorlink_balance(
+            {
+                "code": 0,
+                "credits": 2260.86,
+                "totalCreditsUsed": 2454.17,
+                "totalRequests": 6673,
+                "plan": "pro",
+                "expiresAt": "2026-06-02 21:37:46",
+                "status": "active",
+                "remainDays": 30,
+            }
+        )
+
+        self.assertEqual(parsed[0]["plan_name"], "pro")
+        self.assertEqual(parsed[0]["remaining"], 2260.86)
+        self.assertEqual(parsed[0]["used"], 2454.17)
+        self.assertAlmostEqual(parsed[0]["total"], 4715.03)
+        self.assertEqual(parsed[0]["extra"]["total_requests"], 6673)
 
     def test_gui_adds_model_to_channel_with_manual_model_id(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

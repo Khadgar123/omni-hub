@@ -479,6 +479,20 @@ class ProviderRouterStore:
         account.notes = _append_note(account.notes, reason)
         return self.upsert_account(account)
 
+    def delete_account(self, account_id: str) -> None:
+        validate_account_id(account_id)
+        if not self.db_path.exists():
+            raise KeyError(f"provider account does not exist: {account_id}")
+        with self._connect() as conn:
+            existing = self._get_account(conn, account_id)
+            if existing is None:
+                raise KeyError(f"provider account does not exist: {account_id}")
+            conn.execute(
+                "DELETE FROM provider_accounts WHERE account_id = ?",
+                (account_id,),
+            )
+            conn.commit()
+
     def upsert_model(self, model: ModelSpec) -> ModelSpec:
         now = _now()
         with self._connect() as conn:

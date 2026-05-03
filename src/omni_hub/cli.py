@@ -217,6 +217,7 @@ def build_parser() -> argparse.ArgumentParser:
     gui = subparsers.add_parser("gui")
     gui.add_argument("--host", default="127.0.0.1")
     gui.add_argument("--port", type=int, default=8765)
+    gui.add_argument("--open", action="store_true")
     gui.add_argument("--allow-non-localhost", action="store_true")
 
     policy = subparsers.add_parser("check-policy")
@@ -669,6 +670,7 @@ def main(argv: list[str] | None = None) -> int:
             host=args.host,
             port=args.port,
             allow_non_localhost=args.allow_non_localhost,
+            open_browser=args.open,
         )
         return 0
 

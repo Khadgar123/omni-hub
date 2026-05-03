@@ -175,6 +175,11 @@ INDEX_HTML = r"""<!doctype html>
       color: #fff;
       font-weight: 600;
     }
+    .danger {
+      border-color: #e5a5a0;
+      background: var(--soft-red);
+      color: var(--red);
+    }
     .choice, .action {
       height: auto;
       min-height: 58px;
@@ -546,7 +551,7 @@ INDEX_HTML = r"""<!doctype html>
             </div>
 
             <div class="panel table-box">
-              <div class="panel-head"><h3 id="provider-list-title">当前厂商渠道</h3><span class="subtle">拖拽或上移/下移调整启用顺序</span></div>
+              <div class="panel-head"><h3 id="provider-list-title">当前厂商渠道</h3><span class="subtle">拖拽左侧排序块即可调整启用顺序</span></div>
               <div id="providerConfigList"></div>
             </div>
             <div class="panel table-box">
@@ -594,12 +599,12 @@ INDEX_HTML = r"""<!doctype html>
               <div class="panel-body"><div class="chart" id="latency-chart"></div></div>
             </div>
             <div class="panel">
-              <div class="panel-head"><h3>额度与代理</h3><span class="subtle">真实模型探测</span></div>
-              <div class="panel-body subtle">模型探测会按渠道协议发起最小流式请求，收到首个 chunk 即判定连通；余额查询走厂商专用接口。代理配置跟随渠道调用，留空就是 unset。</div>
+              <div class="panel-head"><h3>额度与代理</h3><span class="subtle">刷新后回写当前表格</span></div>
+              <div class="panel-body subtle">刷新会读取余额接口并更新本页显示；代理配置跟随渠道调用，留空就是 unset。连接测试仍使用最小请求，可能产生极小 token 成本。</div>
             </div>
           </div>
-          <div class="panel table-box">
-            <div class="panel-head"><h3>模型配置健康与用量</h3><button class="secondary" id="check-all">检测全部</button></div>
+            <div class="panel table-box">
+            <div class="panel-head"><h3>模型配置健康与用量</h3><button class="secondary" id="check-all">刷新全部</button></div>
             <div id="monitorTable"></div>
           </div>
         </section>
@@ -698,6 +703,7 @@ INDEX_HTML = r"""<!doctype html>
                 <option value="auto">自动探测</option>
                 <option value="newapi">New API</option>
                 <option value="generic">通用余额</option>
+                <option value="cursorlink">CursorLink</option>
               </select></label>
               <label>用量 Base URL<input name="usage_base_url" id="usage-base-url" placeholder="留空使用接口地址"></label>
               <label>自定义用量路径<input name="usage_endpoint" id="usage-endpoint" placeholder="/v1/usage"></label>
@@ -712,9 +718,9 @@ INDEX_HTML = r"""<!doctype html>
           <div class="buttons">
             <button class="primary" id="save-provider-button">保存渠道</button>
             <button type="button" class="secondary" id="fetch-models">发现模型</button>
-            <button type="button" class="secondary" id="test-official-draft">模型探测</button>
-            <button type="button" class="secondary" id="copy-script">复制默认脚本</button>
-            <button type="button" class="secondary" id="copy-codex-config">复制 Codex 配置</button>
+            <button type="button" class="secondary" id="test-official-draft">测试连接</button>
+            <button type="button" class="secondary" id="copy-script">导出 export 脚本</button>
+            <button type="button" class="secondary" id="copy-codex-config">导出 Codex 配置</button>
           </div>
           <pre class="script-box" id="script-preview"></pre>
         </form>
@@ -733,7 +739,7 @@ INDEX_HTML = r"""<!doctype html>
       monitor: ['监控检测', '检测模型配置、实时延迟、额度、代理和失败。'],
       skills: ['Skills', '技能安装、同步、质量评分和项目推荐的控制面。']
     };
-    const state = {data: null, view: 'overview', officialProvider: null, providerModalMode: 'add', realtime: false, realtimeTimer: null, dragAccount: null, projectBundle: null};
+    const state = {data: null, view: 'overview', officialProvider: null, providerModalMode: 'add', realtime: false, realtimeTimer: null, dragAccount: null, projectBundle: null, balances: {}};
     const tableState = {};
 
     const api = async (url, options = {}) => {
@@ -784,6 +790,55 @@ INDEX_HTML = r"""<!doctype html>
       const found = notes.split('\n').find(line => /quota|额度|balance|dashboard/i.test(line));
       return found || '未配置';
     };
+    const balanceText = account => {
+      const cached = state.balances[account.account_id];
+      if (!cached) return quotaText(account);
+      if (!cached.success) return cached.error ? `失败：${cached.error}` : '余额查询失败';
+      const rows = cached.data || [];
+      return rows.map(row => {
+        const pieces = [
+          row.plan_name || '余额',
+          row.remaining == null ? '-' : row.remaining,
+          row.unit || ''
+        ].filter(Boolean);
+        const extra = row.extra || {};
+        const suffix = [
+          row.used == null ? '' : `已用 ${row.used}`,
+          extra.total_requests == null ? '' : `请求 ${extra.total_requests}`,
+          extra.remain_days == null ? '' : `剩余 ${extra.remain_days} 天`
+        ].filter(Boolean).join(' · ');
+        return suffix ? `${pieces.join(' ')} · ${suffix}` : pieces.join(' ');
+      }).join('；') || '余额接口无数据';
+    };
+    const sameBaseUrl = (left, right) => String(left || '').trim().replace(/\/+$/, '').toLowerCase() === String(right || '').trim().replace(/\/+$/, '').toLowerCase();
+    const channelGroup = (preset, baseUrl) => sameBaseUrl(baseUrl, preset?.base_url || '') ? 'official' : 'relay';
+    const idFromBaseUrl = (preset, baseUrl) => {
+      let host = 'relay';
+      try {
+        host = new URL(baseUrl).host || host;
+      } catch (_) {
+        host = String(baseUrl || '').replace(/^https?:\/\//, '').split('/')[0] || host;
+      }
+      const suffix = host.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'relay';
+      return `${preset.slug}-${suffix}`.slice(0, 64).replace(/-+$/g, '') || `${preset.slug}-relay`;
+    };
+    const isPresetDefaultAccountId = (preset, accountId) => [`${preset.slug}-main`, `${preset.slug}-official`].includes(accountId);
+    function normalizeDraftProviderPayload(payload) {
+      const preset = state.officialProvider;
+      if (!preset) return payload;
+      const group = channelGroup(preset, payload.base_url);
+      if (state.providerModalMode === 'add' && group === 'relay' && isPresetDefaultAccountId(preset, payload.account_id)) {
+        payload.account_id = idFromBaseUrl(preset, payload.base_url);
+        document.getElementById('account-id').value = payload.account_id;
+        const defaultOfficialName = `${preset.name} 官方`;
+        if (!payload.name || payload.name === defaultOfficialName) {
+          const host = payload.account_id.replace(`${preset.slug}-`, '');
+          payload.name = `${preset.name} 中转 · ${host}`;
+          document.getElementById('provider-name').value = payload.name;
+        }
+      }
+      return payload;
+    }
     const officialProviders = () => state.data?.official_providers || [];
     const providerPreset = slug => officialProviders().find(item => item.slug === slug || item.provider === slug);
     const providerName = slug => providerPreset(slug)?.name || slug;
@@ -884,7 +939,7 @@ INDEX_HTML = r"""<!doctype html>
     function applyOfficialProvider(preset, notify = true) {
       state.officialProvider = preset;
       document.getElementById('official-provider').value = preset.slug;
-      document.getElementById('account-id').value = `${preset.slug}-main`;
+      document.getElementById('account-id').value = `${preset.slug}-official`;
       document.getElementById('provider-name').value = `${preset.name} 官方`;
       document.getElementById('base-url').value = preset.base_url || '';
       document.getElementById('secret-ref').value = '';
@@ -1011,10 +1066,10 @@ INDEX_HTML = r"""<!doctype html>
         {label: '状态', render: row => pill(row.health.status || 'unknown')},
         {label: '延迟', render: row => row.health.latency_ms == null ? '待探测' : `${row.health.latency_ms} ms`},
         {label: '模型数', render: row => String(poolRows().filter(item => item.account_id === row.account_id).length)},
-        {label: '额度来源', render: row => escapeHtml(quotaText(row))},
+        {label: '余额', render: row => escapeHtml(balanceText(row))},
         {label: '代理', render: row => escapeHtml(proxyText(row))},
         {label: '结果', render: row => escapeHtml(row.health.last_error || '')},
-        {label: '操作', render: row => `<button class="secondary" data-check-account="${escapeAttr(row.account_id)}">模型探测</button>`}
+        {label: '操作', render: row => `<button class="secondary" data-account-action="refresh" data-account-id="${escapeAttr(row.account_id)}">刷新</button>`}
       ], (data.accounts || []).map(account => ({...account, health: healthFor(account.account_id)})));
       renderLatencyChart(data.accounts || []);
     }
@@ -1026,9 +1081,10 @@ INDEX_HTML = r"""<!doctype html>
       const rows = accountRows(provider);
       container.innerHTML = rows.length ? `<div class="config-list">${rows.map(row => {
         const account = row.account;
-        const quota = quotaText(account);
+        const quota = balanceText(account);
         const modelText = row.models.join(', ') || '未配置模型';
         const defaultModel = noteValue(account.notes, 'default_model') || row.models[0] || '未设置';
+        const group = account.account_group === 'official' ? '官方' : '中转';
         const concurrency = noteValue(account.notes, 'max_concurrency') || '未知';
         const rpm = noteValue(account.notes, 'rpm_limit') || '未知';
         return `<div class="config-row" draggable="true" data-account-row="${escapeAttr(account.account_id)}">
@@ -1041,6 +1097,7 @@ INDEX_HTML = r"""<!doctype html>
             <div class="tag-row">
               ${pill(account.status)}
               ${pill(row.health.status || 'unknown')}
+              <span class="pill info">${escapeHtml(group)}</span>
               <span class="pill info">优先级 ${escapeHtml(row.priority)}</span>
               <span class="pill info">代理 ${escapeHtml(proxyText(account))}</span>
               <span class="pill info">并发 ${escapeHtml(concurrency)}</span>
@@ -1049,14 +1106,12 @@ INDEX_HTML = r"""<!doctype html>
             <span class="subtle">配置 ID：${escapeHtml(account.account_id)} · 默认：${escapeHtml(defaultModel)} · 模型：${escapeHtml(modelText)} · 额度：${escapeHtml(quota)}</span>
           </div>
           <div class="config-actions">
-            <button class="primary" data-account-action="test" data-account-id="${escapeAttr(account.account_id)}">模型探测</button>
-            <button class="secondary" data-account-action="quota" data-account-id="${escapeAttr(account.account_id)}">查额度</button>
-            <button class="secondary" data-account-action="monitor" data-account-id="${escapeAttr(account.account_id)}">监控</button>
-            <button class="secondary" data-account-action="copy" data-account-id="${escapeAttr(account.account_id)}">复制脚本</button>
-            <button class="secondary" data-account-action="codex-config" data-account-id="${escapeAttr(account.account_id)}">Codex 配置</button>
+            <button class="primary" data-account-action="refresh" data-account-id="${escapeAttr(account.account_id)}">刷新</button>
+            <button class="secondary" data-account-action="duplicate" data-account-id="${escapeAttr(account.account_id)}">复制条目</button>
+            <button class="secondary" data-account-action="export-shell" data-account-id="${escapeAttr(account.account_id)}">导出脚本</button>
+            <button class="secondary" data-account-action="export-codex" data-account-id="${escapeAttr(account.account_id)}">导出 Codex</button>
             <button class="secondary" data-account-action="edit" data-account-id="${escapeAttr(account.account_id)}">修改</button>
-            <button class="secondary" data-account-action="up" data-account-id="${escapeAttr(account.account_id)}">上移</button>
-            <button class="secondary" data-account-action="down" data-account-id="${escapeAttr(account.account_id)}">下移</button>
+            <button class="secondary danger" data-account-action="delete" data-account-id="${escapeAttr(account.account_id)}">删除</button>
           </div>
         </div>`;
       }).join('')}</div>` : '<div class="panel-body subtle">当前厂商还没有渠道。添加官方渠道或中转站后，会只出现在这个厂商列表里。</div>';
@@ -1128,7 +1183,7 @@ INDEX_HTML = r"""<!doctype html>
       await refresh();
       const model = data.stream_check?.model_id || '';
       const latency = data.stream_check?.responseTimeMs;
-      showToast(`模型探测完成：${data.stream_check?.status || data.health.status}${model ? ` · ${model}` : ''}${latency == null ? '' : ` · ${latency}ms`}`);
+      showToast(`连接测试完成：${data.stream_check?.status || data.health.status}${model ? ` · ${model}` : ''}${latency == null ? '' : ` · ${latency}ms`}`);
     }
 
     async function updateAccountPriority(accountId, priority) {
@@ -1234,7 +1289,7 @@ INDEX_HTML = r"""<!doctype html>
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({account_id: accountId, format: 'shell'})
       });
-      await copyText(data.script, '带 Key 的默认脚本已复制');
+      await copyText(data.script, '带 Key 的 export 脚本已复制');
     }
 
     async function copyAccountCodexConfig(accountId) {
@@ -1245,7 +1300,7 @@ INDEX_HTML = r"""<!doctype html>
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({account_id: accountId, format: 'codex_toml'})
       });
-      await copyText(data.script, 'Codex config.toml 片段已复制');
+      await copyText(data.script, 'Codex config.toml 片段已导出');
     }
 
     async function showQuota(accountId) {
@@ -1256,6 +1311,8 @@ INDEX_HTML = r"""<!doctype html>
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({account_id: accountId})
       });
+      state.balances[accountId] = data;
+      await refresh(false);
       if (!data.success) {
         const fallback = quotaText(account);
         showToast(data.error === 'unsupported balance provider' && fallback !== '未配置' ? `该厂商未接入余额接口；可去 ${fallback}` : `额度查询失败：${data.error || '未支持'}`, 'warn');
@@ -1266,8 +1323,36 @@ INDEX_HTML = r"""<!doctype html>
       showToast(`额度查询完成：${text}`);
     }
 
+    async function refreshAccount(accountId) {
+      await showQuota(accountId);
+    }
+
+    async function duplicateAccount(accountId) {
+      const data = await api('/api/provider-duplicate', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({account_id: accountId})
+      });
+      await refresh(false);
+      showToast(`已复制为 ${data.account.account_id}`);
+    }
+
+    async function deleteAccount(accountId) {
+      const account = accountById(accountId);
+      if (!account.account_id) throw new Error('配置不存在');
+      if (!confirm(`删除渠道 ${account.name || account.account_id}？相关模型路由和项目覆盖会一起移除。`)) return;
+      await api('/api/provider-delete', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({account_id: accountId})
+      });
+      delete state.balances[accountId];
+      await refresh(false);
+      showToast('渠道已删除');
+    }
+
     async function fetchModelsForDraft() {
-      const payload = formPayload(document.getElementById('official-form'));
+      const payload = normalizeDraftProviderPayload(formPayload(document.getElementById('official-form')));
       const data = await api('/api/model-fetch', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -1284,7 +1369,7 @@ INDEX_HTML = r"""<!doctype html>
     }
 
     async function saveOfficialConfig(notify = true) {
-      const payload = formPayload(document.getElementById('official-form'));
+      const payload = normalizeDraftProviderPayload(formPayload(document.getElementById('official-form')));
       const data = await api('/api/official-provider-config', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -1361,15 +1446,13 @@ INDEX_HTML = r"""<!doctype html>
         const action = accountAction.dataset.accountAction;
         if (action === 'edit') editAccount(accountId);
         if (action === 'test') checkAccount(accountId).catch(err => showToast(err.message, 'bad'));
-        if (action === 'copy') copyAccountScript(accountId).catch(err => showToast(err.message, 'bad'));
-        if (action === 'codex-config') copyAccountCodexConfig(accountId).catch(err => showToast(err.message, 'bad'));
+        if (action === 'refresh') refreshAccount(accountId).catch(err => showToast(err.message, 'bad'));
+        if (action === 'duplicate') duplicateAccount(accountId).catch(err => showToast(err.message, 'bad'));
+        if (action === 'delete') deleteAccount(accountId).catch(err => showToast(err.message, 'bad'));
+        if (action === 'export-shell') copyAccountScript(accountId).catch(err => showToast(err.message, 'bad'));
+        if (action === 'export-codex') copyAccountCodexConfig(accountId).catch(err => showToast(err.message, 'bad'));
         if (action === 'quota') showQuota(accountId).catch(err => showToast(err.message, 'bad'));
-        if (action === 'monitor') setView('monitor');
-        if (action === 'up') reorderAccounts(accountId, null, -1).catch(err => showToast(err.message, 'bad'));
-        if (action === 'down') reorderAccounts(accountId, null, 1).catch(err => showToast(err.message, 'bad'));
       }
-      const checkButton = event.target.closest('[data-check-account]');
-      if (checkButton) checkAccount(checkButton.dataset.checkAccount).catch(err => showToast(err.message, 'bad'));
       const pageButton = event.target.closest('[data-page]');
       if (pageButton) {
         const id = pageButton.dataset.page;
@@ -1469,7 +1552,7 @@ INDEX_HTML = r"""<!doctype html>
     });
     document.getElementById('check-all').addEventListener('click', async () => {
       for (const account of state.data.accounts || []) {
-        await checkAccount(account.account_id);
+        await refreshAccount(account.account_id);
       }
     });
     document.getElementById('project-import-form').addEventListener('submit', async event => {
