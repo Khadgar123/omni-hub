@@ -355,9 +355,7 @@ def handle_post(
             f"{preset['slug']}-main"
         )
         api_key = str(payload.get("api_key", "")).strip()
-        secret_ref = str(payload.get("secret_ref", "")).strip() or str(
-            preset["secret_ref"]
-        )
+        secret_ref = str(payload.get("secret_ref", "")).strip()
         secret_mode = "ref"
         if api_key:
             if api_key.startswith(("env:", "keychain:", "local:", "runtime:")):
@@ -1278,10 +1276,32 @@ def _fetch_models_from_payload(
     store: ProviderRouterStore,
 ) -> dict[str, Any]:
     account_id = str(payload.get("account_id", "")).strip()
+    raw_api_key = str(payload.get("api_key", "")).strip()
+    payload_secret_ref = str(payload.get("secret_ref", "")).strip()
+    stored_account = None
     if account_id:
-        account = store.get_account(account_id)
-        api_key = resolve_secret_ref(account.secret_ref)
-        base_url = account.base_url
+        try:
+            stored_account = store.get_account(account_id)
+        except KeyError:
+            stored_account = None
+
+    if stored_account:
+        base_url = str(payload.get("base_url", "")).strip() or stored_account.base_url
+        account = ProviderAccount(
+            account_id=stored_account.account_id,
+            provider=stored_account.provider,
+            name=stored_account.name,
+            base_url=base_url,
+            secret_ref=stored_account.secret_ref or payload_secret_ref,
+            proxy_url=str(payload.get("proxy_url", "")).strip()
+            or stored_account.proxy_url,
+            status=stored_account.status,
+            account_group=stored_account.account_group,
+            notes=stored_account.notes,
+        )
+        api_key = raw_api_key
+        if not api_key and account.secret_ref:
+            api_key = resolve_secret_ref(account.secret_ref)
         is_full_url = _truthy(
             str(payload.get("is_full_url", "")).strip()
             or _note_value(account.notes, "is_full_url")
@@ -1293,21 +1313,21 @@ def _fetch_models_from_payload(
     else:
         base_url = _required(payload, "base_url")
         account = ProviderAccount(
-            account_id="draft-model-fetch",
+            account_id=account_id or "draft-model-fetch",
             provider=str(payload.get("provider", "draft")).strip() or "draft",
-            name="Draft Model Fetch",
+            name=str(payload.get("name", "")).strip() or "Draft Model Fetch",
             base_url=base_url,
-            secret_ref=str(payload.get("secret_ref", "")),
+            secret_ref=payload_secret_ref,
             proxy_url=str(payload.get("proxy_url", "")),
         )
-        api_key = str(payload.get("api_key", "")).strip()
+        api_key = raw_api_key
         if not api_key and account.secret_ref:
             api_key = resolve_secret_ref(account.secret_ref)
         is_full_url = _truthy(str(payload.get("is_full_url", "")).strip())
         models_url = str(payload.get("models_url", "")).strip()
 
     if not api_key:
-        raise ValueError("API Key is required to fetch models")
+        raise ValueError("请先填写 API Key，或先保存渠道让本地密钥引用可用")
 
     candidates = _build_models_url_candidates(
         base_url,

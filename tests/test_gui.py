@@ -11,7 +11,14 @@ from urllib.request import Request, urlopen
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from omni_hub.gui import INDEX_HTML, OFFICIAL_PROVIDER_PRESETS, create_gui_server
+from omni_hub.gui import (
+    INDEX_HTML,
+    OFFICIAL_PROVIDER_PRESETS,
+    _fetch_models_from_payload,
+    create_gui_server,
+)
+from omni_hub.provider_router import ProviderAccount, ProviderRouterStore
+from omni_hub.secrets import store_api_key
 
 
 class GuiServerTests(unittest.TestCase):
@@ -330,6 +337,68 @@ class GuiServerTests(unittest.TestCase):
                 "https://api.deepseek.com/models",
             ],
         )
+
+    def test_gui_model_fetch_prefers_saved_local_secret_over_stale_form_ref(self) -> None:
+        with patch.dict(os.environ, {"OMNI_HUB_SECRET_BACKEND": "memory"}):
+            with tempfile.TemporaryDirectory() as tmpdir:
+                store = ProviderRouterStore(tmpdir)
+                secret_ref = store_api_key("openai-main", "sk-local-secret")
+                store.upsert_account(
+                    ProviderAccount(
+                        account_id="openai-main",
+                        provider="openai",
+                        name="OpenAI Main",
+                        base_url="https://api.openai.com/v1",
+                        secret_ref=secret_ref,
+                    )
+                )
+
+                with patch(
+                    "omni_hub.gui._fetch_models_from_candidates",
+                    return_value=[{"id": "gpt-test", "name": "gpt-test"}],
+                ) as fetch:
+                    fetched = _fetch_models_from_payload(
+                        {
+                            "account_id": "openai-main",
+                            "provider": "openai",
+                            "base_url": "https://relay.example.com/v1",
+                            "secret_ref": "env:OPENAI_API_KEY",
+                        },
+                        store,
+                    )
+
+                self.assertEqual(fetched["models"][0]["id"], "gpt-test")
+                self.assertEqual(fetch.call_args.args[1], "sk-local-secret")
+                self.assertEqual(
+                    fetch.call_args.args[0].secret_ref,
+                    "local:omni-hub/openai-main",
+                )
+                self.assertEqual(
+                    fetch.call_args.args[0].base_url,
+                    "https://relay.example.com/v1",
+                )
+
+    def test_gui_model_fetch_allows_unsaved_draft_with_raw_api_key(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = ProviderRouterStore(tmpdir)
+            with patch(
+                "omni_hub.gui._fetch_models_from_candidates",
+                return_value=[{"id": "draft-model", "name": "draft-model"}],
+            ) as fetch:
+                fetched = _fetch_models_from_payload(
+                    {
+                        "account_id": "openai-main",
+                        "provider": "openai",
+                        "name": "OpenAI Draft",
+                        "base_url": "https://api.example.com/v1",
+                        "api_key": "sk-draft-secret",
+                    },
+                    store,
+                )
+
+            self.assertEqual(fetched["models"][0]["id"], "draft-model")
+            self.assertEqual(fetch.call_args.args[1], "sk-draft-secret")
+            self.assertEqual(fetch.call_args.args[0].account_id, "openai-main")
 
     def test_gui_adds_model_to_channel_with_manual_model_id(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

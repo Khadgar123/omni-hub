@@ -633,7 +633,7 @@ INDEX_HTML = r"""<!doctype html>
             <label>渠道名称<input name="name" id="provider-name" required placeholder="官方 / OpenRouter / 胜算云"></label>
             <label class="wide">接口地址<input name="base_url" id="base-url" placeholder="由预设填充；中转站可直接改" required></label>
             <label class="wide">API Key<input name="api_key" id="api-key" type="password" autocomplete="off" placeholder="可直接填；保存到本地 .omni/secrets.json，数据库只存 local 引用"></label>
-            <label>密钥引用<input name="secret_ref" id="secret-ref" placeholder="env:OPENAI_API_KEY"></label>
+            <label>密钥引用<input name="secret_ref" id="secret-ref" placeholder="保存后自动生成 local:omni-hub/渠道ID"></label>
             <label>代理连接<input name="proxy_url" id="proxy-url" placeholder="留空表示 unset；如 http://127.0.0.1:7890"></label>
             <label>调用优先级<input name="priority" id="provider-priority" type="number" value="90"></label>
             <label>并发上限<input name="max_concurrency" id="max-concurrency" type="number" min="0" placeholder="未知可留空"></label>
@@ -842,7 +842,7 @@ INDEX_HTML = r"""<!doctype html>
       document.getElementById('account-id').value = `${preset.slug}-main`;
       document.getElementById('provider-name').value = `${preset.name} 官方`;
       document.getElementById('base-url').value = preset.base_url || '';
-      document.getElementById('secret-ref').value = preset.secret_ref || '';
+      document.getElementById('secret-ref').value = '';
       document.getElementById('quota-ref').value = preset.quota_ref || '';
       document.getElementById('model-ids').value = (preset.models || []).join('\n');
       document.getElementById('provider-capabilities').value = (preset.capabilities || []).join(', ');
@@ -1118,7 +1118,7 @@ INDEX_HTML = r"""<!doctype html>
       document.getElementById('account-id').value = account.account_id;
       document.getElementById('provider-name').value = account.name || account.account_id;
       document.getElementById('base-url').value = account.base_url || preset.base_url || '';
-      document.getElementById('secret-ref').value = account.secret_ref || preset.secret_ref || '';
+      document.getElementById('secret-ref').value = account.secret_ref || '';
       document.getElementById('proxy-url').value = account.proxy_url || '';
       document.getElementById('quota-ref').value = quotaText(account).replace(/^quota_ref=/, '');
       document.getElementById('model-ids').value = accountModelIds(accountId).join('\n');
@@ -1205,6 +1205,9 @@ INDEX_HTML = r"""<!doctype html>
         body: JSON.stringify(payload)
       });
       document.getElementById('api-key').value = '';
+      if (data.account?.secret_ref) {
+        document.getElementById('secret-ref').value = data.account.secret_ref;
+      }
       await refresh();
       if (notify) {
         const secretMessage = data.secret_mode === 'local' ? 'API Key 已写入 .omni/secrets.json' : '密钥引用已保存';
