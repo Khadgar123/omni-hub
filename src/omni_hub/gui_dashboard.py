@@ -110,6 +110,7 @@ INDEX_HTML = r"""<!doctype html>
       color: #19376d;
       border-color: #b7c6e5;
     }
+    .notice.compact { padding: 10px 12px; }
     .panel-head {
       min-height: 52px;
       padding: 13px 15px;
@@ -136,16 +137,17 @@ INDEX_HTML = r"""<!doctype html>
     }
     .workspace {
       display: grid;
-      grid-template-columns: minmax(360px, 500px) minmax(0, 1fr);
+      grid-template-columns: 1fr;
       gap: 14px;
       align-items: start;
     }
     form { display: grid; gap: 10px; }
     .form-grid {
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 10px;
     }
+    .dense-form { grid-template-columns: repeat(4, minmax(0, 1fr)); }
     label { display: grid; gap: 5px; color: var(--muted); font-size: 12px; min-width: 0; }
     label.wide, .wide { grid-column: 1 / -1; }
     input, select, textarea {
@@ -209,21 +211,22 @@ INDEX_HTML = r"""<!doctype html>
       color: var(--ink);
     }
     .advanced .form-grid { margin-top: 10px; }
+    .compact-body { padding: 10px; }
     .split-stack {
       display: grid;
       gap: 14px;
     }
     .vendor-workspace {
-      grid-template-columns: minmax(380px, 560px) minmax(0, 1fr);
+      grid-template-columns: 1fr;
     }
     .vendor-grid {
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
       gap: 8px;
     }
     .vendor-card {
-      min-height: 74px;
-      padding: 11px;
+      min-height: 58px;
+      padding: 10px;
       border: 1px solid var(--line);
       border-radius: 8px;
       background: #fff;
@@ -308,21 +311,19 @@ INDEX_HTML = r"""<!doctype html>
     }
     [data-config-mode] { display: none; }
     [data-config-mode].active { display: block; }
-    .role-row {
+    .slot-grid {
       display: grid;
-      grid-template-columns: 88px minmax(130px, 1fr) minmax(130px, 1fr) minmax(120px, 1fr) 72px;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
       gap: 8px;
-      align-items: end;
+    }
+    .slot-card {
       padding: 10px;
       border: 1px solid var(--line);
       border-radius: 8px;
       background: #fbfcfd;
     }
-    .mode-row {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-      gap: 8px;
-    }
+    .slot-card strong { display: block; font-size: 13px; }
+    .slot-card span { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
     .chart {
       min-height: 160px;
       display: grid;
@@ -424,7 +425,7 @@ INDEX_HTML = r"""<!doctype html>
       .shell { grid-template-columns: 1fr; }
       aside { position: static; height: auto; }
       nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .workspace, .form-grid, .role-row, .config-row, .vendor-grid { grid-template-columns: 1fr; }
+      .workspace, .form-grid, .dense-form, .config-row, .vendor-grid { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -439,7 +440,6 @@ INDEX_HTML = r"""<!doctype html>
         <button class="nav-item" data-view="overview">总览</button>
         <button class="nav-item" data-view="channels">模型配置</button>
         <button class="nav-item" data-view="projects">项目编组</button>
-        <button class="nav-item" data-view="select">使用选择</button>
         <button class="nav-item" data-view="monitor">监控检测</button>
         <button class="nav-item" data-view="skills">Skills</button>
       </nav>
@@ -449,7 +449,7 @@ INDEX_HTML = r"""<!doctype html>
         <div class="topbar">
           <div class="title">
             <h2 id="page-title">总览</h2>
-            <p id="page-subtitle">官方厂商、调用队列、代理、用量和项目 AI 编组。</p>
+            <p id="page-subtitle">模型厂商、渠道队列、代理、用量和项目模型包。</p>
           </div>
           <button class="secondary" id="refresh">刷新</button>
         </div>
@@ -457,11 +457,11 @@ INDEX_HTML = r"""<!doctype html>
 
       <main class="content">
         <section class="view" data-view-panel="overview">
-          <div class="notice">先按官方厂商配置：OpenAI、Claude、Qwen、DeepSeek、GLM、MiniMax。每个厂商可以保存多套配置，配置列表支持修改、流式健康检查、模型发现、复制脚本、查额度、监控和优先级排序；路由会按优先级选择，故障时自动切到下一级。</div>
+          <div class="notice compact">按模型厂商分组管理官方和中转渠道；项目只导入需要的模型包，密钥始终以引用传递。</div>
           <div class="metrics" id="metrics"></div>
           <div class="grid">
-            <button class="action" data-jump="channels"><strong>配置官方厂商</strong><span>填写 API Key，一键加入厂商配置列表</span></button>
-            <button class="action" data-jump="projects"><strong>分配给项目 Agent</strong><span>为不同 agent 指定模型和 skills</span></button>
+            <button class="action" data-jump="channels"><strong>配置模型厂商</strong><span>官方和中转渠道统一加入当前厂商列表</span></button>
+            <button class="action" data-jump="projects"><strong>导入项目模型包</strong><span>为项目生成可读配置和路由清单</span></button>
             <button class="action" data-jump="monitor"><strong>看延迟和额度</strong><span>检测、实时刷新和可视化监控</span></button>
           </div>
           <div class="panel table-box">
@@ -472,56 +472,87 @@ INDEX_HTML = r"""<!doctype html>
 
         <section class="view" data-view-panel="channels">
           <div class="workspace vendor-workspace">
-            <div class="split-stack">
-              <div class="panel">
-                <div class="panel-head"><h3>官方厂商</h3><span class="subtle">先选厂商，再填写密钥</span></div>
-                <div class="panel-body">
-                  <div class="vendor-grid" id="official-provider-list"></div>
-                </div>
-              </div>
-              <div class="panel">
-                <div class="panel-head"><h3>厂商配置</h3><span class="subtle">API Key 可填写；默认脚本可复制</span></div>
-                <div class="panel-body">
-                  <form id="official-form">
-                    <input name="provider" id="official-provider" type="hidden" value="openai">
-                    <div class="form-grid">
-                      <label>配置 ID<input name="account_id" id="account-id" required></label>
-                      <label>显示名称<input name="name" id="provider-name" required></label>
-                      <label class="wide">API Key<input name="api_key" id="api-key" type="password" autocomplete="off" placeholder="可直接填；保存到 macOS Keychain，数据库只存 keychain 引用"></label>
-                      <label>密钥引用<input name="secret_ref" id="secret-ref" placeholder="env:OPENAI_API_KEY"></label>
-                      <label>代理连接<input name="proxy_url" id="proxy-url" placeholder="留空表示 unset；如 http://127.0.0.1:7890"></label>
-                      <label>调用优先级<input name="priority" id="provider-priority" type="number" value="90"></label>
-                      <label class="wide">模型列表<textarea name="model_ids" id="model-ids" placeholder="每行一个模型 ID"></textarea></label>
-                      <label class="wide">额度入口<input name="quota_ref" id="quota-ref" placeholder="dashboard 或 quota API 引用"></label>
-                    </div>
-                    <details class="advanced">
-                      <summary>高级配置</summary>
-                      <div class="form-grid">
-                        <label class="wide">接口地址<input name="base_url" id="base-url" placeholder="由预设填充；自定义时手动填写" required></label>
-                        <label class="wide">能力<input name="capabilities" id="provider-capabilities" placeholder="text, tools, vision"></label>
-                      </div>
-                    </details>
-                    <input name="status" type="hidden" value="active">
-                    <div class="buttons">
-                      <button class="primary">一键添加到列表</button>
-                      <button type="button" class="secondary" id="fetch-models">发现模型</button>
-                      <button type="button" class="secondary" id="test-official-draft">流式健康检查</button>
-                      <button type="button" class="secondary" id="copy-script">复制默认脚本</button>
-                    </div>
-                    <pre class="script-box" id="script-preview"></pre>
-                  </form>
-                </div>
+            <div class="panel">
+              <div class="panel-head"><h3>模型厂商</h3><span class="subtle">选择后只显示该厂商渠道</span></div>
+              <div class="panel-body compact-body">
+                <div class="vendor-grid" id="official-provider-list"></div>
               </div>
             </div>
-            <div class="split-stack">
-              <div class="panel table-box">
-                <div class="panel-head"><h3>厂商配置列表</h3><span class="subtle">拖拽或用上移/下移调整调用优先级</span></div>
-                <div id="providerConfigList"></div>
+
+            <div class="panel">
+              <div class="panel-head"><h3 id="channel-form-title">添加渠道</h3><span class="subtle">官方和中转站都属于当前模型厂商</span></div>
+              <div class="panel-body">
+                <form id="official-form">
+                  <input name="provider" id="official-provider" type="hidden" value="openai">
+                  <div class="form-grid dense-form">
+                    <label>渠道 ID<input name="account_id" id="account-id" required></label>
+                    <label>渠道名称<input name="name" id="provider-name" required placeholder="官方 / OpenRouter / 胜算云"></label>
+                    <label class="wide">接口地址<input name="base_url" id="base-url" placeholder="由预设填充；中转站可直接改" required></label>
+                    <label class="wide">API Key<input name="api_key" id="api-key" type="password" autocomplete="off" placeholder="可直接填；保存到 macOS Keychain，数据库只存 keychain 引用"></label>
+                    <label>密钥引用<input name="secret_ref" id="secret-ref" placeholder="env:OPENAI_API_KEY"></label>
+                    <label>代理连接<input name="proxy_url" id="proxy-url" placeholder="留空表示 unset；如 http://127.0.0.1:7890"></label>
+                    <label>调用优先级<input name="priority" id="provider-priority" type="number" value="90"></label>
+                    <label>并发上限<input name="max_concurrency" id="max-concurrency" type="number" min="0" placeholder="未知可留空"></label>
+                    <label>RPM 限制<input name="rpm_limit" id="rpm-limit" type="number" min="0" placeholder="每分钟请求数"></label>
+                    <label>TPM 限制<input name="tpm_limit" id="tpm-limit" type="number" min="0" placeholder="每分钟 token"></label>
+                    <label class="wide">模型列表<textarea name="model_ids" id="model-ids" placeholder="每行一个模型 ID；可以点击发现模型自动填充"></textarea></label>
+                  </div>
+                  <details class="advanced">
+                    <summary>高级配置：测试、协议与计费</summary>
+                    <div class="form-grid dense-form">
+                      <label>API 格式<select name="api_format" id="api-format">
+                        <option value="">按厂商默认</option>
+                        <option value="openai_chat">OpenAI Chat Completions</option>
+                        <option value="openai_responses">OpenAI Responses</option>
+                        <option value="anthropic">Anthropic Messages</option>
+                        <option value="gemini_native">Gemini Native</option>
+                      </select></label>
+                      <label>认证字段<select name="auth_field" id="auth-field">
+                        <option value="">按厂商默认</option>
+                        <option value="Authorization">Authorization: Bearer</option>
+                        <option value="x-api-key">x-api-key</option>
+                        <option value="ANTHROPIC_AUTH_TOKEN">ANTHROPIC_AUTH_TOKEN</option>
+                        <option value="ANTHROPIC_API_KEY">ANTHROPIC_API_KEY</option>
+                      </select></label>
+                      <label>完整端点模式<select name="is_full_url" id="is-full-url">
+                        <option value="">否，自动拼接 endpoint</option>
+                        <option value="true">是，base URL 已是完整 endpoint</option>
+                      </select></label>
+                      <label>模型发现 URL<input name="models_url" id="models-url" placeholder="可选，覆盖 /v1/models 候选"></label>
+                      <label>测试模型<input name="test_model" id="test-model" placeholder="留空使用列表首个模型"></label>
+                      <label>测试提示词<input name="test_prompt" id="test-prompt" placeholder="Who are you?"></label>
+                      <label>超时秒数<input name="timeout_secs" id="timeout-secs" type="number" min="1" placeholder="45"></label>
+                      <label>最大重试<input name="max_retries" id="max-retries" type="number" min="0" placeholder="2"></label>
+                      <label>降级阈值 ms<input name="degraded_threshold_ms" id="degraded-threshold-ms" type="number" min="100" placeholder="6000"></label>
+                      <label>成本倍率<input name="cost_multiplier" id="cost-multiplier" type="number" min="0" step="0.01" placeholder="1.0"></label>
+                      <label>计费模型<select name="pricing_model_source" id="pricing-model-source">
+                        <option value="">继承默认</option>
+                        <option value="request">按请求模型</option>
+                        <option value="response">按返回模型</option>
+                      </select></label>
+                      <label class="wide">能力<input name="capabilities" id="provider-capabilities" placeholder="text, tools, vision, reasoning, batch, embedding"></label>
+                      <label class="wide">额度入口<input name="quota_ref" id="quota-ref" placeholder="dashboard 或 quota API 引用"></label>
+                    </div>
+                  </details>
+                  <input name="status" type="hidden" value="active">
+                  <div class="buttons">
+                    <button class="primary">添加到当前厂商列表</button>
+                    <button type="button" class="secondary" id="fetch-models">发现模型</button>
+                    <button type="button" class="secondary" id="test-official-draft">模型探测</button>
+                    <button type="button" class="secondary" id="copy-script">复制默认脚本</button>
+                  </div>
+                  <pre class="script-box" id="script-preview"></pre>
+                </form>
               </div>
-              <div class="panel table-box">
-                <div class="panel-head"><h3>自动切换队列</h3><span class="subtle">上一个不可用时切下一级</span></div>
-                <div id="fallbackQueueTable"></div>
-              </div>
+            </div>
+
+            <div class="panel table-box">
+              <div class="panel-head"><h3 id="provider-list-title">当前厂商渠道</h3><span class="subtle">拖拽或上移/下移调整启用顺序</span></div>
+              <div id="providerConfigList"></div>
+            </div>
+            <div class="panel table-box">
+              <div class="panel-head"><h3>当前厂商自动切换队列</h3><span class="subtle">同一模型厂商下的官方和中转渠道一起排序</span></div>
+              <div id="fallbackQueueTable"></div>
             </div>
           </div>
         </section>
@@ -529,55 +560,30 @@ INDEX_HTML = r"""<!doctype html>
         <section class="view" data-view-panel="projects">
           <div class="workspace">
             <div class="panel">
-              <div class="panel-head"><h3>项目 AI 编组</h3><span class="subtle">不同角色可来自不同渠道</span></div>
+              <div class="panel-head"><h3>项目模型包</h3><span class="subtle">项目拿到的是模型、渠道和运行参数，不拿 raw key</span></div>
               <div class="panel-body">
-                <form id="project-form">
+                <form id="project-import-form">
                   <label>项目 ID<input name="project_id" id="project-id" placeholder="auto-driving-research" required></label>
-                  <div class="role-row" data-role="研究Agent" data-priority="95"></div>
-                  <div class="role-row" data-role="代码Agent" data-priority="90"></div>
-                  <div class="role-row" data-role="视觉Agent" data-priority="88"></div>
-                  <div class="role-row" data-role="批量Agent" data-priority="60"></div>
-                  <div class="role-row" data-role="备用Agent" data-priority="30"></div>
+                  <label>导入范围<select name="scope" id="project-import-scope">
+                    <option value="selected_provider">当前模型厂商</option>
+                    <option value="all">全部已启用渠道</option>
+                  </select></label>
+                  <div class="slot-grid" id="model-slot-grid"></div>
                   <div class="buttons">
-                    <button class="primary">保存项目编组</button>
-                    <button type="button" class="secondary" data-jump="select">去选择使用</button>
+                    <button class="primary">一键导入项目</button>
+                    <button type="button" class="secondary" id="copy-project-bundle">复制项目模型包</button>
                   </div>
                 </form>
               </div>
+            </div>
+            <div class="panel">
+              <div class="panel-head"><h3>项目可读配置</h3><span class="subtle">给项目开发和 agent runtime 使用</span></div>
+              <pre class="result" id="project-bundle-preview">{}</pre>
             </div>
             <div class="panel table-box">
-              <div class="panel-head"><h3>项目配置</h3><span class="subtle">偏好与专属优先级</span></div>
+              <div class="panel-head"><h3>已导入项目</h3><span class="subtle">偏好渠道与专属优先级</span></div>
               <div id="profilesTable"></div>
               <div id="overridesTable"></div>
-            </div>
-          </div>
-        </section>
-
-        <section class="view" data-view-panel="select">
-          <div class="workspace">
-            <div class="panel">
-              <div class="panel-head"><h3>选择当前可用 AI</h3><span class="subtle">不用写长任务描述</span></div>
-              <div class="panel-body">
-                <form id="select-form">
-                  <label>项目<select name="project_id" id="select-project"></select></label>
-                  <div class="mode-row">
-                    <button type="button" class="choice active" data-mode="text"><strong>文本</strong><span>总结、写作、检索</span></button>
-                    <button type="button" class="choice" data-mode="code"><strong>代码</strong><span>工具调用和工程任务</span></button>
-                    <button type="button" class="choice" data-mode="vision"><strong>多模态</strong><span>图片、视频帧、OCR</span></button>
-                    <button type="button" class="choice" data-mode="batch"><strong>批处理</strong><span>低价和异步任务</span></button>
-                  </div>
-                  <div class="form-grid">
-                    <label>输入 token 估计<input name="input_tokens" type="number" min="0" value="1000"></label>
-                    <label>输出 token 估计<input name="output_tokens" type="number" min="0" value="800"></label>
-                    <label>预算上限<input name="max_cost_usd" type="number" min="0" step="0.0001" placeholder="可选"></label>
-                  </div>
-                  <button class="primary">选择模型</button>
-                </form>
-              </div>
-            </div>
-            <div class="panel">
-              <div class="panel-head"><h3>选择结果</h3><span class="subtle">包含代理使用状态</span></div>
-              <pre class="result" id="select-result">{}</pre>
             </div>
           </div>
         </section>
@@ -589,8 +595,8 @@ INDEX_HTML = r"""<!doctype html>
               <div class="panel-body"><div class="chart" id="latency-chart"></div></div>
             </div>
             <div class="panel">
-              <div class="panel-head"><h3>额度与代理</h3><span class="subtle">流式健康检查</span></div>
-              <div class="panel-body subtle">健康检查会按渠道协议发起最小流式请求，收到首个 chunk 即判定连通；余额查询走厂商专用接口。代理配置跟随渠道调用，留空就是 unset。</div>
+              <div class="panel-head"><h3>额度与代理</h3><span class="subtle">真实模型探测</span></div>
+              <div class="panel-body subtle">模型探测会按渠道协议发起最小流式请求，收到首个 chunk 即判定连通；余额查询走厂商专用接口。代理配置跟随渠道调用，留空就是 unset。</div>
             </div>
           </div>
           <div class="panel table-box">
@@ -616,14 +622,13 @@ INDEX_HTML = r"""<!doctype html>
   <script>
     const PAGE_SIZE = 8;
     const views = {
-      overview: ['总览', '官方厂商、调用队列、代理、用量和项目 AI 编组。'],
-      channels: ['模型配置', '按官方厂商配置，并维护自动失败切换队列。'],
-      projects: ['项目编组', '为项目 Agent 分配模型和 Skills。'],
-      select: ['使用选择', '按项目和任务类型选择当前应使用的模型。'],
+      overview: ['总览', '模型厂商、渠道队列、代理、用量和项目模型包。'],
+      channels: ['模型配置', '按模型厂商管理官方和中转渠道。'],
+      projects: ['项目编组', '为项目导入模型包和运行参数。'],
       monitor: ['监控检测', '检测模型配置、实时延迟、额度、代理和失败。'],
       skills: ['Skills', '技能安装、同步、质量评分和项目推荐的控制面。']
     };
-    const state = {data: null, view: 'overview', officialProvider: null, mode: 'text', realtime: false, realtimeTimer: null, dragAccount: null};
+    const state = {data: null, view: 'overview', officialProvider: null, realtime: false, realtimeTimer: null, dragAccount: null, projectBundle: null};
     const tableState = {};
 
     const api = async (url, options = {}) => {
@@ -650,6 +655,11 @@ INDEX_HTML = r"""<!doctype html>
       return `<span class="pill ${cls}">${escapeHtml(text)}</span>`;
     };
     const proxyText = account => account.proxy_url ? account.proxy_url : 'unset';
+    const noteValue = (notes, key) => {
+      const prefix = `${key}=`;
+      const line = String(notes || '').split('\n').find(item => item.startsWith(prefix));
+      return line ? line.slice(prefix.length).trim() : '';
+    };
     const quotaText = account => {
       const notes = account.notes || '';
       const found = notes.split('\n').find(line => /quota|额度|balance|dashboard/i.test(line));
@@ -658,18 +668,29 @@ INDEX_HTML = r"""<!doctype html>
     const officialProviders = () => state.data?.official_providers || [];
     const providerPreset = slug => officialProviders().find(item => item.slug === slug || item.provider === slug);
     const providerName = slug => providerPreset(slug)?.name || slug;
+    const selectedProvider = () => state.officialProvider?.provider || state.officialProvider?.slug || officialProviders()[0]?.provider || '';
     const accountModelIds = accountId => poolRows().filter(row => row.account_id === accountId).map(row => row.model_id);
     const accountPriority = accountId => {
       const rows = poolRows().filter(row => row.account_id === accountId);
       return rows.length ? Math.max(...rows.map(row => Number(row.priority || 0))) : 0;
     };
-    const accountRows = () => (state.data?.accounts || []).map(account => ({
+    const accountRows = (provider = null) => (state.data?.accounts || [])
+      .filter(account => !provider || account.provider === provider)
+      .map(account => ({
       account,
       models: accountModelIds(account.account_id),
       health: healthFor(account.account_id),
       priority: accountPriority(account.account_id),
       preset: providerPreset(account.provider)
     })).sort((a, b) => b.priority - a.priority || a.account.account_id.localeCompare(b.account.account_id));
+    const modelSlots = [
+      ['default', '默认文本', '总结、写作、轻量工具'],
+      ['reasoning', '复杂推理', '规划、研究、长链路分析'],
+      ['code', '代码与工具', '工程修改、测试、自动化'],
+      ['vision', '多模态', '图片、OCR、视频帧'],
+      ['batch', '批处理/低价', '异步批量和成本敏感任务'],
+      ['embedding', '检索向量', '索引、召回、重排链路']
+    ];
     const searchText = row => JSON.stringify(row).toLowerCase();
 
     function setView(view) {
@@ -735,8 +756,7 @@ INDEX_HTML = r"""<!doctype html>
       document.getElementById('official-provider-list').innerHTML = presets.map((preset, index) => (
         `<button type="button" class="vendor-card ${state.officialProvider?.slug === preset.slug ? 'active' : ''}" data-official-index="${index}">
           <strong>${escapeHtml(preset.name)}</strong>
-          <span>${escapeHtml((preset.models || []).slice(0, 3).join(' / '))}</span>
-          <span>${escapeHtml(preset.base_url)}</span>
+          <span>${accountRows(preset.provider).length} 个渠道 · ${(preset.models || []).length} 个预设模型</span>
         </button>`
       )).join('');
       if (!state.officialProvider && presets[0]) applyOfficialProvider(presets[0], false);
@@ -746,7 +766,7 @@ INDEX_HTML = r"""<!doctype html>
       state.officialProvider = preset;
       document.getElementById('official-provider').value = preset.slug;
       document.getElementById('account-id').value = `${preset.slug}-main`;
-      document.getElementById('provider-name').value = `${preset.name} Main`;
+      document.getElementById('provider-name').value = `${preset.name} 官方`;
       document.getElementById('base-url').value = preset.base_url || '';
       document.getElementById('secret-ref').value = preset.secret_ref || '';
       document.getElementById('quota-ref').value = preset.quota_ref || '';
@@ -754,7 +774,16 @@ INDEX_HTML = r"""<!doctype html>
       document.getElementById('provider-capabilities').value = (preset.capabilities || []).join(', ');
       document.getElementById('provider-priority').value = String(preset.rank || 90);
       document.getElementById('api-key').value = '';
+      ['max-concurrency', 'rpm-limit', 'tpm-limit', 'api-format', 'auth-field', 'is-full-url',
+       'models-url', 'test-model', 'test-prompt', 'timeout-secs', 'max-retries',
+       'degraded-threshold-ms', 'cost-multiplier', 'pricing-model-source'].forEach(id => {
+        const element = document.getElementById(id);
+        if (element) element.value = '';
+      });
+      document.getElementById('channel-form-title').textContent = `添加 ${preset.name} 渠道`;
+      document.getElementById('provider-list-title').textContent = `${preset.name} 渠道列表`;
       renderOfficialProviders();
+      renderTables();
       updateScriptPreview();
       if (notify) showToast(`已选择 ${preset.name}`);
     }
@@ -783,24 +812,12 @@ INDEX_HTML = r"""<!doctype html>
       return script;
     }
 
-    function renderSelectors() {
-      const accounts = state.data?.accounts || [];
-      const models = state.data?.models || [];
-      const projects = state.data?.profiles || [];
-      const accountOptions = accounts.map(item => `<option value="${escapeAttr(item.account_id)}">${escapeHtml(item.name || item.account_id)}</option>`).join('');
-      const modelOptions = models.map(item => `<option value="${escapeAttr(item.model_id)}">${escapeHtml(item.display_name || item.model_id)}</option>`).join('');
-      document.querySelectorAll('[data-role]').forEach(row => {
-        const role = row.dataset.role;
-        const priority = row.dataset.priority;
-        row.innerHTML = `
-          <strong>${escapeHtml(role)}</strong>
-          <label>模型<select data-role-model>${modelOptions || '<option value="">先添加模型配置</option>'}</select></label>
-          <label>渠道<select data-role-account>${accountOptions || '<option value="">先添加渠道</option>'}</select></label>
-          <label>Skills<input data-role-skills placeholder="research, browser, github"></label>
-          <label>优先级<input data-role-priority type="number" value="${escapeAttr(priority)}"></label>`;
-      });
-      document.getElementById('select-project').innerHTML =
-        '<option value="">不指定项目</option>' + projects.map(item => `<option value="${escapeAttr(item.project_id)}">${escapeHtml(item.project_id)}</option>`).join('');
+    function renderProjectSlots() {
+      const target = document.getElementById('model-slot-grid');
+      if (!target) return;
+      target.innerHTML = modelSlots.map(([id, title, desc]) => (
+        `<div class="slot-card" data-slot="${escapeAttr(id)}"><strong>${escapeHtml(title)}</strong><span>${escapeHtml(desc)}</span></div>`
+      )).join('');
     }
 
     function renderMetrics() {
@@ -810,7 +827,7 @@ INDEX_HTML = r"""<!doctype html>
         model_catalog: '模型',
         route_abilities: '模型配置',
         project_route_profiles: '项目',
-        project_route_overrides: '编组',
+        project_route_overrides: '项目配置',
         provider_health: '检测记录',
         usage_request_logs: '调用日志'
       };
@@ -833,18 +850,20 @@ INDEX_HTML = r"""<!doctype html>
       ], overview);
       renderProviderConfigList();
       renderFallbackQueueTable();
+      renderProjectSlots();
+      renderProjectBundlePreview();
       renderDataTable('profilesTable', '项目偏好', [
         {key: 'project_id', label: '项目'},
         {label: '能力', render: row => escapeHtml((row.default_capabilities || []).join(', '))},
         {key: 'max_cost_usd', label: '预算'},
         {label: '偏好渠道', render: row => escapeHtml((row.preferred_accounts || []).join(', '))}
       ], data.profiles || []);
-      renderDataTable('overridesTable', '项目 AI 编组', [
+      renderDataTable('overridesTable', '项目模型配置', [
         {key: 'project_id', label: '项目'},
         {key: 'account_id', label: '渠道'},
         {key: 'model_id', label: '模型'},
         {key: 'priority', label: '优先级'},
-        {key: 'notes', label: 'Agent / Skills'}
+        {key: 'notes', label: '运行参数'}
       ], data.overrides || []);
       renderDataTable('monitorTable', '监控', [
         {key: 'account_id', label: '渠道'},
@@ -854,7 +873,7 @@ INDEX_HTML = r"""<!doctype html>
         {label: '额度来源', render: row => escapeHtml(quotaText(row))},
         {label: '代理', render: row => escapeHtml(proxyText(row))},
         {label: '结果', render: row => escapeHtml(row.health.last_error || '')},
-        {label: '操作', render: row => `<button class="secondary" data-check-account="${escapeAttr(row.account_id)}">健康检查</button>`}
+        {label: '操作', render: row => `<button class="secondary" data-check-account="${escapeAttr(row.account_id)}">模型探测</button>`}
       ], (data.accounts || []).map(account => ({...account, health: healthFor(account.account_id)})));
       renderLatencyChart(data.accounts || []);
     }
@@ -862,11 +881,14 @@ INDEX_HTML = r"""<!doctype html>
     function renderProviderConfigList() {
       const container = document.getElementById('providerConfigList');
       if (!container) return;
-      const rows = accountRows();
+      const provider = selectedProvider();
+      const rows = accountRows(provider);
       container.innerHTML = rows.length ? `<div class="config-list">${rows.map(row => {
         const account = row.account;
         const quota = quotaText(account);
         const modelText = row.models.join(', ') || '未配置模型';
+        const concurrency = noteValue(account.notes, 'max_concurrency') || '未知';
+        const rpm = noteValue(account.notes, 'rpm_limit') || '未知';
         return `<div class="config-row" draggable="true" data-account-row="${escapeAttr(account.account_id)}">
           <div class="drag-handle" title="拖拽调整优先级">拖拽</div>
           <div class="config-main">
@@ -876,12 +898,14 @@ INDEX_HTML = r"""<!doctype html>
               ${pill(row.health.status || 'unknown')}
               <span class="pill info">优先级 ${escapeHtml(row.priority)}</span>
               <span class="pill info">代理 ${escapeHtml(proxyText(account))}</span>
+              <span class="pill info">并发 ${escapeHtml(concurrency)}</span>
+              <span class="pill info">RPM ${escapeHtml(rpm)}</span>
             </div>
             <span class="subtle">配置 ID：${escapeHtml(account.account_id)} · 模型：${escapeHtml(modelText)} · 额度：${escapeHtml(quota)}</span>
           </div>
           <div class="buttons">
             <button class="secondary" data-account-action="edit" data-account-id="${escapeAttr(account.account_id)}">修改</button>
-            <button class="secondary" data-account-action="test" data-account-id="${escapeAttr(account.account_id)}">健康检查</button>
+            <button class="secondary" data-account-action="test" data-account-id="${escapeAttr(account.account_id)}">模型探测</button>
             <button class="secondary" data-account-action="copy" data-account-id="${escapeAttr(account.account_id)}">复制</button>
             <button class="secondary" data-account-action="quota" data-account-id="${escapeAttr(account.account_id)}">查额度</button>
             <button class="secondary" data-account-action="monitor" data-account-id="${escapeAttr(account.account_id)}">监控</button>
@@ -889,11 +913,15 @@ INDEX_HTML = r"""<!doctype html>
             <button class="secondary" data-account-action="down" data-account-id="${escapeAttr(account.account_id)}">下移</button>
           </div>
         </div>`;
-      }).join('')}</div>` : '<div class="panel-body subtle">暂无厂商配置。先在左侧选择官方厂商并添加到列表。</div>';
+      }).join('')}</div>` : '<div class="panel-body subtle">当前厂商还没有渠道。添加官方渠道或中转站后，会只出现在这个厂商列表里。</div>';
     }
 
     function renderFallbackQueueTable() {
-      const rows = poolRows().slice().sort((a, b) => Number(b.priority || 0) - Number(a.priority || 0) || a.account_id.localeCompare(b.account_id));
+      const provider = selectedProvider();
+      const rows = poolRows()
+        .filter(row => row.account.provider === provider)
+        .slice()
+        .sort((a, b) => Number(b.priority || 0) - Number(a.priority || 0) || a.account_id.localeCompare(b.account_id));
       const queue = rows.map((row, index) => ({
         ...row,
         order: index + 1,
@@ -909,6 +937,16 @@ INDEX_HTML = r"""<!doctype html>
         {label: '延迟', render: row => row.health.latency_ms == null ? '待检测' : `${row.health.latency_ms} ms`},
         {key: 'next', label: '失败后切换'}
       ], queue);
+    }
+
+    function renderProjectBundlePreview() {
+      const target = document.getElementById('project-bundle-preview');
+      if (!target) return;
+      target.textContent = JSON.stringify(state.projectBundle || {
+        project_id: document.getElementById('project-id')?.value || '',
+        slots: modelSlots.map(([slot, label, description]) => ({slot, label, description})),
+        routes: []
+      }, null, 2);
     }
 
     function renderLatencyChart(accounts) {
@@ -928,7 +966,7 @@ INDEX_HTML = r"""<!doctype html>
     async function refresh(showMessage = false) {
       state.data = await api('/api/state');
       renderOfficialProviders();
-      renderSelectors();
+      renderProjectSlots();
       renderMetrics();
       renderTables();
       if (showMessage) showToast('数据已刷新');
@@ -936,7 +974,7 @@ INDEX_HTML = r"""<!doctype html>
 
     async function checkAccount(accountId) {
       if (!accountId) throw new Error('请先选择配置');
-      const data = await api('/api/stream-check', {
+      const data = await api('/api/model-probe', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({account_id: accountId})
@@ -944,7 +982,7 @@ INDEX_HTML = r"""<!doctype html>
       await refresh();
       const model = data.stream_check?.model_id || '';
       const latency = data.stream_check?.responseTimeMs;
-      showToast(`健康检查完成：${data.stream_check?.status || data.health.status}${model ? ` · ${model}` : ''}${latency == null ? '' : ` · ${latency}ms`}`);
+      showToast(`模型探测完成：${data.stream_check?.status || data.health.status}${model ? ` · ${model}` : ''}${latency == null ? '' : ` · ${latency}ms`}`);
     }
 
     async function updateAccountPriority(accountId, priority) {
@@ -968,7 +1006,7 @@ INDEX_HTML = r"""<!doctype html>
     }
 
     async function reorderAccounts(sourceId, targetId = null, direction = 0) {
-      const rows = accountRows();
+      const rows = accountRows(selectedProvider());
       const from = rows.findIndex(row => row.account.account_id === sourceId);
       if (from < 0) throw new Error('配置不存在');
       let to = targetId ? rows.findIndex(row => row.account.account_id === targetId) : from + direction;
@@ -999,7 +1037,24 @@ INDEX_HTML = r"""<!doctype html>
       document.getElementById('provider-capabilities').value = '';
       document.getElementById('provider-priority').value = String(accountPriority(accountId) || preset.rank || 90);
       document.getElementById('api-key').value = '';
+      document.getElementById('max-concurrency').value = noteValue(account.notes, 'max_concurrency');
+      document.getElementById('rpm-limit').value = noteValue(account.notes, 'rpm_limit');
+      document.getElementById('tpm-limit').value = noteValue(account.notes, 'tpm_limit');
+      document.getElementById('api-format').value = noteValue(account.notes, 'api_format');
+      document.getElementById('auth-field').value = noteValue(account.notes, 'auth_field');
+      document.getElementById('is-full-url').value = noteValue(account.notes, 'is_full_url');
+      document.getElementById('models-url').value = noteValue(account.notes, 'models_url');
+      document.getElementById('test-model').value = noteValue(account.notes, 'test_model');
+      document.getElementById('test-prompt').value = noteValue(account.notes, 'test_prompt');
+      document.getElementById('timeout-secs').value = noteValue(account.notes, 'timeout_secs');
+      document.getElementById('max-retries').value = noteValue(account.notes, 'max_retries');
+      document.getElementById('degraded-threshold-ms').value = noteValue(account.notes, 'degraded_threshold_ms');
+      document.getElementById('cost-multiplier').value = noteValue(account.notes, 'cost_multiplier');
+      document.getElementById('pricing-model-source').value = noteValue(account.notes, 'pricing_model_source');
+      document.getElementById('channel-form-title').textContent = `修改 ${preset.name} 渠道`;
+      document.getElementById('provider-list-title').textContent = `${preset.name} 渠道列表`;
       renderOfficialProviders();
+      renderTables();
       updateScriptPreview();
       showToast('已载入配置，可修改后保存');
     }
@@ -1068,6 +1123,36 @@ INDEX_HTML = r"""<!doctype html>
       return data;
     }
 
+    async function importProjectRoutes() {
+      const payload = formPayload(document.getElementById('project-import-form'));
+      payload.provider = selectedProvider();
+      const data = await api('/api/project-import-routes', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+      });
+      state.projectBundle = data.bundle;
+      await refresh();
+      renderProjectBundlePreview();
+      showToast(`已导入 ${data.routes.length} 条项目模型配置`);
+      return data;
+    }
+
+    async function copyProjectBundle() {
+      const projectId = document.getElementById('project-id').value.trim();
+      if (!projectId) throw new Error('请先填写项目 ID');
+      if (!state.projectBundle || state.projectBundle.project_id !== projectId) {
+        const data = await api('/api/project-bundle', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({project_id: projectId})
+        });
+        state.projectBundle = data.bundle;
+        renderProjectBundlePreview();
+      }
+      await copyText(JSON.stringify(state.projectBundle, null, 2), '项目模型包已复制');
+    }
+
     document.querySelectorAll('[data-view]').forEach(button => button.addEventListener('click', () => setView(button.dataset.view)));
     document.getElementById('refresh').addEventListener('click', () => refresh(true));
     window.addEventListener('hashchange', () => setView(location.hash.replace('#', '') || 'overview'));
@@ -1088,12 +1173,6 @@ INDEX_HTML = r"""<!doctype html>
         if (action === 'up') reorderAccounts(accountId, null, -1).catch(err => showToast(err.message, 'bad'));
         if (action === 'down') reorderAccounts(accountId, null, 1).catch(err => showToast(err.message, 'bad'));
       }
-      const modeButton = event.target.closest('[data-mode]');
-      if (modeButton) {
-        state.mode = modeButton.dataset.mode;
-        document.querySelectorAll('[data-mode]').forEach(item => item.classList.toggle('active', item === modeButton));
-        showToast(`已选择${modeButton.querySelector('strong').textContent}模式`);
-      }
       const checkButton = event.target.closest('[data-check-account]');
       if (checkButton) checkAccount(checkButton.dataset.checkAccount).catch(err => showToast(err.message, 'bad'));
       const pageButton = event.target.closest('[data-page]');
@@ -1108,6 +1187,7 @@ INDEX_HTML = r"""<!doctype html>
       const id = event.target.dataset.tableSearch;
       if (!id) {
         if (event.target.closest('#official-form')) updateScriptPreview();
+        if (event.target.id === 'project-id') renderProjectBundlePreview();
         return;
       }
       tableState[id] = tableState[id] || {page: 1, query: ''};
@@ -1185,47 +1265,17 @@ INDEX_HTML = r"""<!doctype html>
         await checkAccount(account.account_id);
       }
     });
-    document.getElementById('project-form').addEventListener('submit', async event => {
+    document.getElementById('project-import-form').addEventListener('submit', async event => {
       event.preventDefault();
-      const projectId = document.getElementById('project-id').value;
-      const routes = [...document.querySelectorAll('[data-role]')].map(row => ({
-        role: row.dataset.role,
-        account_id: row.querySelector('[data-role-account]').value,
-        model_id: row.querySelector('[data-role-model]').value,
-        skills: row.querySelector('[data-role-skills]').value,
-        priority: row.querySelector('[data-role-priority]').value,
-        weight: 1,
-        enabled: true
-      })).filter(item => item.account_id && item.model_id);
       try {
-        await api('/api/project-profiles', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({project_id: projectId, default_capabilities: ['text'], preferred_accounts: [...new Set(routes.map(item => item.account_id))]})
-        });
-        await api('/api/project-group', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({project_id: projectId, routes})});
-        await refresh();
-        showToast('项目编组已保存');
+        await importProjectRoutes();
       } catch (err) {
         showToast(err.message, 'bad');
       }
     });
-    document.getElementById('select-form').addEventListener('submit', async event => {
-      event.preventDefault();
-      const payload = {...formPayload(event.currentTarget), mode: state.mode};
+    document.getElementById('copy-project-bundle').addEventListener('click', async () => {
       try {
-        const data = await api('/api/agent-select', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)});
-        const invocation = data.invocation || {};
-        document.getElementById('select-result').textContent = JSON.stringify({
-          status: data.status,
-          channel: invocation.account_name || invocation.account_id,
-          model: invocation.provider_model_id || invocation.model_id,
-          proxy: invocation.proxy_mode === 'configured' ? invocation.proxy_url : 'unset',
-          estimated_cost_usd: invocation.estimated_cost_usd,
-          warnings: invocation.warnings || [],
-          error: data.error || ''
-        }, null, 2);
-        showToast(data.status === 'planned' ? '已选择可用模型' : '没有可用模型', data.status === 'planned' ? 'ok' : 'bad');
+        await copyProjectBundle();
       } catch (err) {
         showToast(err.message, 'bad');
       }

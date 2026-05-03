@@ -378,6 +378,20 @@ def handle_post(
                 f"official_provider={preset['slug']}",
                 f"quota_ref={quota_ref}" if quota_ref else "",
                 "api_key_storage=keychain" if secret_mode == "keychain" else "",
+                _payload_note(payload, "api_format"),
+                _payload_note(payload, "auth_field"),
+                _payload_note(payload, "is_full_url"),
+                _payload_note(payload, "models_url"),
+                _payload_note(payload, "max_concurrency"),
+                _payload_note(payload, "rpm_limit"),
+                _payload_note(payload, "tpm_limit"),
+                _payload_note(payload, "cost_multiplier"),
+                _payload_note(payload, "pricing_model_source"),
+                _payload_note(payload, "test_model"),
+                _payload_note(payload, "test_prompt"),
+                _payload_note(payload, "timeout_secs"),
+                _payload_note(payload, "max_retries"),
+                _payload_note(payload, "degraded_threshold_ms"),
                 str(payload.get("notes", "")).strip(),
             ]
             if item
@@ -479,7 +493,7 @@ def handle_post(
             account,
             store,
             model_id=str(payload.get("model_id", "")),
-            config=_stream_check_config(payload),
+            config=_stream_check_config(payload, account),
         )
         stored_account_health = store.set_health(account_health)
         stored_model_health = (
@@ -494,7 +508,6 @@ def handle_post(
         }
         if path == "/api/model-probe":
             output["probe"] = stream_check
-            output["deprecated"] = "use /api/stream-check"
         return output
 
     if path == "/api/model-fetch":
@@ -504,6 +517,12 @@ def handle_post(
     if path == "/api/balance-check":
         account = store.get_account(_required(payload, "account_id"))
         return _balance_check(account)
+
+    if path == "/api/project-import-routes":
+        return _project_import_routes(store, payload)
+
+    if path == "/api/project-bundle":
+        return _project_bundle_response(store, _required(payload, "project_id"))
 
     if path == "/api/channel-model":
         account_id = _required(payload, "account_id")
@@ -768,6 +787,18 @@ def _stream_check_provider(
         }
 
     ability = abilities[0]
+    if str(config.get("test_model", "")).strip():
+        ability = RouteAbility(
+            account_id=ability.account_id,
+            model_id=ability.model_id,
+            enabled=ability.enabled,
+            priority=ability.priority,
+            weight=ability.weight,
+            model_mapping=str(config["test_model"]).strip(),
+            notes=ability.notes,
+            created_at=ability.created_at,
+            updated_at=ability.updated_at,
+        )
     model = store.get_model(ability.model_id)
     provider_model_id = ability.model_mapping or model.model_id
     try:
@@ -844,8 +875,22 @@ def _stream_check_provider(
     return _account_health_from_model(model_health), model_health, stream_check
 
 
-def _stream_check_config(payload: dict[str, Any]) -> dict[str, Any]:
+def _stream_check_config(
+    payload: dict[str, Any],
+    account: ProviderAccount | None = None,
+) -> dict[str, Any]:
     config = dict(STREAM_CHECK_DEFAULTS)
+    notes = account.notes if account else ""
+    for key in ("timeout_secs", "max_retries", "degraded_threshold_ms"):
+        noted = _note_value(notes, key)
+        if noted:
+            config[key] = max(_int_value(noted), 1 if key != "max_retries" else 0)
+    noted_prompt = _note_value(notes, "test_prompt")
+    if noted_prompt:
+        config["test_prompt"] = noted_prompt
+    test_model = _note_value(notes, "test_model")
+    if test_model and "model_id" not in payload:
+        config["test_model"] = test_model
     if "timeout_secs" in payload:
         config["timeout_secs"] = max(_int_value(payload.get("timeout_secs")), 1)
     if "max_retries" in payload:
@@ -1237,8 +1282,14 @@ def _fetch_models_from_payload(
         account = store.get_account(account_id)
         api_key = resolve_secret_ref(account.secret_ref)
         base_url = account.base_url
-        is_full_url = bool(payload.get("is_full_url", False))
-        models_url = str(payload.get("models_url", "")).strip()
+        is_full_url = _truthy(
+            str(payload.get("is_full_url", "")).strip()
+            or _note_value(account.notes, "is_full_url")
+        )
+        models_url = str(payload.get("models_url", "")).strip() or _note_value(
+            account.notes,
+            "models_url",
+        )
     else:
         base_url = _required(payload, "base_url")
         account = ProviderAccount(
@@ -1252,7 +1303,7 @@ def _fetch_models_from_payload(
         api_key = str(payload.get("api_key", "")).strip()
         if not api_key and account.secret_ref:
             api_key = resolve_secret_ref(account.secret_ref)
-        is_full_url = bool(payload.get("is_full_url", False))
+        is_full_url = _truthy(str(payload.get("is_full_url", "")).strip())
         models_url = str(payload.get("models_url", "")).strip()
 
     if not api_key:
@@ -1579,6 +1630,20 @@ def _note_value(notes: str, key: str) -> str:
     return ""
 
 
+def _payload_note(payload: dict[str, Any], key: str) -> str:
+    value = payload.get(key)
+    if value is None:
+        return ""
+    text = str(value).strip()
+    if not text or text.lower() in {"false", "none", "null"}:
+        return ""
+    return f"{key}={text}"
+
+
+def _truthy(value: str) -> bool:
+    return value.strip().lower() in {"1", "true", "yes", "on", "enabled"}
+
+
 def _redact_url(url: str) -> str:
     parsed = urlparse(url)
     if not parsed.query:
@@ -1590,6 +1655,242 @@ def _redact_url(url: str) -> str:
     )
     base = url.split("?", 1)[0]
     return f"{base}?{query}" if query else base
+
+
+MODEL_SLOT_PRESETS: list[dict[str, Any]] = [
+    {
+        "slot": "default",
+        "label": "默认文本",
+        "capabilities": ["text"],
+        "description": "日常问答、总结、写作和轻量工具调用。",
+    },
+    {
+        "slot": "reasoning",
+        "label": "复杂推理",
+        "capabilities": ["text", "reasoning"],
+        "description": "规划、研究、长链路分析和关键决策。",
+    },
+    {
+        "slot": "code",
+        "label": "代码与工具",
+        "capabilities": ["text", "tools", "code"],
+        "description": "工程修改、工具调用、测试和自动化执行。",
+    },
+    {
+        "slot": "vision",
+        "label": "多模态",
+        "capabilities": ["vision"],
+        "description": "图片、OCR、视频帧和视觉理解。",
+    },
+    {
+        "slot": "batch",
+        "label": "批处理/低价",
+        "capabilities": ["text", "batch"],
+        "description": "异步处理、批量总结和成本敏感任务。",
+    },
+    {
+        "slot": "embedding",
+        "label": "检索向量",
+        "capabilities": ["embedding"],
+        "description": "知识库索引、相似度检索和重排链路。",
+    },
+]
+
+
+def _project_import_routes(
+    store: ProviderRouterStore,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    project_id = _required(payload, "project_id")
+    provider = str(payload.get("provider", "")).strip()
+    scope = str(payload.get("scope", "selected_provider")).strip()
+    account_ids = set(_list_value(payload.get("account_ids")))
+    accounts = [
+        account
+        for account in store.list_accounts(status=ProviderAccountStatus.ACTIVE.value)
+        if (
+            account.account_id in account_ids
+            or (
+                not account_ids
+                and (scope == "all" or not provider or account.provider == provider)
+            )
+        )
+    ]
+    abilities = [
+        ability
+        for account in accounts
+        for ability in store.list_abilities(account_id=account.account_id, enabled=True)
+    ]
+    if not abilities:
+        raise ValueError("没有可导入的已启用模型配置")
+
+    preferred_accounts = _unique([ability.account_id for ability in abilities])
+    profile = store.upsert_project_profile(
+        ProjectRouteProfile(
+            project_id=project_id,
+            default_capabilities=["text"],
+            preferred_providers=_unique([account.provider for account in accounts]),
+            preferred_accounts=preferred_accounts,
+            notes="imported_from=provider_config_list",
+        )
+    )
+    overrides = []
+    for ability in abilities:
+        account = store.get_account(ability.account_id)
+        model = store.get_model(ability.model_id)
+        overrides.append(
+            store.upsert_project_override(
+                ProjectRouteOverride(
+                    project_id=project_id,
+                    account_id=ability.account_id,
+                    model_id=ability.model_id,
+                    priority=ability.priority,
+                    weight=ability.weight,
+                    enabled=ability.enabled,
+                    notes=_project_route_notes(account, model, ability),
+                )
+            ).to_dict()
+        )
+    return {
+        "profile": profile.to_dict(),
+        "routes": overrides,
+        "bundle": _project_model_bundle(store, project_id),
+    }
+
+
+def _project_bundle_response(
+    store: ProviderRouterStore,
+    project_id: str,
+) -> dict[str, Any]:
+    return {"bundle": _project_model_bundle(store, project_id)}
+
+
+def _project_model_bundle(
+    store: ProviderRouterStore,
+    project_id: str,
+) -> dict[str, Any]:
+    overrides = store.list_project_overrides(project_id=project_id)
+    routes = []
+    for override in overrides:
+        account = store.get_account(override.account_id)
+        model = store.get_model(override.model_id)
+        ability = next(
+            (
+                item
+                for item in store.list_abilities(
+                    account_id=override.account_id,
+                    model_id=override.model_id,
+                )
+            ),
+            None,
+        )
+        health = store.get_health(account.account_id, model.model_id)
+        routes.append(
+            {
+                "account_id": account.account_id,
+                "provider": account.provider,
+                "channel_name": account.name,
+                "base_url": account.base_url,
+                "secret_ref": account.secret_ref,
+                "proxy_url": account.proxy_url,
+                "model_id": model.model_id,
+                "provider_model_id": ability.model_mapping if ability else model.model_id,
+                "capabilities": model.capabilities,
+                "context_window": model.context_window,
+                "supports_batch": model.supports_batch,
+                "priority": override.priority if override.priority is not None else (ability.priority if ability else 0),
+                "weight": override.weight if override.weight is not None else (ability.weight if ability else 1),
+                "api_format": _account_api_format(account),
+                "auth_field": _note_value(account.notes, "auth_field"),
+                "models_url": _note_value(account.notes, "models_url"),
+                "max_concurrency": _note_value(account.notes, "max_concurrency"),
+                "rpm_limit": _note_value(account.notes, "rpm_limit"),
+                "tpm_limit": _note_value(account.notes, "tpm_limit"),
+                "cost_multiplier": _note_value(account.notes, "cost_multiplier"),
+                "pricing_model_source": _note_value(account.notes, "pricing_model_source"),
+                "health": health.to_dict(),
+            }
+        )
+    sorted_routes = sorted(
+        routes,
+        key=lambda item: (
+            -int(item.get("priority") or 0),
+            item["provider"],
+            item["model_id"],
+        ),
+    )
+    return {
+        "project_id": project_id,
+        "slots": MODEL_SLOT_PRESETS,
+        "slot_routes": _project_slot_routes(sorted_routes),
+        "routes": sorted_routes,
+        "security": {
+            "api_key": "not_exported",
+            "secret_ref": "resolve at runtime from Keychain/env/runtime",
+        },
+    }
+
+
+def _project_slot_routes(routes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    slot_routes = []
+    for slot in MODEL_SLOT_PRESETS:
+        required = set(slot["capabilities"])
+        candidates = []
+        for route in routes:
+            capabilities = set(route.get("capabilities") or [])
+            if route.get("supports_batch"):
+                capabilities.add("batch")
+            if required.issubset(capabilities):
+                candidates.append(
+                    {
+                        "account_id": route["account_id"],
+                        "provider": route["provider"],
+                        "channel_name": route["channel_name"],
+                        "model_id": route["model_id"],
+                        "provider_model_id": route["provider_model_id"],
+                        "priority": route["priority"],
+                        "health_status": route["health"]["status"],
+                        "max_concurrency": route["max_concurrency"],
+                        "rpm_limit": route["rpm_limit"],
+                    }
+                )
+        slot_routes.append(
+            {
+                "slot": slot["slot"],
+                "label": slot["label"],
+                "capabilities": slot["capabilities"],
+                "candidates": candidates,
+            }
+        )
+    return slot_routes
+
+
+def _project_route_notes(
+    account: ProviderAccount,
+    model: ModelSpec,
+    ability: RouteAbility,
+) -> str:
+    lines = [
+        "imported_from=provider_config_list",
+        f"provider={account.provider}",
+        f"channel={account.name}",
+        f"base_url={account.base_url}",
+        f"secret_ref={account.secret_ref}",
+        f"proxy_url={account.proxy_url or 'unset'}",
+        f"provider_model_id={ability.model_mapping or model.model_id}",
+        f"api_format={_account_api_format(account)}",
+    ]
+    for key in (
+        "max_concurrency",
+        "rpm_limit",
+        "tpm_limit",
+        "cost_multiplier",
+        "pricing_model_source",
+    ):
+        value = _note_value(account.notes, key)
+        if value:
+            lines.append(f"{key}={value}")
+    return "\n".join(lines)
 
 
 def _opener_for_account(account: ProviderAccount):

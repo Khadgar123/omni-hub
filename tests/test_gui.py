@@ -11,34 +11,38 @@ from urllib.request import Request, urlopen
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from omni_hub.gui import INDEX_HTML, create_gui_server
+from omni_hub.gui import INDEX_HTML, OFFICIAL_PROVIDER_PRESETS, create_gui_server
 
 
 class GuiServerTests(unittest.TestCase):
     def test_gui_index_uses_user_facing_dashboard_terms(self) -> None:
         self.assertIn("模型配置", INDEX_HTML)
         self.assertIn("项目编组", INDEX_HTML)
-        self.assertIn("使用选择", INDEX_HTML)
         self.assertIn("监控检测", INDEX_HTML)
-        self.assertIn("官方厂商", INDEX_HTML)
-        self.assertIn("OpenAI", INDEX_HTML)
-        self.assertIn("Claude", INDEX_HTML)
-        self.assertIn("Qwen", INDEX_HTML)
-        self.assertIn("DeepSeek", INDEX_HTML)
-        self.assertIn("GLM", INDEX_HTML)
-        self.assertIn("MiniMax", INDEX_HTML)
+        self.assertIn("模型厂商", INDEX_HTML)
         self.assertIn("API Key", INDEX_HTML)
         self.assertIn("默认脚本", INDEX_HTML)
         self.assertIn("拖拽", INDEX_HTML)
         self.assertIn("自动切换队列", INDEX_HTML)
-        self.assertIn("流式健康检查", INDEX_HTML)
+        self.assertIn("模型探测", INDEX_HTML)
         self.assertIn("发现模型", INDEX_HTML)
+        self.assertIn("接口地址", INDEX_HTML)
+        self.assertIn("API 格式", INDEX_HTML)
+        self.assertIn("并发上限", INDEX_HTML)
+        self.assertIn("项目模型包", INDEX_HTML)
         self.assertIn("实时延迟", INDEX_HTML)
         self.assertIn("Skills", INDEX_HTML)
         self.assertIn('id="toast"', INDEX_HTML)
-        self.assertNotIn("Base URL", INDEX_HTML)
+        self.assertNotIn("使用选择", INDEX_HTML)
         self.assertNotIn("Provider 账号", INDEX_HTML)
         self.assertNotIn("Agent 规划", INDEX_HTML)
+
+    def test_gui_official_provider_presets_cover_major_model_vendors(self) -> None:
+        names = {item["name"] for item in OFFICIAL_PROVIDER_PRESETS}
+        self.assertGreaterEqual(
+            names,
+            {"OpenAI", "Claude", "Qwen", "DeepSeek", "GLM", "MiniMax"},
+        )
 
     def test_gui_api_state_and_agent_plan(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -148,6 +152,9 @@ class GuiServerTests(unittest.TestCase):
                             "api_key": "sk-test-raw-secret",
                             "model_ids": "gpt-5.4\ngpt-5.4-mini",
                             "priority": 90,
+                            "api_format": "openai_chat",
+                            "max_concurrency": "3",
+                            "rpm_limit": "120",
                         },
                     )
 
@@ -162,6 +169,9 @@ class GuiServerTests(unittest.TestCase):
                     self.assertEqual(len(configured["abilities"]), 2)
                     self.assertEqual(configured["abilities"][0]["priority"], 90)
                     self.assertEqual(configured["abilities"][1]["priority"], 85)
+                    self.assertIn("api_format=openai_chat", configured["account"]["notes"])
+                    self.assertIn("max_concurrency=3", configured["account"]["notes"])
+                    self.assertIn("rpm_limit=120", configured["account"]["notes"])
                 finally:
                     server.shutdown()
                     thread.join(timeout=2)
@@ -199,12 +209,13 @@ class GuiServerTests(unittest.TestCase):
                         },
                     ) as stream_check:
                         checked = _post_json(
-                            f"{base_url}/api/stream-check",
+                            f"{base_url}/api/model-probe",
                             {"account_id": "openai-main"},
                         )
 
                     self.assertEqual(checked["health"]["status"], "healthy")
                     self.assertEqual(checked["stream_check"]["status"], "operational")
+                    self.assertEqual(checked["probe"]["status"], "operational")
                     self.assertEqual(checked["stream_check"]["api_format"], "openai_chat")
                     self.assertEqual(checked["model_health"]["model_id"], "gpt-5.4")
                     self.assertEqual(checked["model_health"]["latency_ms"], 42)
@@ -212,6 +223,51 @@ class GuiServerTests(unittest.TestCase):
                     stream_check.assert_called_once()
                     self.assertEqual(stream_check.call_args.args[1], "gpt-5.4")
                     self.assertEqual(stream_check.call_args.args[2], "sk-test-raw-secret")
+                finally:
+                    server.shutdown()
+                    thread.join(timeout=2)
+                    server.server_close()
+
+    def test_gui_project_import_exports_runtime_model_bundle_without_raw_key(self) -> None:
+        with patch.dict(os.environ, {"OMNI_HUB_SECRET_BACKEND": "memory"}):
+            with tempfile.TemporaryDirectory() as tmpdir:
+                server = create_gui_server(tmpdir, port=0)
+                thread = threading.Thread(target=server.serve_forever, daemon=True)
+                thread.start()
+                base_url = f"http://{server.server_address[0]}:{server.server_address[1]}"
+                try:
+                    _post_json(
+                        f"{base_url}/api/official-provider-config",
+                        {
+                            "provider": "openai",
+                            "account_id": "openai-main",
+                            "name": "OpenAI Official",
+                            "api_key": "sk-test-raw-secret",
+                            "base_url": "https://api.openai.com/v1",
+                            "model_ids": "gpt-5.4",
+                            "priority": 90,
+                            "max_concurrency": "4",
+                            "rpm_limit": "100",
+                        },
+                    )
+                    imported = _post_json(
+                        f"{base_url}/api/project-import-routes",
+                        {
+                            "project_id": "omni-hub",
+                            "scope": "selected_provider",
+                            "provider": "openai",
+                        },
+                    )
+
+                    self.assertEqual(imported["profile"]["project_id"], "omni-hub")
+                    self.assertEqual(len(imported["routes"]), 1)
+                    route = imported["bundle"]["routes"][0]
+                    self.assertEqual(route["base_url"], "https://api.openai.com/v1")
+                    self.assertEqual(route["secret_ref"], "keychain:omni-hub/openai-main")
+                    self.assertEqual(route["max_concurrency"], "4")
+                    self.assertIn("slot_routes", imported["bundle"])
+                    self.assertEqual(imported["bundle"]["slot_routes"][0]["slot"], "default")
+                    self.assertNotIn("sk-test", json.dumps(imported))
                 finally:
                     server.shutdown()
                     thread.join(timeout=2)
