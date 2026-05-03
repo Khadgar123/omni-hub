@@ -163,7 +163,7 @@ PYTHONPATH=src python3.12 -m omni_hub.cli agent-plan --project writing --task "�
 PYTHONPATH=src python3.12 -m omni_hub.cli gui --open
 ```
 
-默认打开 `http://127.0.0.1:8765`。GUI 是中文本地控制台，包含总览、模型配置、项目编组、监控检测和 Skills；模型配置页按模型厂商分组管理官方渠道和多个中转站渠道，添加和修改都进入同一个弹窗。Base URL、API Key、代理、并发/RPM/TPM、模型列表是主配置；高级配置只放 API 格式、认证字段、Full URL、模型发现 URL、测试参数和计费参数。网页填写的 API Key 默认写入本地 `.omni/secrets.json`，`.omni/` 已被 git ignore；SQLite 只保存 `local:` 引用。每个厂商下的渠道列表支持刷新余额、复制条目、导出 export 脚本、导出 Codex 配置、修改、删除，以及拖拽调整启用顺序；路由会按优先级选择，故障时自动切到下一级。项目页一键导入项目模型包，输出项目可读 JSON：模型、渠道、base_url、secret_ref、proxy、并发限制、限流、计费和健康状态都会包含，并额外按默认文本、复杂推理、代码与工具、多模态、批处理和检索向量生成候选模型清单；raw key 不会导出。
+默认打开 `http://127.0.0.1:8765`。GUI 是中文本地控制台，包含总览、模型配置、项目编组、监控检测和 Skills；模型配置页按 OpenAI、Claude、Qwen、DeepSeek、Kimi、GLM、MiniMax 管理官方渠道和多个中转站渠道，添加和修改都进入同一个弹窗。Base URL、API Key、代理、并发/RPM/TPM、模型列表是主配置；高级配置只放 API 格式、认证字段、Full URL、模型发现 URL、测试参数和计费参数。网页填写的 API Key 默认写入本地 `.omni/secrets.json`，`.omni/` 已被 git ignore；SQLite 只保存 `local:` 引用。每个厂商下的渠道列表支持刷新余额、复制条目、导出 export 脚本、导出 Codex 配置、修改、删除，以及拖拽调整启用顺序；路由会按优先级选择，故障时自动切到下一级。项目页一键导入项目模型包，输出项目可读 JSON：模型、渠道、base_url、secret_ref、proxy、并发限制、限流、计费和健康状态都会包含，并额外按默认文本、复杂推理、代码与工具、多模态、批处理和检索向量生成候选模型清单；raw key 不会导出。
 
 运行测试：
 

@@ -15,6 +15,7 @@ from omni_hub.gui import (
     INDEX_HTML,
     OFFICIAL_PROVIDER_PRESETS,
     _fetch_models_from_payload,
+    _parse_kimi_balance,
     _model_entries,
     _parse_cursorlink_balance,
     _parse_newapi_balance,
@@ -38,7 +39,6 @@ class GuiServerTests(unittest.TestCase):
         self.assertIn('id="provider-modal"', INDEX_HTML)
         self.assertIn("导出 export 脚本", INDEX_HTML)
         self.assertIn("拖拽", INDEX_HTML)
-        self.assertIn("自动切换队列", INDEX_HTML)
         self.assertIn("测试连接", INDEX_HTML)
         self.assertIn("发现模型", INDEX_HTML)
         self.assertIn("接口地址", INDEX_HTML)
@@ -49,6 +49,8 @@ class GuiServerTests(unittest.TestCase):
         self.assertIn("复制条目", INDEX_HTML)
         self.assertIn("删除", INDEX_HTML)
         self.assertIn("CursorLink", INDEX_HTML)
+        self.assertIn("渠道模板", INDEX_HTML)
+        self.assertNotIn("当前厂商自动切换队列", INDEX_HTML)
         self.assertIn("Skills", INDEX_HTML)
         self.assertIn('id="toast"', INDEX_HTML)
         self.assertNotIn("使用选择", INDEX_HTML)
@@ -59,8 +61,19 @@ class GuiServerTests(unittest.TestCase):
         names = {item["name"] for item in OFFICIAL_PROVIDER_PRESETS}
         self.assertGreaterEqual(
             names,
-            {"OpenAI", "Claude", "Qwen", "DeepSeek", "GLM", "MiniMax"},
+            {"OpenAI", "Claude", "Qwen", "DeepSeek", "Kimi", "GLM", "MiniMax"},
         )
+
+    def test_gui_official_presets_include_cursorlink_channel_templates(self) -> None:
+        presets = {item["name"]: item for item in OFFICIAL_PROVIDER_PRESETS}
+        openai_templates = presets["OpenAI"].get("relay_templates", [])
+        claude_templates = presets["Claude"].get("relay_templates", [])
+
+        self.assertEqual(openai_templates[0]["base_url"], "https://apicursor.com/v1")
+        self.assertIn("cx-5.5", openai_templates[0]["models"])
+        self.assertEqual(openai_templates[0]["usage_template"], "cursorlink")
+        self.assertEqual(claude_templates[0]["api_format"], "openai_chat")
+        self.assertIn("so-4.6", claude_templates[0]["models"])
 
     def test_gui_api_state_and_agent_plan(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -576,6 +589,25 @@ class GuiServerTests(unittest.TestCase):
         self.assertEqual(parsed[0]["used"], 2454.17)
         self.assertAlmostEqual(parsed[0]["total"], 4715.03)
         self.assertEqual(parsed[0]["extra"]["total_requests"], 6673)
+
+    def test_gui_kimi_balance_parser_matches_official_shape(self) -> None:
+        parsed = _parse_kimi_balance(
+            {
+                "code": 0,
+                "data": {
+                    "available_balance": 49.58894,
+                    "voucher_balance": 46.58893,
+                    "cash_balance": 3.00001,
+                },
+                "scode": "0x0",
+                "status": True,
+            }
+        )
+
+        self.assertEqual(parsed[0]["plan_name"], "Kimi")
+        self.assertEqual(parsed[0]["remaining"], 49.58894)
+        self.assertEqual(parsed[0]["unit"], "USD")
+        self.assertEqual(parsed[0]["extra"]["voucher_balance"], 46.58893)
 
     def test_gui_adds_model_to_channel_with_manual_model_id(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

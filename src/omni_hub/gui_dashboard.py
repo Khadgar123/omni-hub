@@ -245,6 +245,18 @@ INDEX_HTML = r"""<!doctype html>
     }
     .vendor-card strong { font-size: 15px; }
     .vendor-card span { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+    .template-block {
+      display: none;
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid var(--line);
+    }
+    .template-block.active { display: grid; gap: 8px; }
+    .template-title {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+    }
     .config-list {
       display: grid;
       gap: 10px;
@@ -547,16 +559,16 @@ INDEX_HTML = r"""<!doctype html>
               </div>
               <div class="panel-body compact-body">
                 <div class="vendor-grid" id="official-provider-list"></div>
+                <div class="template-block" id="relay-template-block">
+                  <div class="template-title">渠道模板</div>
+                  <div class="vendor-grid" id="relay-template-list"></div>
+                </div>
               </div>
             </div>
 
             <div class="panel table-box">
               <div class="panel-head"><h3 id="provider-list-title">当前厂商渠道</h3><span class="subtle">拖拽左侧排序块即可调整启用顺序</span></div>
               <div id="providerConfigList"></div>
-            </div>
-            <div class="panel table-box">
-              <div class="panel-head"><h3>当前厂商自动切换队列</h3><span class="subtle">同一模型厂商下的官方和中转渠道一起排序</span></div>
-              <div id="fallbackQueueTable"></div>
             </div>
           </div>
         </section>
@@ -934,6 +946,21 @@ INDEX_HTML = r"""<!doctype html>
         </button>`
       )).join('');
       if (!state.officialProvider && presets[0]) applyOfficialProvider(presets[0], false);
+      renderRelayTemplates();
+    }
+
+    function renderRelayTemplates() {
+      const block = document.getElementById('relay-template-block');
+      const list = document.getElementById('relay-template-list');
+      if (!block || !list) return;
+      const templates = (state.officialProvider?.relay_templates || []).slice().sort((a, b) => Number(b.rank || 0) - Number(a.rank || 0));
+      block.classList.toggle('active', templates.length > 0);
+      list.innerHTML = templates.map((template, index) => (
+        `<button type="button" class="vendor-card" data-relay-template-index="${index}">
+          <strong>${escapeHtml(template.name)}</strong>
+          <span>${escapeHtml(template.base_url || '')} · ${(template.models || []).length} 个模型别名</span>
+        </button>`
+      )).join('');
     }
 
     function applyOfficialProvider(preset, notify = true) {
@@ -969,9 +996,50 @@ INDEX_HTML = r"""<!doctype html>
       document.getElementById('save-provider-button').textContent = '添加渠道';
       document.getElementById('provider-list-title').textContent = `${preset.name} 渠道列表`;
       renderOfficialProviders();
+      renderRelayTemplates();
       renderTables();
       updateScriptPreview();
       if (notify) showToast(`已选择 ${preset.name}`);
+    }
+
+    function applyRelayTemplate(template, notify = true) {
+      const preset = state.officialProvider;
+      if (!preset) return;
+      state.providerModalMode = 'add';
+      document.getElementById('official-provider').value = preset.slug;
+      document.getElementById('account-id').value = template.account_id || idFromBaseUrl(preset, template.base_url);
+      document.getElementById('provider-name').value = template.name || `${preset.name} 中转`;
+      document.getElementById('base-url').value = template.base_url || preset.base_url || '';
+      document.getElementById('secret-ref').value = '';
+      document.getElementById('proxy-url').value = '';
+      document.getElementById('quota-ref').value = template.quota_ref || preset.quota_ref || '';
+      document.getElementById('model-ids').value = (template.models || []).join('\n');
+      syncDefaultModelOptions(template.default_model || '');
+      document.getElementById('default-model').value = template.default_model || '';
+      document.getElementById('provider-capabilities').value = (template.capabilities || preset.capabilities || []).join(', ');
+      document.getElementById('provider-priority').value = String(template.rank || preset.rank || 90);
+      document.getElementById('api-key').value = '';
+      document.getElementById('api-format').value = template.api_format || '';
+      document.getElementById('wire-api').value = template.wire_api || 'chat';
+      document.getElementById('requires-openai-auth').value = template.requires_openai_auth || 'true';
+      document.getElementById('disable-response-storage').value = template.disable_response_storage || 'true';
+      document.getElementById('usage-template').value = template.usage_template || 'auto';
+      document.getElementById('usage-base-url').value = template.usage_base_url || '';
+      document.getElementById('usage-endpoint').value = template.usage_endpoint || '';
+      document.getElementById('usage-user-id').value = '';
+      document.getElementById('usage-access-token').value = '';
+      document.getElementById('usage-access-token-ref').value = '';
+      ['max-concurrency', 'rpm-limit', 'tpm-limit', 'auth-field', 'is-full-url',
+       'models-url', 'test-model', 'test-prompt', 'timeout-secs', 'max-retries',
+       'degraded-threshold-ms', 'cost-multiplier', 'pricing-model-source'].forEach(id => {
+        const element = document.getElementById(id);
+        if (element) element.value = template[id.replaceAll('-', '_')] || '';
+      });
+      document.getElementById('channel-form-title').textContent = `添加 ${template.name || preset.name}`;
+      document.getElementById('save-provider-button').textContent = '添加渠道';
+      updateScriptPreview();
+      openProviderModal('add');
+      if (notify) showToast(`已套用 ${template.name}`);
     }
 
     function openProviderModal(mode = 'add') {
@@ -1045,7 +1113,6 @@ INDEX_HTML = r"""<!doctype html>
         {label: '状态', render: row => pill(row.status)}
       ], overview);
       renderProviderConfigList();
-      renderFallbackQueueTable();
       renderProjectSlots();
       renderProjectBundlePreview();
       renderDataTable('profilesTable', '项目偏好', [
@@ -1115,29 +1182,6 @@ INDEX_HTML = r"""<!doctype html>
           </div>
         </div>`;
       }).join('')}</div>` : '<div class="panel-body subtle">当前厂商还没有渠道。添加官方渠道或中转站后，会只出现在这个厂商列表里。</div>';
-    }
-
-    function renderFallbackQueueTable() {
-      const provider = selectedProvider();
-      const rows = poolRows()
-        .filter(row => row.account.provider === provider)
-        .slice()
-        .sort((a, b) => Number(b.priority || 0) - Number(a.priority || 0) || a.account_id.localeCompare(b.account_id));
-      const queue = rows.map((row, index) => ({
-        ...row,
-        order: index + 1,
-        next: rows[index + 1] ? `${rows[index + 1].account.name || rows[index + 1].account_id} / ${rows[index + 1].model_id}` : '无'
-      }));
-      renderDataTable('fallbackQueueTable', '自动切换队列', [
-        {key: 'order', label: '顺序'},
-        {label: '厂商', render: row => escapeHtml(providerName(row.account.provider))},
-        {label: '配置', render: row => escapeHtml(row.account.name || row.account_id)},
-        {key: 'model_id', label: '模型'},
-        {key: 'priority', label: '优先级'},
-        {label: '健康', render: row => pill(row.health.status || 'unknown')},
-        {label: '延迟', render: row => row.health.latency_ms == null ? '待检测' : `${row.health.latency_ms} ms`},
-        {key: 'next', label: '失败后切换'}
-      ], queue);
     }
 
     function renderProjectBundlePreview() {
@@ -1312,7 +1356,7 @@ INDEX_HTML = r"""<!doctype html>
         body: JSON.stringify({account_id: accountId})
       });
       state.balances[accountId] = data;
-      await refresh(false);
+      renderTables();
       if (!data.success) {
         const fallback = quotaText(account);
         showToast(data.error === 'unsupported balance provider' && fallback !== '未配置' ? `该厂商未接入余额接口；可去 ${fallback}` : `额度查询失败：${data.error || '未支持'}`, 'warn');
@@ -1324,7 +1368,34 @@ INDEX_HTML = r"""<!doctype html>
     }
 
     async function refreshAccount(accountId) {
-      await showQuota(accountId);
+      const account = accountById(accountId);
+      if (!account.account_id) throw new Error('配置不存在');
+      const [healthResult, balanceResult] = await Promise.allSettled([
+        api('/api/model-probe', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({account_id: accountId})
+        }),
+        api('/api/balance-check', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({account_id: accountId})
+        })
+      ]);
+      if (balanceResult.status === 'fulfilled') {
+        state.balances[accountId] = balanceResult.value;
+      } else {
+        state.balances[accountId] = {success: false, data: null, error: balanceResult.reason?.message || '余额查询失败'};
+      }
+      await refresh(false);
+      const health = healthResult.status === 'fulfilled'
+        ? (healthResult.value.stream_check?.status || healthResult.value.health?.status || '完成')
+        : `失败：${healthResult.reason?.message || '连接测试失败'}`;
+      const balance = state.balances[accountId];
+      const balanceMessage = balance.success
+        ? (balance.data || []).map(row => `${row.plan_name || '余额'} ${row.remaining ?? '-'} ${row.unit || ''}`).join('；')
+        : `余额失败：${balance.error || '未支持'}`;
+      showToast(`刷新完成：${health}${balanceMessage ? ` · ${balanceMessage}` : ''}`);
     }
 
     async function duplicateAccount(accountId) {
@@ -1440,6 +1511,11 @@ INDEX_HTML = r"""<!doctype html>
       if (jump) setView(jump.dataset.jump);
       const officialButton = event.target.closest('[data-official-index]');
       if (officialButton) applyOfficialProvider(officialProviders()[Number(officialButton.dataset.officialIndex)]);
+      const templateButton = event.target.closest('[data-relay-template-index]');
+      if (templateButton) {
+        const templates = (state.officialProvider?.relay_templates || []).slice().sort((a, b) => Number(b.rank || 0) - Number(a.rank || 0));
+        applyRelayTemplate(templates[Number(templateButton.dataset.relayTemplateIndex)]);
+      }
       const accountAction = event.target.closest('[data-account-action]');
       if (accountAction) {
         const accountId = accountAction.dataset.accountId;

@@ -57,6 +57,18 @@ CURSORLINK_MODEL_ALIASES = [
     "cx-5.4-high",
     "cx-5.4-xhigh",
 ]
+CURSORLINK_OPENAI_MODEL_ALIASES = [
+    "cx-5.5",
+    "cx-5.5-high",
+    "cx-5.5-xhigh",
+    "cx-5.4",
+    "cx-5.4-high",
+    "cx-5.4-xhigh",
+]
+CURSORLINK_CLAUDE_MODEL_ALIASES = [
+    "op-4.6",
+    "so-4.6",
+]
 
 
 OFFICIAL_PROVIDER_PRESETS: list[dict[str, Any]] = [
@@ -71,6 +83,23 @@ OFFICIAL_PROVIDER_PRESETS: list[dict[str, Any]] = [
         "quota_ref": "dashboard:https://platform.openai.com/usage",
         "models": ["gpt-5.4", "gpt-5.4-mini"],
         "capabilities": ["text", "tools", "vision"],
+        "relay_templates": [
+            {
+                "name": "CursorLink Codex/OpenAI 中转",
+                "account_id": "openai-cursorlink",
+                "base_url": CURSORLINK_DEFAULT_API_BASE_URL,
+                "models": CURSORLINK_OPENAI_MODEL_ALIASES,
+                "default_model": "cx-5.5",
+                "capabilities": ["text", "tools", "reasoning"],
+                "api_format": "openai_chat",
+                "wire_api": "chat",
+                "requires_openai_auth": "true",
+                "usage_template": "cursorlink",
+                "usage_base_url": CURSORLINK_USAGE_BASE_URL,
+                "quota_ref": "cursorlink:/api/cursor/queryCredits",
+                "rank": 89,
+            }
+        ],
         "rank": 100,
     },
     {
@@ -84,6 +113,23 @@ OFFICIAL_PROVIDER_PRESETS: list[dict[str, Any]] = [
         "quota_ref": "dashboard:https://console.anthropic.com/settings/billing",
         "models": ["claude-opus-4-20250514", "claude-sonnet-4-5"],
         "capabilities": ["text", "tools", "vision"],
+        "relay_templates": [
+            {
+                "name": "CursorLink Claude 中转",
+                "account_id": "claude-cursorlink",
+                "base_url": CURSORLINK_DEFAULT_API_BASE_URL,
+                "models": CURSORLINK_CLAUDE_MODEL_ALIASES,
+                "default_model": "so-4.6",
+                "capabilities": ["text", "tools", "reasoning"],
+                "api_format": "openai_chat",
+                "wire_api": "chat",
+                "requires_openai_auth": "true",
+                "usage_template": "cursorlink",
+                "usage_base_url": CURSORLINK_USAGE_BASE_URL,
+                "quota_ref": "cursorlink:/api/cursor/queryCredits",
+                "rank": 89,
+            }
+        ],
         "rank": 96,
     },
     {
@@ -111,6 +157,26 @@ OFFICIAL_PROVIDER_PRESETS: list[dict[str, Any]] = [
         "models": ["deepseek-v4-flash", "deepseek-v4-pro"],
         "capabilities": ["text", "tools"],
         "rank": 88,
+    },
+    {
+        "name": "Kimi",
+        "slug": "kimi",
+        "provider": "kimi",
+        "base_url": "https://api.moonshot.ai/v1",
+        "secret_ref": "env:MOONSHOT_API_KEY",
+        "env_var": "MOONSHOT_API_KEY",
+        "base_env_var": "MOONSHOT_BASE_URL",
+        "quota_ref": "api:/v1/users/me/balance",
+        "models": [
+            "kimi-k2.6",
+            "kimi-k2.5",
+            "kimi-k2-turbo-preview",
+            "kimi-k2-thinking",
+            "kimi-k2-thinking-turbo",
+            "moonshot-v1-128k",
+        ],
+        "capabilities": ["text", "tools", "vision", "reasoning"],
+        "rank": 86,
     },
     {
         "name": "GLM",
@@ -1840,6 +1906,13 @@ def _query_provider_balance(
                 }
             ],
         )
+    if provider == "kimi":
+        return _query_balance_json(
+            account,
+            api_key,
+            _join_url(_balance_root_url(account.base_url), "/v1/users/me/balance"),
+            _parse_kimi_balance,
+        )
     if provider == "novita":
         return _query_balance_json(
             account,
@@ -2057,6 +2130,35 @@ def _parse_generic_balance(body: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
+def _parse_kimi_balance(body: dict[str, Any]) -> list[dict[str, Any]]:
+    data = body.get("data", body)
+    if not isinstance(data, dict):
+        return []
+    remaining = _json_float(data, "available_balance")
+    if remaining is None:
+        return []
+    status = body.get("status", True)
+    return [
+        {
+            "plan_name": "Kimi",
+            "remaining": remaining,
+            "total": remaining,
+            "used": None,
+            "unit": "USD",
+            "is_valid": bool(status),
+            "extra": {
+                key: value
+                for key, value in {
+                    "voucher_balance": _json_float(data, "voucher_balance"),
+                    "cash_balance": _json_float(data, "cash_balance"),
+                    "scode": body.get("scode"),
+                }.items()
+                if value not in (None, "")
+            },
+        }
+    ]
+
+
 def _parse_cursorlink_balance(body: dict[str, Any]) -> list[dict[str, Any]]:
     data = body.get("data", body)
     if not isinstance(data, dict):
@@ -2209,6 +2311,8 @@ def _detect_balance_provider(base_url: str) -> str:
         return "siliconflow-en"
     if "openrouter.ai" in url:
         return "openrouter"
+    if "api.moonshot.ai" in url:
+        return "kimi"
     if "api.novita.ai" in url:
         return "novita"
     if "apicursor.com" in url or "cursoropenai.com" in url:

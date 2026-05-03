@@ -30,7 +30,7 @@ http://127.0.0.1:8765
 
 ### 官方配置
 
-适合 OpenAI、Claude、Qwen、DeepSeek、GLM、MiniMax 官方 API。
+适合 OpenAI、Claude、Qwen、DeepSeek、Kimi、GLM、MiniMax 官方 API。
 
 操作路径：
 
@@ -103,7 +103,12 @@ CursorLink 的当前结构是：
 - 复制调用地址：`POST /api/cursor/getCopyUrl`
 - 充值/封禁/推广记录接口存在，但属于高风险或财务动作，不应自动执行
 
-如果已经拿到真实 API Key，可以这样写入：
+GUI 已把这次爬到的 CursorLink 结果做成两个渠道模板：
+
+- OpenAI/Codex：`cx-5.5`、`cx-5.5-high`、`cx-5.5-xhigh`、`cx-5.4`、`cx-5.4-high`、`cx-5.4-xhigh`
+- Claude：`op-4.6`、`so-4.6`
+
+如果已经拿到真实 API Key，也可以直接通过本地 API 写入：
 
 ```json
 {

@@ -18,8 +18,9 @@ http://127.0.0.1:8765
 
 - 总览本机模型厂商、渠道配置、项目模型包、健康记录和调用日志数量。
 - 通过左侧导航进入总览、模型配置、项目编组、监控检测和 Skills。
-- 模型配置页按模型厂商分类：OpenAI、Claude、Qwen、DeepSeek、GLM、MiniMax。主页面以渠道列表为中心，添加和修改都进入同一个弹窗。
+- 模型配置页按模型厂商分类：OpenAI、Claude、Qwen、DeepSeek、Kimi、GLM、MiniMax。主页面以渠道列表为中心，添加和修改都进入同一个弹窗。
 - 一个模型厂商可以保存多套渠道，包括官方 API 和多个中转站 API；当前厂商列表只展示该厂商渠道，便于查找和排序。
+- OpenAI 和 Claude 厂商下内置 CursorLink 渠道模板，会预填爬到的 `https://apicursor.com/v1`、模型别名和 CursorLink 余额查询模板。
 - 配置列表支持刷新余额、复制条目、导出 export 脚本、导出 Codex 配置、修改、删除，以及拖拽调整调用优先级。
 - 网页端提供 API Key 输入框；raw key 不写入 SQLite。所有平台默认写入本地 `.omni/secrets.json`，数据库只保存 `local:` 引用，并生成默认环境脚本。
 - 每个厂商配置都可以设置代理连接；留空表示该渠道调用时 `unset` 代理。
@@ -30,7 +31,7 @@ http://127.0.0.1:8765
 - 项目模型包会输出项目和 agent runtime 可读 JSON，包括模型、渠道、`base_url`、`secret_ref`、代理、并发限制、RPM/TPM、计费参数和健康状态，并额外生成 `slot_routes` 候选清单；raw key 不会导出。
 - 监控检测用于记录模型配置健康状态、代理、实时延迟、余额、失败信息和连接测试结果。余额刷新会直接回写当前表格；连接测试走 `/api/model-probe`，会按渠道协议发起最小流式请求，收到首个 chunk 即判定连通，可能产生极小 API 费用。
 - 模型发现使用 OpenAI 兼容 `/v1/models` 候选接口；遇到 Anthropic 兼容子路径时会额外尝试剥离子路径后的 `/v1/models` 和 `/models`。
-- 余额查询独立于连接测试，当前接入 DeepSeek、StepFun、SiliconFlow、OpenRouter、Novita AI、NewAPI、通用 `/v1/usage` 和 CursorLink；未支持厂商会回退展示配置里的额度入口。
+- 余额查询独立于连接测试，当前接入 DeepSeek、Kimi、StepFun、SiliconFlow、OpenRouter、Novita AI、NewAPI、通用 `/v1/usage` 和 CursorLink；未支持厂商会回退展示配置里的额度入口。
 - Skills 页面参考 CC Switch 的设计方向：GitHub/ZIP/本地安装、跨客户端同步、symlink/file copy、卸载前备份、冲突检测和项目推荐。
 - 各个表格支持搜索和每页 8 条分页浏览。
 - 所有按钮点击后都会给出成功或失败反馈。
@@ -38,7 +39,7 @@ http://127.0.0.1:8765
 ## 页面结构
 
 - `总览`：展示本机状态指标、快速入口和当前接入概览。
-- `模型配置`：按模型厂商配置官方和中转渠道，维护厂商内渠道列表和自动切换队列。
+- `模型配置`：按模型厂商配置官方和中转渠道，维护厂商内渠道列表和拖拽优先级。
 - `项目编组`：为项目一键导入模型包，生成运行时可读配置和项目级 route override。
 - `监控检测`：刷新余额、代理、实时延迟、HTTP 错误码和额度/限流信号。
 - `Skills`：Skill registry、安装、同步、备份、冲突检测和项目推荐的入口。
