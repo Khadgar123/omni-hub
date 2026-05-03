@@ -14,6 +14,8 @@ from omni_hub.provider_router import (
     ProviderAccount,
     ProviderHealth,
     ProviderRouterStore,
+    ProjectRouteOverride,
+    ProjectRouteProfile,
     RouteAbility,
     RouteRequest,
 )
@@ -32,6 +34,8 @@ class ProviderRouterTests(unittest.TestCase):
                     "provider_accounts": 0,
                     "model_catalog": 0,
                     "route_abilities": 0,
+                    "project_route_profiles": 0,
+                    "project_route_overrides": 0,
                     "provider_health": 0,
                     "usage_request_logs": 0,
                 },
@@ -176,6 +180,122 @@ class ProviderRouterTests(unittest.TestCase):
 
             self.assertIsNone(decision.selected)
             self.assertEqual(decision.rejected[0]["reason"], "health is down")
+
+    def test_project_route_override_changes_priority_only_for_project(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = ProviderRouterStore(tmpdir)
+            store.upsert_account(
+                ProviderAccount(
+                    account_id="openai-main",
+                    provider="openai",
+                    name="OpenAI Main",
+                    base_url="https://api.openai.com/v1",
+                    secret_ref="env:OPENAI_API_KEY",
+                )
+            )
+            store.upsert_account(
+                ProviderAccount(
+                    account_id="anthropic-main",
+                    provider="anthropic",
+                    name="Anthropic Main",
+                    base_url="https://api.anthropic.com/v1",
+                    secret_ref="env:ANTHROPIC_API_KEY",
+                )
+            )
+            store.upsert_model(ModelSpec(model_id="gpt-5.4", capabilities=["text"]))
+            store.upsert_model(ModelSpec(model_id="claude-opus", capabilities=["text"]))
+            store.upsert_ability(
+                RouteAbility(
+                    account_id="openai-main",
+                    model_id="gpt-5.4",
+                    priority=20,
+                )
+            )
+            store.upsert_ability(
+                RouteAbility(
+                    account_id="anthropic-main",
+                    model_id="claude-opus",
+                    priority=10,
+                )
+            )
+            store.upsert_project_override(
+                ProjectRouteOverride(
+                    project_id="writing",
+                    account_id="anthropic-main",
+                    model_id="claude-opus",
+                    priority=50,
+                    weight=2,
+                )
+            )
+
+            default_decision = store.route(RouteRequest(capabilities=["text"]))
+            project_decision = store.route(
+                RouteRequest(project_id="writing", capabilities=["text"])
+            )
+
+            self.assertEqual(
+                default_decision.selected.account.account_id,
+                "openai-main",
+            )
+            self.assertEqual(
+                project_decision.selected.account.account_id,
+                "anthropic-main",
+            )
+            self.assertIn(
+                "project_override=writing",
+                project_decision.selected.reasons,
+            )
+
+    def test_project_profile_applies_defaults_and_budget_cap(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = ProviderRouterStore(tmpdir)
+            store.upsert_account(
+                ProviderAccount(
+                    account_id="openai-main",
+                    provider="openai",
+                    name="OpenAI Main",
+                    base_url="https://api.openai.com/v1",
+                    secret_ref="env:OPENAI_API_KEY",
+                )
+            )
+            store.upsert_model(
+                ModelSpec(
+                    model_id="gpt-5.4",
+                    capabilities=["text", "tools"],
+                    input_usd_per_million=2.0,
+                    output_usd_per_million=10.0,
+                )
+            )
+            store.upsert_ability(
+                RouteAbility(account_id="openai-main", model_id="gpt-5.4")
+            )
+            store.upsert_project_profile(
+                ProjectRouteProfile(
+                    project_id="agent-dev",
+                    default_capabilities=["tools"],
+                    max_cost_usd=0.001,
+                    preferred_providers=["openai"],
+                )
+            )
+
+            decision = store.route(
+                RouteRequest(
+                    project_id="agent-dev",
+                    capabilities=["text"],
+                    input_tokens=1000,
+                    output_tokens=500,
+                )
+            )
+
+            self.assertIsNone(decision.selected)
+            self.assertEqual(decision.request.capabilities, ["text", "tools"])
+            self.assertEqual(decision.request.max_cost_usd, 0.001)
+            self.assertTrue(
+                any(
+                    "exceeds max_cost_usd" in item["reason"]
+                    for item in decision.rejected
+                )
+            )
 
     def test_operations_register_and_simulate_route(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

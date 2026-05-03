@@ -15,6 +15,8 @@ from .provider_router import (
     ProviderAccountStatus,
     ProviderHealth,
     ProviderRouterStore,
+    ProjectRouteOverride,
+    ProjectRouteProfile,
     RouteAbility,
     RouteRequest,
 )
@@ -408,6 +410,78 @@ def make_set_route_ability(workspace: Path):
     return set_route_ability
 
 
+def make_set_route_profile(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def set_route_profile(spec: OperationSpec) -> dict[str, object]:
+        payload = spec.payload
+        profile = ProjectRouteProfile(
+            project_id=str(payload["project_id"]),
+            default_capabilities=list(payload.get("default_capabilities", [])),
+            max_cost_usd=payload.get("max_cost_usd"),
+            require_batch=bool(payload.get("require_batch", False)),
+            preferred_providers=list(payload.get("preferred_providers", [])),
+            preferred_accounts=list(payload.get("preferred_accounts", [])),
+            notes=str(payload.get("notes", "")),
+        )
+        stored = ProviderRouterStore(workspace_root).upsert_project_profile(profile)
+        return {"profile": stored.to_dict()}
+
+    return set_route_profile
+
+
+def make_list_route_profiles(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def list_route_profiles(spec: OperationSpec) -> dict[str, object]:
+        profiles = ProviderRouterStore(
+            workspace_root,
+            create=False,
+        ).list_project_profiles()
+        return {
+            "count": len(profiles),
+            "profiles": [profile.to_dict() for profile in profiles],
+        }
+
+    return list_route_profiles
+
+
+def make_set_project_route_override(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def set_project_route_override(spec: OperationSpec) -> dict[str, object]:
+        payload = spec.payload
+        override = ProjectRouteOverride(
+            project_id=str(payload["project_id"]),
+            account_id=str(payload["account_id"]),
+            model_id=str(payload["model_id"]),
+            priority=payload.get("priority"),
+            weight=payload.get("weight"),
+            enabled=bool(payload.get("enabled", True)),
+            notes=str(payload.get("notes", "")),
+        )
+        stored = ProviderRouterStore(workspace_root).upsert_project_override(override)
+        return {"override": stored.to_dict()}
+
+    return set_project_route_override
+
+
+def make_list_project_route_overrides(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def list_project_route_overrides(spec: OperationSpec) -> dict[str, object]:
+        overrides = ProviderRouterStore(
+            workspace_root,
+            create=False,
+        ).list_project_overrides(project_id=spec.payload.get("project_id"))
+        return {
+            "count": len(overrides),
+            "overrides": [override.to_dict() for override in overrides],
+        }
+
+    return list_project_route_overrides
+
+
 def make_set_provider_health(workspace: Path):
     workspace_root = workspace.resolve()
 
@@ -433,6 +507,7 @@ def make_route_simulate(workspace: Path):
     def route_simulate(spec: OperationSpec) -> dict[str, object]:
         payload = spec.payload
         request = RouteRequest(
+            project_id=str(payload.get("project_id", "")),
             capabilities=list(payload.get("capabilities", [])),
             input_tokens=int(payload.get("input_tokens", 0)),
             output_tokens=int(payload.get("output_tokens", 0)),
@@ -483,6 +558,16 @@ def build_default_registry(workspace: Path | str = ".") -> OperationRegistry:
     registry.register("add_model", make_add_model(workspace_path))
     registry.register("list_models", make_list_models(workspace_path))
     registry.register("set_route_ability", make_set_route_ability(workspace_path))
+    registry.register("set_route_profile", make_set_route_profile(workspace_path))
+    registry.register("list_route_profiles", make_list_route_profiles(workspace_path))
+    registry.register(
+        "set_project_route_override",
+        make_set_project_route_override(workspace_path),
+    )
+    registry.register(
+        "list_project_route_overrides",
+        make_list_project_route_overrides(workspace_path),
+    )
     registry.register("set_provider_health", make_set_provider_health(workspace_path))
     registry.register("route_simulate", make_route_simulate(workspace_path))
     registry.register("provider_router_stats", make_provider_router_stats(workspace_path))

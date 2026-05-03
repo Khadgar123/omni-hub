@@ -176,6 +176,86 @@ class RouteAbility:
 
 
 @dataclass(slots=True)
+class ProjectRouteProfile:
+    project_id: str
+    default_capabilities: list[str] = field(default_factory=list)
+    max_cost_usd: float | None = None
+    require_batch: bool = False
+    preferred_providers: list[str] = field(default_factory=list)
+    preferred_accounts: list[str] = field(default_factory=list)
+    notes: str = ""
+    created_at: str = field(default_factory=_now)
+    updated_at: str = field(default_factory=_now)
+
+    def __post_init__(self) -> None:
+        validate_project_id(self.project_id)
+        self.default_capabilities = normalize_capabilities(self.default_capabilities)
+        self.preferred_providers = normalize_capabilities(self.preferred_providers)
+        self.preferred_accounts = [
+            item.strip() for item in self.preferred_accounts if item.strip()
+        ]
+        if self.max_cost_usd is not None:
+            self.max_cost_usd = max(float(self.max_cost_usd), 0.0)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_row(cls, row: sqlite3.Row) -> "ProjectRouteProfile":
+        max_cost = row["max_cost_usd"]
+        return cls(
+            project_id=row["project_id"],
+            default_capabilities=json.loads(row["default_capabilities"]),
+            max_cost_usd=float(max_cost) if max_cost is not None else None,
+            require_batch=bool(row["require_batch"]),
+            preferred_providers=json.loads(row["preferred_providers"]),
+            preferred_accounts=json.loads(row["preferred_accounts"]),
+            notes=row["notes"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
+
+@dataclass(slots=True)
+class ProjectRouteOverride:
+    project_id: str
+    account_id: str
+    model_id: str
+    priority: int | None = None
+    weight: float | None = None
+    enabled: bool = True
+    notes: str = ""
+    created_at: str = field(default_factory=_now)
+    updated_at: str = field(default_factory=_now)
+
+    def __post_init__(self) -> None:
+        validate_project_id(self.project_id)
+        validate_account_id(self.account_id)
+        validate_model_id(self.model_id)
+        if self.priority is not None:
+            self.priority = int(self.priority)
+        if self.weight is not None:
+            self.weight = max(float(self.weight), 0.0)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_row(cls, row: sqlite3.Row) -> "ProjectRouteOverride":
+        return cls(
+            project_id=row["project_id"],
+            account_id=row["account_id"],
+            model_id=row["model_id"],
+            priority=row["priority"],
+            weight=row["weight"],
+            enabled=bool(row["enabled"]),
+            notes=row["notes"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
+
+@dataclass(slots=True)
 class ProviderHealth:
     account_id: str
     model_id: str = ""
@@ -217,6 +297,7 @@ class ProviderHealth:
 
 @dataclass(slots=True)
 class RouteRequest:
+    project_id: str = ""
     capabilities: list[str] = field(default_factory=list)
     input_tokens: int = 0
     output_tokens: int = 0
@@ -227,6 +308,9 @@ class RouteRequest:
     limit: int = 10
 
     def __post_init__(self) -> None:
+        self.project_id = self.project_id.strip()
+        if self.project_id:
+            validate_project_id(self.project_id)
         self.capabilities = normalize_capabilities(self.capabilities)
         self.input_tokens = max(int(self.input_tokens), 0)
         self.output_tokens = max(int(self.output_tokens), 0)
@@ -552,6 +636,147 @@ class ProviderRouterStore:
             ).fetchall()
         return [RouteAbility.from_row(row) for row in rows]
 
+    def upsert_project_profile(
+        self,
+        profile: ProjectRouteProfile,
+    ) -> ProjectRouteProfile:
+        now = _now()
+        with self._connect() as conn:
+            existing = self._get_project_profile(conn, profile.project_id)
+            if existing is not None:
+                profile.created_at = existing.created_at
+            profile.updated_at = now
+            conn.execute(
+                """
+                INSERT INTO project_route_profiles (
+                    project_id, default_capabilities, max_cost_usd, require_batch,
+                    preferred_providers, preferred_accounts, notes,
+                    created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(project_id) DO UPDATE SET
+                    default_capabilities = excluded.default_capabilities,
+                    max_cost_usd = excluded.max_cost_usd,
+                    require_batch = excluded.require_batch,
+                    preferred_providers = excluded.preferred_providers,
+                    preferred_accounts = excluded.preferred_accounts,
+                    notes = excluded.notes,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    profile.project_id,
+                    json.dumps(profile.default_capabilities, ensure_ascii=False),
+                    profile.max_cost_usd,
+                    int(profile.require_batch),
+                    json.dumps(profile.preferred_providers, ensure_ascii=False),
+                    json.dumps(profile.preferred_accounts, ensure_ascii=False),
+                    profile.notes,
+                    profile.created_at,
+                    profile.updated_at,
+                ),
+            )
+            conn.commit()
+        return profile
+
+    def list_project_profiles(self) -> list[ProjectRouteProfile]:
+        if not self.db_path.exists():
+            return []
+        with self._connect() as conn:
+            if not self._table_exists(conn, "project_route_profiles"):
+                return []
+            rows = conn.execute(
+                """
+                SELECT * FROM project_route_profiles
+                ORDER BY project_id
+                """
+            ).fetchall()
+        return [ProjectRouteProfile.from_row(row) for row in rows]
+
+    def get_project_profile(self, project_id: str) -> ProjectRouteProfile:
+        validate_project_id(project_id)
+        if not self.db_path.exists():
+            raise KeyError(f"project route profile does not exist: {project_id}")
+        with self._connect() as conn:
+            profile = self._get_project_profile(conn, project_id)
+        if profile is None:
+            raise KeyError(f"project route profile does not exist: {project_id}")
+        return profile
+
+    def upsert_project_override(
+        self,
+        override: ProjectRouteOverride,
+    ) -> ProjectRouteOverride:
+        now = _now()
+        with self._connect() as conn:
+            if self._get_account(conn, override.account_id) is None:
+                raise KeyError(f"provider account does not exist: {override.account_id}")
+            if self._get_model(conn, override.model_id) is None:
+                raise KeyError(f"model does not exist: {override.model_id}")
+            existing = self._get_project_override(
+                conn,
+                override.project_id,
+                override.account_id,
+                override.model_id,
+            )
+            if existing is not None:
+                override.created_at = existing.created_at
+            override.updated_at = now
+            conn.execute(
+                """
+                INSERT INTO project_route_overrides (
+                    project_id, account_id, model_id, priority, weight,
+                    enabled, notes, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(project_id, account_id, model_id) DO UPDATE SET
+                    priority = excluded.priority,
+                    weight = excluded.weight,
+                    enabled = excluded.enabled,
+                    notes = excluded.notes,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    override.project_id,
+                    override.account_id,
+                    override.model_id,
+                    override.priority,
+                    override.weight,
+                    int(override.enabled),
+                    override.notes,
+                    override.created_at,
+                    override.updated_at,
+                ),
+            )
+            conn.commit()
+        return override
+
+    def list_project_overrides(
+        self,
+        *,
+        project_id: str | None = None,
+    ) -> list[ProjectRouteOverride]:
+        if not self.db_path.exists():
+            return []
+        clauses: list[str] = []
+        params: list[str] = []
+        if project_id:
+            validate_project_id(project_id)
+            clauses.append("project_id = ?")
+            params.append(project_id)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        with self._connect() as conn:
+            if not self._table_exists(conn, "project_route_overrides"):
+                return []
+            rows = conn.execute(
+                f"""
+                SELECT * FROM project_route_overrides
+                {where}
+                ORDER BY project_id, account_id, model_id
+                """,
+                params,
+            ).fetchall()
+        return [ProjectRouteOverride.from_row(row) for row in rows]
+
     def set_health(self, health: ProviderHealth) -> ProviderHealth:
         with self._connect() as conn:
             if self._get_account(conn, health.account_id) is None:
@@ -610,6 +835,11 @@ class ProviderRouterStore:
         rejected: list[dict[str, Any]] = []
 
         with self._connect() as conn:
+            effective_request = self._apply_project_profile(conn, request)
+            project_overrides = self._project_overrides_by_key(
+                conn,
+                effective_request.project_id,
+            )
             rows = conn.execute(
                 """
                 SELECT
@@ -647,16 +877,24 @@ class ProviderRouterStore:
                 account = ProviderAccount.from_row(row)
                 model = _model_from_join_row(row)
                 ability = _ability_from_join_row(row)
-                reject_reason = _reject_reason(account, model, ability, request)
-                cost = model.estimate_cost(
-                    input_tokens=request.input_tokens,
-                    output_tokens=request.output_tokens,
+                override = project_overrides.get((account.account_id, model.model_id))
+                if override is not None:
+                    ability = _apply_project_override(ability, override)
+                reject_reason = _reject_reason(
+                    account,
+                    model,
+                    ability,
+                    effective_request,
                 )
-                if reject_reason is None and request.max_cost_usd is not None:
-                    if cost > request.max_cost_usd:
+                cost = model.estimate_cost(
+                    input_tokens=effective_request.input_tokens,
+                    output_tokens=effective_request.output_tokens,
+                )
+                if reject_reason is None and effective_request.max_cost_usd is not None:
+                    if cost > effective_request.max_cost_usd:
                         reject_reason = (
                             f"estimated cost {cost:.8f} exceeds max_cost_usd "
-                            f"{request.max_cost_usd:.8f}"
+                            f"{effective_request.max_cost_usd:.8f}"
                         )
 
                 health = self._get_health(conn, account.account_id, model.model_id)
@@ -684,9 +922,11 @@ class ProviderRouterStore:
                     model,
                     ability,
                     health,
-                    request,
+                    effective_request,
                     cost,
                 )
+                if override is not None:
+                    reasons.append(f"project_override={override.project_id}")
                 candidates.append(
                     RouteCandidate(
                         account=account,
@@ -709,12 +949,12 @@ class ProviderRouterStore:
                 item.model.model_id,
             )
         )
-        limited_candidates = candidates[: request.limit]
+        limited_candidates = candidates[: effective_request.limit]
         return RouteDecision(
             selected=limited_candidates[0] if limited_candidates else None,
             candidates=limited_candidates,
             rejected=rejected,
-            request=request,
+            request=effective_request,
         )
 
     def stats(self) -> dict[str, int]:
@@ -723,17 +963,21 @@ class ProviderRouterStore:
                 "provider_accounts": 0,
                 "model_catalog": 0,
                 "route_abilities": 0,
+                "project_route_profiles": 0,
+                "project_route_overrides": 0,
                 "provider_health": 0,
                 "usage_request_logs": 0,
             }
 
         with self._connect() as conn:
             return {
-                table: conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+                table: self._count_table(conn, table)
                 for table in [
                     "provider_accounts",
                     "model_catalog",
                     "route_abilities",
+                    "project_route_profiles",
+                    "project_route_overrides",
                     "provider_health",
                     "usage_request_logs",
                 ]
@@ -799,6 +1043,31 @@ class ProviderRouterStore:
                     PRIMARY KEY(account_id, model_id)
                 );
 
+                CREATE TABLE IF NOT EXISTS project_route_profiles (
+                    project_id TEXT PRIMARY KEY,
+                    default_capabilities TEXT NOT NULL,
+                    max_cost_usd REAL,
+                    require_batch INTEGER NOT NULL,
+                    preferred_providers TEXT NOT NULL,
+                    preferred_accounts TEXT NOT NULL,
+                    notes TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS project_route_overrides (
+                    project_id TEXT NOT NULL,
+                    account_id TEXT NOT NULL REFERENCES provider_accounts(account_id) ON DELETE CASCADE,
+                    model_id TEXT NOT NULL REFERENCES model_catalog(model_id) ON DELETE CASCADE,
+                    priority INTEGER,
+                    weight REAL,
+                    enabled INTEGER NOT NULL,
+                    notes TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY(project_id, account_id, model_id)
+                );
+
                 CREATE TABLE IF NOT EXISTS usage_request_logs (
                     request_id TEXT PRIMARY KEY,
                     task_name TEXT NOT NULL,
@@ -831,6 +1100,8 @@ class ProviderRouterStore:
                     ON route_abilities(model_id);
                 CREATE INDEX IF NOT EXISTS idx_provider_health_status
                     ON provider_health(status);
+                CREATE INDEX IF NOT EXISTS idx_project_route_overrides_project
+                    ON project_route_overrides(project_id);
                 CREATE INDEX IF NOT EXISTS idx_usage_request_logs_created
                     ON usage_request_logs(created_at);
                 """
@@ -903,6 +1174,110 @@ class ProviderRouterStore:
         ).fetchone()
         return ProviderHealth.from_row(row) if row is not None else None
 
+    def _get_project_profile(
+        self,
+        conn: sqlite3.Connection,
+        project_id: str,
+    ) -> ProjectRouteProfile | None:
+        if not self._table_exists(conn, "project_route_profiles"):
+            return None
+        row = conn.execute(
+            "SELECT * FROM project_route_profiles WHERE project_id = ?",
+            (project_id,),
+        ).fetchone()
+        return ProjectRouteProfile.from_row(row) if row is not None else None
+
+    def _get_project_override(
+        self,
+        conn: sqlite3.Connection,
+        project_id: str,
+        account_id: str,
+        model_id: str,
+    ) -> ProjectRouteOverride | None:
+        if not self._table_exists(conn, "project_route_overrides"):
+            return None
+        row = conn.execute(
+            """
+            SELECT * FROM project_route_overrides
+            WHERE project_id = ? AND account_id = ? AND model_id = ?
+            """,
+            (project_id, account_id, model_id),
+        ).fetchone()
+        return ProjectRouteOverride.from_row(row) if row is not None else None
+
+    def _apply_project_profile(
+        self,
+        conn: sqlite3.Connection,
+        request: RouteRequest,
+    ) -> RouteRequest:
+        if not request.project_id:
+            return request
+        profile = self._get_project_profile(conn, request.project_id)
+        if profile is None:
+            return request
+
+        max_cost_usd = request.max_cost_usd
+        if profile.max_cost_usd is not None:
+            max_cost_usd = (
+                profile.max_cost_usd
+                if max_cost_usd is None
+                else min(max_cost_usd, profile.max_cost_usd)
+            )
+
+        return RouteRequest(
+            project_id=request.project_id,
+            capabilities=_union_sorted(profile.default_capabilities, request.capabilities),
+            input_tokens=request.input_tokens,
+            output_tokens=request.output_tokens,
+            max_cost_usd=max_cost_usd,
+            require_batch=profile.require_batch or request.require_batch,
+            preferred_providers=_union_sorted(
+                profile.preferred_providers,
+                request.preferred_providers,
+            ),
+            preferred_accounts=_union_sorted(
+                profile.preferred_accounts,
+                request.preferred_accounts,
+            ),
+            limit=request.limit,
+        )
+
+    def _project_overrides_by_key(
+        self,
+        conn: sqlite3.Connection,
+        project_id: str,
+    ) -> dict[tuple[str, str], ProjectRouteOverride]:
+        if not project_id:
+            return {}
+        if not self._table_exists(conn, "project_route_overrides"):
+            return {}
+        rows = conn.execute(
+            """
+            SELECT * FROM project_route_overrides
+            WHERE project_id = ?
+            """,
+            (project_id,),
+        ).fetchall()
+        return {
+            (override.account_id, override.model_id): override
+            for override in (ProjectRouteOverride.from_row(row) for row in rows)
+        }
+
+    def _table_exists(self, conn: sqlite3.Connection, table: str) -> bool:
+        row = conn.execute(
+            """
+            SELECT name FROM sqlite_master
+            WHERE type = 'table' AND name = ?
+            """,
+            (table,),
+        ).fetchone()
+        return row is not None
+
+    def _count_table(self, conn: sqlite3.Connection, table: str) -> int:
+        if not self._table_exists(conn, table):
+            return 0
+        return int(conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
+
 
 def normalize_capabilities(capabilities: list[str]) -> list[str]:
     return sorted(
@@ -932,6 +1307,13 @@ def validate_model_id(model_id: str) -> None:
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:/+-]{0,127}", model_id):
         raise ValueError(
             "model id must be 1-128 letters, numbers, dots, colons, slashes, pluses, or dashes"
+        )
+
+
+def validate_project_id(project_id: str) -> None:
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:/+-]{0,127}", project_id):
+        raise ValueError(
+            "project id must be 1-128 letters, numbers, dots, colons, slashes, pluses, or dashes"
         )
 
 
@@ -968,6 +1350,23 @@ def _reject_reason(
     if request.require_batch and not model.supports_batch:
         return "batch is required but model does not support batch"
     return None
+
+
+def _apply_project_override(
+    ability: RouteAbility,
+    override: ProjectRouteOverride,
+) -> RouteAbility:
+    return RouteAbility(
+        account_id=ability.account_id,
+        model_id=ability.model_id,
+        enabled=ability.enabled and override.enabled,
+        priority=override.priority if override.priority is not None else ability.priority,
+        weight=override.weight if override.weight is not None else ability.weight,
+        model_mapping=ability.model_mapping,
+        notes=_append_note(ability.notes, override.notes),
+        created_at=ability.created_at,
+        updated_at=ability.updated_at,
+    )
 
 
 def _score_candidate(
@@ -1071,3 +1470,7 @@ def _append_note(notes: str, reason: str) -> str:
     if not notes:
         return reason
     return f"{notes}\n{reason}"
+
+
+def _union_sorted(first: list[str], second: list[str]) -> list[str]:
+    return sorted({item.strip() for item in [*first, *second] if item.strip()})

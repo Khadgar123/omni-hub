@@ -138,6 +138,29 @@ def build_parser() -> argparse.ArgumentParser:
     route_ability.add_argument("--disable", action="store_true")
     route_ability.add_argument("--notes", default="")
 
+    route_profile = subparsers.add_parser("route-profile-set")
+    route_profile.add_argument("--project", required=True)
+    route_profile.add_argument("--capability", action="append", default=[])
+    route_profile.add_argument("--max-cost", type=float)
+    route_profile.add_argument("--require-batch", action="store_true")
+    route_profile.add_argument("--prefer-provider", action="append", default=[])
+    route_profile.add_argument("--prefer-account", action="append", default=[])
+    route_profile.add_argument("--notes", default="")
+
+    subparsers.add_parser("route-profile-list")
+
+    project_route = subparsers.add_parser("project-route-set")
+    project_route.add_argument("--project", required=True)
+    project_route.add_argument("--account", required=True)
+    project_route.add_argument("--model", required=True)
+    project_route.add_argument("--priority", type=int)
+    project_route.add_argument("--weight", type=float)
+    project_route.add_argument("--disable", action="store_true")
+    project_route.add_argument("--notes", default="")
+
+    project_route_list = subparsers.add_parser("project-route-list")
+    project_route_list.add_argument("--project")
+
     provider_health = subparsers.add_parser("provider-health-set")
     provider_health.add_argument("--account", required=True)
     provider_health.add_argument("--model", default="")
@@ -147,6 +170,7 @@ def build_parser() -> argparse.ArgumentParser:
     provider_health.add_argument("--error", default="")
 
     route_simulate = subparsers.add_parser("route-simulate")
+    route_simulate.add_argument("--project", default="")
     route_simulate.add_argument("--capability", action="append", default=[])
     route_simulate.add_argument("--input-tokens", type=int, default=0)
     route_simulate.add_argument("--output-tokens", type=int, default=0)
@@ -465,6 +489,65 @@ def main(argv: list[str] | None = None) -> int:
         _print_json(result.to_dict())
         return 0 if result.error is None else 1
 
+    if args.command == "route-profile-set":
+        spec = OperationSpec(
+            name="set_route_profile",
+            action="set_route_profile",
+            payload={
+                "project_id": args.project,
+                "default_capabilities": args.capability,
+                "max_cost_usd": args.max_cost,
+                "require_batch": args.require_batch,
+                "preferred_providers": args.prefer_provider,
+                "preferred_accounts": args.prefer_account,
+                "notes": args.notes,
+            },
+            risk_level=RiskLevel.LOCAL_WRITE,
+        )
+        result = runner.run(spec)
+        _print_json(result.to_dict())
+        return 0 if result.error is None else 1
+
+    if args.command == "route-profile-list":
+        spec = OperationSpec(
+            name="list_route_profiles",
+            action="list_route_profiles",
+            risk_level=RiskLevel.READ_ONLY,
+        )
+        result = runner.run(spec)
+        _print_json(result.to_dict())
+        return 0 if result.error is None else 1
+
+    if args.command == "project-route-set":
+        spec = OperationSpec(
+            name="set_project_route_override",
+            action="set_project_route_override",
+            payload={
+                "project_id": args.project,
+                "account_id": args.account,
+                "model_id": args.model,
+                "priority": args.priority,
+                "weight": args.weight,
+                "enabled": not args.disable,
+                "notes": args.notes,
+            },
+            risk_level=RiskLevel.LOCAL_WRITE,
+        )
+        result = runner.run(spec)
+        _print_json(result.to_dict())
+        return 0 if result.error is None else 1
+
+    if args.command == "project-route-list":
+        spec = OperationSpec(
+            name="list_project_route_overrides",
+            action="list_project_route_overrides",
+            payload={"project_id": args.project},
+            risk_level=RiskLevel.READ_ONLY,
+        )
+        result = runner.run(spec)
+        _print_json(result.to_dict())
+        return 0 if result.error is None else 1
+
     if args.command == "provider-health-set":
         spec = OperationSpec(
             name="set_provider_health",
@@ -488,6 +571,7 @@ def main(argv: list[str] | None = None) -> int:
             name="route_simulate",
             action="route_simulate",
             payload={
+                "project_id": args.project,
                 "capabilities": args.capability,
                 "input_tokens": args.input_tokens,
                 "output_tokens": args.output_tokens,

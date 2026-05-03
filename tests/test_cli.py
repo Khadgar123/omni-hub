@@ -222,6 +222,94 @@ class CliTests(unittest.TestCase):
             )
             self.assertTrue((Path(tmpdir) / ".omni/provider-router.sqlite3").exists())
 
+    def test_project_route_cli_override(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            original_cwd = os.getcwd()
+            buffers = [StringIO() for _ in range(8)]
+            try:
+                os.chdir(tmpdir)
+                commands = [
+                    [
+                        "provider-add",
+                        "--id",
+                        "openai-main",
+                        "--provider",
+                        "openai",
+                        "--name",
+                        "OpenAI Main",
+                        "--base-url",
+                        "https://api.openai.com/v1",
+                        "--secret-ref",
+                        "env:OPENAI_API_KEY",
+                    ],
+                    [
+                        "provider-add",
+                        "--id",
+                        "anthropic-main",
+                        "--provider",
+                        "anthropic",
+                        "--name",
+                        "Anthropic Main",
+                        "--base-url",
+                        "https://api.anthropic.com/v1",
+                        "--secret-ref",
+                        "env:ANTHROPIC_API_KEY",
+                    ],
+                    ["model-add", "--id", "gpt-5.4", "--capability", "text"],
+                    ["model-add", "--id", "claude-opus", "--capability", "text"],
+                    [
+                        "route-ability-set",
+                        "--account",
+                        "openai-main",
+                        "--model",
+                        "gpt-5.4",
+                        "--priority",
+                        "20",
+                    ],
+                    [
+                        "route-ability-set",
+                        "--account",
+                        "anthropic-main",
+                        "--model",
+                        "claude-opus",
+                        "--priority",
+                        "10",
+                    ],
+                    [
+                        "project-route-set",
+                        "--project",
+                        "writing",
+                        "--account",
+                        "anthropic-main",
+                        "--model",
+                        "claude-opus",
+                        "--priority",
+                        "50",
+                    ],
+                ]
+                for index, command in enumerate(commands):
+                    with redirect_stdout(buffers[index]):
+                        self.assertEqual(main(command), 0)
+                with redirect_stdout(buffers[7]):
+                    exit_code = main(
+                        [
+                            "route-simulate",
+                            "--project",
+                            "writing",
+                            "--capability",
+                            "text",
+                        ]
+                    )
+            finally:
+                os.chdir(original_cwd)
+
+            self.assertEqual(exit_code, 0)
+            payload = json.loads(buffers[7].getvalue())
+            self.assertEqual(
+                payload["output"]["selected"]["account"]["account_id"],
+                "anthropic-main",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

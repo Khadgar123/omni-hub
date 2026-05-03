@@ -115,6 +115,14 @@ RouteRequest
 
 单次请求可以要求更低风险，例如 `max_cost_usd=0.02` 或 `require_local_only=true`；不能绕过全局或项目的预算、secret 权限、外部发布权限。
 
+当前实现已经支持项目级配置，但只作用于万象中枢自己的 Router 和未来自己的 agent，不改写 Codex、Claude、Gemini、Cursor 等外部客户端配置：
+
+- `project_route_profiles`：项目默认能力、预算上限、batch 要求、provider/account 偏好。
+- `project_route_overrides`：某个项目内对指定 account/model 的 priority、weight、禁用状态覆盖。
+- `route-simulate --project <project_id>`：按项目 profile 和 override 得出路由结果。
+
+项目级配置只能影响候选排序和更严格的限制，不能绕过全局 account/model 的禁用、健康状态、预算和 secret 规则。
+
 ## Secret 规则
 
 - 数据库只保存 `secret_ref`，例如 `env:OPENAI_API_KEY`、`keychain:omni/openai/main`、`runtime:session-id`。
@@ -182,12 +190,16 @@ omni-hub provider-disable
 omni-hub model-add
 omni-hub model-list
 omni-hub route-ability-set
+omni-hub route-profile-set
+omni-hub route-profile-list
+omni-hub project-route-set
+omni-hub project-route-list
 omni-hub provider-health-set
 omni-hub route-simulate
 omni-hub provider-router-stats
 ```
 
-当前实现只做本地注册和路由模拟，还不真实转发 API 请求，也不改写 Codex、Claude、Gemini、Cursor 等外部客户端配置。
+当前实现只做本地注册、项目级路由配置和路由模拟，还不真实转发 API 请求，也不改写 Codex、Claude、Gemini、Cursor 等外部客户端配置。
 
 Mac app / Web dashboard 对应页面：
 

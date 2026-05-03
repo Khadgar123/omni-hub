@@ -130,6 +130,24 @@ PYTHONPATH=src python3.12 -m omni_hub.cli route-ability-set --account openai-mai
 PYTHONPATH=src python3.12 -m omni_hub.cli route-simulate --capability tools --input-tokens 1000 --output-tokens 500 --max-cost 0.01
 ```
 
+设置项目级路由 profile：
+
+```bash
+PYTHONPATH=src python3.12 -m omni_hub.cli route-profile-set --project writing --capability text --prefer-provider anthropic --max-cost 0.02
+```
+
+设置项目级 account/model 优先级：
+
+```bash
+PYTHONPATH=src python3.12 -m omni_hub.cli project-route-set --project writing --account anthropic-main --model claude-opus --priority 50
+```
+
+按项目模拟路由决策：
+
+```bash
+PYTHONPATH=src python3.12 -m omni_hub.cli route-simulate --project writing --capability text
+```
+
 运行测试：
 
 ```bash
