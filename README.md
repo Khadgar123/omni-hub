@@ -157,6 +157,14 @@ PYTHONPATH=src python3.12 -m omni_hub.cli agent-plan --project writing --task "�
 
 `agent-plan` 只生成调用计划，不真实请求外部模型。它会先查询 Provider Router，并返回将使用的 provider、account、model、provider 侧模型名、secret ref、成本估算和路由原因。
 
+启动本地 GUI：
+
+```bash
+PYTHONPATH=src python3.12 -m omni_hub.cli gui
+```
+
+默认打开 `http://127.0.0.1:8765`。GUI 只管理万象中枢自己的本地状态，不改写 Codex、Claude、Gemini、Cursor 等外部客户端配置。
+
 运行测试：
 
 ```bash
@@ -192,6 +200,7 @@ PYTHONPATH=src python3.12 -m unittest discover -s tests
 - [记忆层模型](docs/memory-model.md)
 - [Skill Registry](docs/skill-registry.md)
 - [Skill Intelligence](docs/skill-intelligence.md)
+- [GUI](docs/gui.md)
 - [推荐组合架构](docs/recommended-stack.md)
 - [本地控制平面参考项目](docs/local-control-plane-references.md)
 - [Provider Router 设计](docs/provider-router-design.md)

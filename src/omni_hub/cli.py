@@ -7,6 +7,7 @@ from typing import Any
 
 from .agent import estimate_input_tokens, task_preview
 from .builtins import build_default_registry
+from .gui import serve_gui
 from .models import OperationSpec, RiskLevel
 from .runner import OperationRunner
 
@@ -212,6 +213,11 @@ def build_parser() -> argparse.ArgumentParser:
     agent_plan.add_argument("--limit", type=int, default=5)
 
     subparsers.add_parser("provider-router-stats")
+
+    gui = subparsers.add_parser("gui")
+    gui.add_argument("--host", default="127.0.0.1")
+    gui.add_argument("--port", type=int, default=8765)
+    gui.add_argument("--allow-non-localhost", action="store_true")
 
     policy = subparsers.add_parser("check-policy")
     policy.add_argument("--name", default="manual_check")
@@ -654,6 +660,15 @@ def main(argv: list[str] | None = None) -> int:
                 "requires_sandbox": decision.requires_sandbox,
                 "reason": decision.reason,
             }
+        )
+        return 0
+
+    if args.command == "gui":
+        serve_gui(
+            workspace,
+            host=args.host,
+            port=args.port,
+            allow_non_localhost=args.allow_non_localhost,
         )
         return 0
 
