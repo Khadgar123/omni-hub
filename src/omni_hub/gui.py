@@ -284,105 +284,181 @@ def _float_or_none(value: Any) -> float | None:
 
 
 INDEX_HTML = r"""<!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Omni Hub Control</title>
+  <title>万象中枢控制台</title>
   <style>
     :root {
       color-scheme: light;
-      --bg: #f6f7f8;
+      --bg: #f4f6f8;
+      --side: #18202a;
+      --side-ink: #edf2f7;
+      --side-muted: #9aa7b4;
       --panel: #ffffff;
-      --ink: #172026;
-      --muted: #66727d;
-      --line: #d7dde3;
+      --ink: #15212b;
+      --muted: #64717f;
+      --line: #d9e0e7;
       --blue: #2457d6;
-      --green: #157f5b;
+      --green: #13795b;
       --red: #b42318;
-      --amber: #9a6700;
-      --soft-blue: #eef3ff;
-      --soft-green: #edf8f3;
+      --amber: #936500;
+      --teal: #087f8c;
+      --soft-blue: #edf3ff;
+      --soft-green: #edf8f4;
       --soft-red: #fff1f0;
+      --soft-amber: #fff8e6;
     }
     * { box-sizing: border-box; }
     body {
       margin: 0;
+      min-height: 100vh;
       font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       background: var(--bg);
       color: var(--ink);
     }
+    .shell {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 248px 1fr;
+    }
+    aside {
+      background: var(--side);
+      color: var(--side-ink);
+      padding: 18px 14px;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow: auto;
+    }
+    .brand {
+      padding: 4px 8px 16px;
+      border-bottom: 1px solid rgba(255,255,255,.12);
+      margin-bottom: 12px;
+    }
+    .brand h1 {
+      margin: 0;
+      font-size: 18px;
+      letter-spacing: 0;
+    }
+    .brand p {
+      margin: 6px 0 0;
+      color: var(--side-muted);
+      font-size: 12px;
+    }
+    nav {
+      display: grid;
+      gap: 4px;
+    }
+    .nav-item {
+      width: 100%;
+      min-height: 38px;
+      border: 0;
+      border-radius: 7px;
+      padding: 0 10px;
+      background: transparent;
+      color: var(--side-muted);
+      text-align: left;
+      font: inherit;
+      cursor: pointer;
+    }
+    .nav-item.active {
+      background: #263344;
+      color: #fff;
+    }
+    .main {
+      min-width: 0;
+      display: grid;
+      grid-template-rows: auto 1fr;
+    }
     header {
       position: sticky;
       top: 0;
-      z-index: 2;
+      z-index: 5;
+      background: rgba(255,255,255,.94);
       border-bottom: 1px solid var(--line);
-      background: rgba(255, 255, 255, .96);
       backdrop-filter: blur(12px);
     }
-    .bar {
-      max-width: 1280px;
-      margin: 0 auto;
-      padding: 14px 20px;
+    .topbar {
+      padding: 14px 22px;
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 16px;
     }
-    h1 {
+    .title h2 {
       margin: 0;
       font-size: 18px;
       letter-spacing: 0;
     }
-    .subtle { color: var(--muted); }
-    main {
-      max-width: 1280px;
-      margin: 0 auto;
-      padding: 20px;
+    .title p {
+      margin: 3px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .content {
+      padding: 20px 22px 34px;
       display: grid;
       gap: 18px;
+      max-width: 1500px;
+      width: 100%;
+    }
+    .view { display: none; gap: 18px; }
+    .view.active { display: grid; }
+    .notice {
+      border: 1px solid #b7c6e5;
+      background: var(--soft-blue);
+      color: #19376d;
+      border-radius: 8px;
+      padding: 12px 14px;
     }
     .metrics {
       display: grid;
-      grid-template-columns: repeat(6, minmax(120px, 1fr));
+      grid-template-columns: repeat(6, minmax(126px, 1fr));
       gap: 10px;
     }
-    .metric, section {
+    .metric, .panel, .split-panel {
       background: var(--panel);
       border: 1px solid var(--line);
       border-radius: 8px;
     }
     .metric {
+      min-height: 82px;
       padding: 12px;
-      min-height: 72px;
+    }
+    .metric span {
+      color: var(--muted);
+      font-size: 12px;
     }
     .metric strong {
       display: block;
-      font-size: 22px;
-      line-height: 1.1;
-      margin-top: 6px;
+      margin-top: 7px;
+      font-size: 24px;
+      line-height: 1;
     }
-    section { overflow: hidden; }
-    .section-head {
-      padding: 14px 16px;
+    .panel-head {
+      min-height: 52px;
+      padding: 13px 15px;
       border-bottom: 1px solid var(--line);
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 12px;
     }
-    h2 {
+    .panel-head h3 {
       margin: 0;
       font-size: 15px;
       letter-spacing: 0;
     }
-    .grid {
+    .subtle { color: var(--muted); }
+    .split-panel {
       display: grid;
-      grid-template-columns: minmax(260px, 360px) 1fr;
-      gap: 0;
+      grid-template-columns: minmax(320px, 390px) minmax(0, 1fr);
+      overflow: hidden;
     }
     form {
-      padding: 16px;
+      padding: 15px;
       border-right: 1px solid var(--line);
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -394,20 +470,22 @@ INDEX_HTML = r"""<!doctype html>
       gap: 5px;
       color: var(--muted);
       font-size: 12px;
+      min-width: 0;
     }
-    label.wide, textarea, button, .form-note { grid-column: 1 / -1; }
+    label.wide, textarea, .form-help, button.primary { grid-column: 1 / -1; }
     input, select, textarea {
       width: 100%;
+      min-width: 0;
       border: 1px solid var(--line);
       border-radius: 6px;
       padding: 8px 9px;
       color: var(--ink);
       background: #fff;
       font: inherit;
-      min-width: 0;
+      letter-spacing: 0;
     }
     textarea {
-      min-height: 112px;
+      min-height: 128px;
       resize: vertical;
     }
     input[type="checkbox"] {
@@ -416,19 +494,42 @@ INDEX_HTML = r"""<!doctype html>
     }
     button {
       height: 36px;
-      border: 1px solid #1e4fc5;
       border-radius: 6px;
-      color: #fff;
-      background: var(--blue);
-      font-weight: 600;
+      font: inherit;
       cursor: pointer;
     }
+    button.primary {
+      border: 1px solid #1f4fc4;
+      background: var(--blue);
+      color: #fff;
+      font-weight: 600;
+    }
     button.secondary {
-      color: var(--ink);
+      border: 1px solid var(--line);
       background: #fff;
-      border-color: var(--line);
-      width: auto;
+      color: var(--ink);
       padding: 0 12px;
+    }
+    .form-help {
+      padding: 9px 10px;
+      border-radius: 6px;
+      background: #f8fafc;
+      color: var(--muted);
+      border: 1px solid var(--line);
+      font-size: 12px;
+    }
+    .table-wrap { min-width: 0; }
+    .table-tools {
+      padding: 10px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      border-bottom: 1px solid var(--line);
+      background: #fbfcfd;
+    }
+    .table-tools input {
+      max-width: 320px;
     }
     table {
       width: 100%;
@@ -446,7 +547,23 @@ INDEX_HTML = r"""<!doctype html>
       color: var(--muted);
       font-size: 12px;
       font-weight: 600;
-      background: #fbfcfd;
+      background: #fff;
+    }
+    .table-scroll {
+      max-height: 520px;
+      overflow: auto;
+    }
+    .pager {
+      min-height: 44px;
+      padding: 8px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .pager .buttons {
+      display: flex;
+      gap: 8px;
     }
     .pill {
       display: inline-flex;
@@ -457,151 +574,230 @@ INDEX_HTML = r"""<!doctype html>
       font-size: 12px;
       border: 1px solid var(--line);
       background: #fff;
+      white-space: nowrap;
     }
-    .ok { color: var(--green); background: var(--soft-green); }
-    .bad { color: var(--red); background: var(--soft-red); }
-    .warn { color: var(--amber); background: #fff8e6; }
-    .scroll { overflow: auto; max-height: 520px; }
+    .ok { color: var(--green); background: var(--soft-green); border-color: #bfe3d4; }
+    .bad { color: var(--red); background: var(--soft-red); border-color: #f5c5c0; }
+    .warn { color: var(--amber); background: var(--soft-amber); border-color: #efd492; }
+    .info { color: var(--teal); background: #eaf7f8; border-color: #b8dde2; }
     pre {
       margin: 0;
       padding: 16px;
-      min-height: 220px;
-      max-height: 520px;
+      min-height: 360px;
+      max-height: 620px;
       overflow: auto;
       background: #101820;
       color: #e7edf3;
       font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
     }
-    .notice {
-      border: 1px solid #b9c7e8;
-      background: var(--soft-blue);
-      color: #17346f;
-      border-radius: 8px;
-      padding: 12px 14px;
+    .guide {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(180px, 1fr));
+      gap: 12px;
     }
-    @media (max-width: 900px) {
+    .guide-item {
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+    }
+    .guide-item h4 {
+      margin: 0 0 8px;
+      font-size: 14px;
+    }
+    .guide-item p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    @media (max-width: 980px) {
+      .shell { grid-template-columns: 1fr; }
+      aside { position: static; height: auto; }
+      nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .metrics { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
-      .grid { grid-template-columns: 1fr; }
+      .split-panel { grid-template-columns: 1fr; }
       form { border-right: 0; border-bottom: 1px solid var(--line); }
+      .guide { grid-template-columns: 1fr; }
     }
   </style>
 </head>
 <body>
-  <header>
-    <div class="bar">
-      <div>
-        <h1>Omni Hub Control</h1>
-        <div class="subtle">Local provider router and agent planner</div>
+  <div class="shell">
+    <aside>
+      <div class="brand">
+        <h1>万象中枢</h1>
+        <p>本地 Provider Router 与 Agent 控制台</p>
       </div>
-      <button class="secondary" id="refresh">Refresh</button>
+      <nav>
+        <button class="nav-item" data-view="overview">总览</button>
+        <button class="nav-item" data-view="providers">Provider 账号</button>
+        <button class="nav-item" data-view="models">模型目录</button>
+        <button class="nav-item" data-view="routes">全局路由</button>
+        <button class="nav-item" data-view="projects">项目策略</button>
+        <button class="nav-item" data-view="agent">Agent 规划</button>
+        <button class="nav-item" data-view="safety">安全边界</button>
+      </nav>
+    </aside>
+
+    <div class="main">
+      <header>
+        <div class="topbar">
+          <div class="title">
+            <h2 id="page-title">总览</h2>
+            <p id="page-subtitle">本机状态、路由配置和 Agent 调用前规划。</p>
+          </div>
+          <button class="secondary" id="refresh">刷新数据</button>
+        </div>
+      </header>
+
+      <main class="content">
+        <section class="view" data-view-panel="overview">
+          <div class="notice">当前控制台只管理万象中枢自己的本地状态，不改写 Codex、Claude、Gemini、Cursor、VS Code 等外部客户端配置。</div>
+          <div class="metrics" id="metrics"></div>
+          <div class="guide">
+            <div class="guide-item"><h4>1. 配置账号</h4><p>登记 provider、base URL 和 secret ref。不要输入 raw API key。</p></div>
+            <div class="guide-item"><h4>2. 配置模型</h4><p>登记模型能力、上下文、成本和 batch 支持情况。</p></div>
+            <div class="guide-item"><h4>3. 配置路由</h4><p>全局路由是默认值，项目策略会为自有 agent 覆盖优先级。</p></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><h3>最近配置概览</h3><span class="subtle">显示前 8 条 Provider 与项目策略</span></div>
+            <div id="overviewTable"></div>
+          </div>
+        </section>
+
+        <section class="view" data-view-panel="providers">
+          <div class="split-panel">
+            <form data-endpoint="/api/providers">
+              <div class="form-help">Provider 账号表示一组 base URL 和凭证引用。Secret 只能填 env:、keychain: 或 runtime: 引用。</div>
+              <label>账号 ID<input name="account_id" placeholder="openai-main" required></label>
+              <label>Provider<input name="provider" placeholder="openai" required></label>
+              <label class="wide">显示名称<input name="name" placeholder="OpenAI 主账号" required></label>
+              <label class="wide">Base URL<input name="base_url" placeholder="https://api.openai.com/v1" required></label>
+              <label class="wide">Secret Ref<input name="secret_ref" placeholder="env:OPENAI_API_KEY"></label>
+              <label>状态<select name="status"><option value="active">active</option><option value="disabled">disabled</option><option value="auto_disabled">auto_disabled</option></select></label>
+              <label>分组<input name="account_group" placeholder="default"></label>
+              <button class="primary">保存 Provider</button>
+            </form>
+            <div id="accountsTable"></div>
+          </div>
+        </section>
+
+        <section class="view" data-view-panel="models">
+          <div class="split-panel">
+            <form data-endpoint="/api/models">
+              <div class="form-help">能力用逗号分隔，例如 text, tools, vision。成本单位是每百万 token 美元。</div>
+              <label class="wide">模型 ID<input name="model_id" placeholder="gpt-5.4" required></label>
+              <label class="wide">显示名称<input name="display_name" placeholder="GPT 5.4"></label>
+              <label class="wide">能力<input name="capabilities" data-list placeholder="text, tools, vision"></label>
+              <label>输入成本<input name="input_usd_per_million" type="number" min="0" step="0.0001"></label>
+              <label>输出成本<input name="output_usd_per_million" type="number" min="0" step="0.0001"></label>
+              <label>上下文窗口<input name="context_window" type="number" min="0" step="1"></label>
+              <label>支持 Batch<input name="supports_batch" type="checkbox"></label>
+              <button class="primary">保存模型</button>
+            </form>
+            <div id="modelsTable"></div>
+          </div>
+        </section>
+
+        <section class="view" data-view-panel="routes">
+          <div class="split-panel">
+            <form data-endpoint="/api/route-abilities">
+              <div class="form-help">全局路由是默认选择规则。项目策略可以覆盖 priority 或 weight，但不能绕过禁用和健康状态。</div>
+              <label>账号 ID<input name="account_id" required></label>
+              <label>模型 ID<input name="model_id" required></label>
+              <label>优先级<input name="priority" type="number" step="1" value="0"></label>
+              <label>权重<input name="weight" type="number" min="0" step="0.1" value="1"></label>
+              <label class="wide">Provider 侧模型名<input name="model_mapping" placeholder="如果不同于内部模型 ID"></label>
+              <label>启用<input name="enabled" type="checkbox" checked></label>
+              <button class="primary">保存全局路由</button>
+            </form>
+            <div id="abilitiesTable"></div>
+          </div>
+        </section>
+
+        <section class="view" data-view-panel="projects">
+          <div class="split-panel">
+            <form data-endpoint="/api/project-profiles">
+              <div class="form-help">项目 Profile 用来定义默认能力、预算上限和偏好，供万象中枢自有 agent 使用。</div>
+              <label class="wide">项目 ID<input name="project_id" placeholder="writing" required></label>
+              <label class="wide">默认能力<input name="default_capabilities" data-list placeholder="text, tools"></label>
+              <label>预算上限<input name="max_cost_usd" type="number" min="0" step="0.0001"></label>
+              <label>要求 Batch<input name="require_batch" type="checkbox"></label>
+              <label class="wide">偏好 Provider<input name="preferred_providers" data-list placeholder="anthropic, openai"></label>
+              <label class="wide">偏好账号<input name="preferred_accounts" data-list placeholder="anthropic-main"></label>
+              <button class="primary">保存项目 Profile</button>
+            </form>
+            <div id="profilesTable"></div>
+          </div>
+          <div class="split-panel">
+            <form data-endpoint="/api/project-routes">
+              <div class="form-help">项目 Override 用于指定某个项目里的 account/model 优先级。</div>
+              <label>项目 ID<input name="project_id" required></label>
+              <label>账号 ID<input name="account_id" required></label>
+              <label>模型 ID<input name="model_id" required></label>
+              <label>优先级<input name="priority" type="number" step="1"></label>
+              <label>权重<input name="weight" type="number" min="0" step="0.1"></label>
+              <label>启用<input name="enabled" type="checkbox" checked></label>
+              <button class="primary">保存项目路由</button>
+            </form>
+            <div id="overridesTable"></div>
+          </div>
+        </section>
+
+        <section class="view" data-view-panel="agent">
+          <div class="split-panel">
+            <form data-endpoint="/api/agent-plan">
+              <div class="form-help">这里只做调用前规划，不真实请求模型。完整任务不会进入 Operation payload。</div>
+              <label>项目 ID<input name="project_id" placeholder="writing"></label>
+              <label>输出 token<input name="output_tokens" type="number" min="0" step="1"></label>
+              <label class="wide">任务<textarea name="task" placeholder="帮我整理这个项目的上下文"></textarea></label>
+              <label class="wide">能力<input name="capabilities" data-list placeholder="text, tools"></label>
+              <label>预算上限<input name="max_cost_usd" type="number" min="0" step="0.0001"></label>
+              <label>要求 Batch<input name="require_batch" type="checkbox"></label>
+              <button class="primary">规划 Agent 调用</button>
+            </form>
+            <pre id="agent-result">{}</pre>
+          </div>
+        </section>
+
+        <section class="view" data-view-panel="safety">
+          <div class="panel">
+            <div class="panel-head"><h3>安全边界</h3><span class="subtle">阶段 1 只运行在本机</span></div>
+            <div class="guide" style="padding: 14px;">
+              <div class="guide-item"><h4>不保存原始密钥</h4><p>只保存 env:、keychain:、runtime: 形式的引用。</p></div>
+              <div class="guide-item"><h4>不改外部客户端</h4><p>不会写 Codex、Claude、Gemini、Cursor、VS Code 配置。</p></div>
+              <div class="guide-item"><h4>不真实调用 API</h4><p>当前 GUI 只做配置与规划，真实模型调用后续接入。</p></div>
+            </div>
+          </div>
+        </section>
+      </main>
     </div>
-  </header>
-  <main>
-    <div class="notice">This GUI only changes Omni Hub local state. It does not rewrite Codex, Claude, Gemini, Cursor, VS Code, or other external client configs.</div>
-    <div class="metrics" id="metrics"></div>
+  </div>
 
-    <section>
-      <div class="section-head"><h2>Provider Accounts</h2><span class="subtle">Secret values must be refs, not raw keys.</span></div>
-      <div class="grid">
-        <form data-endpoint="/api/providers">
-          <label>Account ID<input name="account_id" placeholder="openai-main" required></label>
-          <label>Provider<input name="provider" placeholder="openai" required></label>
-          <label class="wide">Name<input name="name" placeholder="OpenAI Main" required></label>
-          <label class="wide">Base URL<input name="base_url" placeholder="https://api.openai.com/v1" required></label>
-          <label class="wide">Secret Ref<input name="secret_ref" placeholder="env:OPENAI_API_KEY"></label>
-          <label>Status<select name="status"><option>active</option><option>disabled</option><option>auto_disabled</option></select></label>
-          <label>Group<input name="account_group" placeholder="default"></label>
-          <button>Save Provider</button>
-        </form>
-        <div class="scroll"><table id="accounts"></table></div>
-      </div>
-    </section>
-
-    <section>
-      <div class="section-head"><h2>Models</h2><span class="subtle">Capabilities are comma separated.</span></div>
-      <div class="grid">
-        <form data-endpoint="/api/models">
-          <label class="wide">Model ID<input name="model_id" placeholder="gpt-5.4" required></label>
-          <label class="wide">Display Name<input name="display_name" placeholder="GPT 5.4"></label>
-          <label class="wide">Capabilities<input name="capabilities" data-list placeholder="text, tools, vision"></label>
-          <label>Input Cost<input name="input_usd_per_million" type="number" min="0" step="0.0001"></label>
-          <label>Output Cost<input name="output_usd_per_million" type="number" min="0" step="0.0001"></label>
-          <label>Context<input name="context_window" type="number" min="0" step="1"></label>
-          <label>Batch<input name="supports_batch" type="checkbox"></label>
-          <button>Save Model</button>
-        </form>
-        <div class="scroll"><table id="models"></table></div>
-      </div>
-    </section>
-
-    <section>
-      <div class="section-head"><h2>Global Routes</h2><span class="subtle">Default account/model priority.</span></div>
-      <div class="grid">
-        <form data-endpoint="/api/route-abilities">
-          <label>Account ID<input name="account_id" required></label>
-          <label>Model ID<input name="model_id" required></label>
-          <label>Priority<input name="priority" type="number" step="1" value="0"></label>
-          <label>Weight<input name="weight" type="number" min="0" step="0.1" value="1"></label>
-          <label class="wide">Provider Model ID<input name="model_mapping" placeholder="provider-side model name"></label>
-          <label>Enabled<input name="enabled" type="checkbox" checked></label>
-          <button>Save Route</button>
-        </form>
-        <div class="scroll"><table id="abilities"></table></div>
-      </div>
-    </section>
-
-    <section>
-      <div class="section-head"><h2>Project Routing</h2><span class="subtle">Profiles and per-project overrides for Omni Hub agents.</span></div>
-      <div class="grid">
-        <form data-endpoint="/api/project-profiles">
-          <label class="wide">Project ID<input name="project_id" placeholder="writing" required></label>
-          <label class="wide">Default Capabilities<input name="default_capabilities" data-list placeholder="text, tools"></label>
-          <label>Max Cost<input name="max_cost_usd" type="number" min="0" step="0.0001"></label>
-          <label>Batch<input name="require_batch" type="checkbox"></label>
-          <label class="wide">Preferred Providers<input name="preferred_providers" data-list placeholder="anthropic, openai"></label>
-          <label class="wide">Preferred Accounts<input name="preferred_accounts" data-list placeholder="anthropic-main"></label>
-          <button>Save Profile</button>
-        </form>
-        <div class="scroll"><table id="profiles"></table></div>
-      </div>
-      <div class="grid">
-        <form data-endpoint="/api/project-routes">
-          <label>Project ID<input name="project_id" required></label>
-          <label>Account ID<input name="account_id" required></label>
-          <label>Model ID<input name="model_id" required></label>
-          <label>Priority<input name="priority" type="number" step="1"></label>
-          <label>Weight<input name="weight" type="number" min="0" step="0.1"></label>
-          <label>Enabled<input name="enabled" type="checkbox" checked></label>
-          <button>Save Override</button>
-        </form>
-        <div class="scroll"><table id="overrides"></table></div>
-      </div>
-    </section>
-
-    <section>
-      <div class="section-head"><h2>Agent Planner</h2><span class="subtle">Plans a route, does not call external APIs.</span></div>
-      <div class="grid">
-        <form id="agent-form" data-endpoint="/api/agent-plan">
-          <label>Project ID<input name="project_id" placeholder="writing"></label>
-          <label>Output Tokens<input name="output_tokens" type="number" min="0" step="1"></label>
-          <label class="wide">Task<textarea name="task" placeholder="Summarize this project context"></textarea></label>
-          <label class="wide">Capabilities<input name="capabilities" data-list placeholder="text, tools"></label>
-          <label>Max Cost<input name="max_cost_usd" type="number" min="0" step="0.0001"></label>
-          <label>Batch<input name="require_batch" type="checkbox"></label>
-          <button>Plan Agent Call</button>
-        </form>
-        <pre id="agent-result">{}</pre>
-      </div>
-    </section>
-  </main>
   <script>
-    const state = { data: null };
+    const PAGE_SIZE = 8;
+    const views = {
+      overview: ['总览', '本机状态、路由配置和 Agent 调用前规划。'],
+      providers: ['Provider 账号', '管理 provider、base URL 和 secret 引用。'],
+      models: ['模型目录', '管理模型能力、上下文窗口和成本。'],
+      routes: ['全局路由', '管理默认 account/model priority 与 provider 模型名映射。'],
+      projects: ['项目策略', '为不同项目设置模型优先级和预算边界。'],
+      agent: ['Agent 规划', '为万象中枢自有 agent 生成一次调用计划。'],
+      safety: ['安全边界', '本地控制面不会改写外部客户端配置。']
+    };
+    const state = { data: null, view: 'overview' };
+    const tableState = {};
+
     const api = async (url, options = {}) => {
       const res = await fetch(url, options);
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Request failed');
+      if (!res.ok) throw new Error(data.error || '请求失败');
       return data;
     };
+    const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, ch => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[ch]));
+    const escapeAttr = (value) => escapeHtml(value).replace(/`/g, '&#96;');
     const listValue = (value) => value.split(',').map(v => v.trim()).filter(Boolean);
     const formPayload = (form) => {
       const out = {};
@@ -614,71 +810,157 @@ INDEX_HTML = r"""<!doctype html>
       return out;
     };
     const statusPill = (value) => {
-      const cls = value === 'active' ? 'ok' : (value === 'down' || value === 'disabled' ? 'bad' : 'warn');
-      return `<span class="pill ${cls}">${escapeHtml(String(value || ''))}</span>`;
+      const text = String(value || '');
+      const cls = text === 'active' || text === 'healthy' ? 'ok' : (text === 'disabled' || text === 'down' ? 'bad' : 'warn');
+      return `<span class="pill ${cls}">${escapeHtml(text)}</span>`;
     };
-    const escapeHtml = (value) => String(value).replace(/[&<>"']/g, ch => ({
-      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-    }[ch]));
-    const renderTable = (id, columns, rows) => {
-      const table = document.getElementById(id);
-      table.innerHTML = [
-        '<thead><tr>' + columns.map(c => `<th>${escapeHtml(c.label)}</th>`).join('') + '</tr></thead>',
-        '<tbody>' + rows.map(row => '<tr>' + columns.map(c => `<td>${c.render ? c.render(row) : escapeHtml(row[c.key] ?? '')}</td>`).join('') + '</tr>').join('') + '</tbody>'
-      ].join('');
-    };
-    const render = () => {
-      const data = state.data;
-      const stats = data.stats || {};
-      document.getElementById('metrics').innerHTML = Object.entries(stats).map(([key, value]) => (
-        `<div class="metric"><span class="subtle">${escapeHtml(key)}</span><strong>${escapeHtml(value)}</strong></div>`
+    const boolPill = (value) => `<span class="pill ${value ? 'ok' : 'bad'}">${value ? '启用' : '停用'}</span>`;
+    const jsonSearch = (row) => JSON.stringify(row).toLowerCase();
+
+    function setView(view) {
+      state.view = views[view] ? view : 'overview';
+      location.hash = state.view;
+      document.querySelectorAll('[data-view-panel]').forEach(panel => {
+        panel.classList.toggle('active', panel.dataset.viewPanel === state.view);
+      });
+      document.querySelectorAll('[data-view]').forEach(button => {
+        button.classList.toggle('active', button.dataset.view === state.view);
+      });
+      document.getElementById('page-title').textContent = views[state.view][0];
+      document.getElementById('page-subtitle').textContent = views[state.view][1];
+    }
+
+    function renderDataTable(id, title, columns, rows) {
+      const table = tableState[id] || {page: 1, query: ''};
+      tableState[id] = table;
+      const query = table.query.trim().toLowerCase();
+      const filtered = query ? rows.filter(row => jsonSearch(row).includes(query)) : rows;
+      const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+      table.page = Math.min(Math.max(table.page, 1), pages);
+      const start = (table.page - 1) * PAGE_SIZE;
+      const visible = filtered.slice(start, start + PAGE_SIZE);
+      const body = visible.length
+        ? visible.map(row => '<tr>' + columns.map(col => `<td>${col.render ? col.render(row) : escapeHtml(row[col.key])}</td>`).join('') + '</tr>').join('')
+        : `<tr><td colspan="${columns.length}" class="subtle">暂无数据</td></tr>`;
+      document.getElementById(id).innerHTML = `
+        <div class="table-tools">
+          <div><strong>${escapeHtml(title)}</strong> <span class="subtle">${filtered.length} 条</span></div>
+          <input data-table-search="${id}" value="${escapeAttr(table.query)}" placeholder="搜索当前表格">
+        </div>
+        <div class="table-scroll">
+          <table>
+            <thead><tr>${columns.map(col => `<th>${escapeHtml(col.label)}</th>`).join('')}</tr></thead>
+            <tbody>${body}</tbody>
+          </table>
+        </div>
+        <div class="pager">
+          <span class="subtle">第 ${table.page} / ${pages} 页</span>
+          <div class="buttons">
+            <button class="secondary" data-page="${id}" data-dir="-1">上一页</button>
+            <button class="secondary" data-page="${id}" data-dir="1">下一页</button>
+          </div>
+        </div>`;
+    }
+
+    function renderMetrics(stats) {
+      const labels = {
+        provider_accounts: 'Provider',
+        model_catalog: '模型',
+        route_abilities: '全局路由',
+        project_route_profiles: '项目 Profile',
+        project_route_overrides: '项目路由',
+        provider_health: '健康记录',
+        usage_request_logs: '调用日志'
+      };
+      document.getElementById('metrics').innerHTML = Object.entries(labels).map(([key, label]) => (
+        `<div class="metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(stats[key] || 0)}</strong></div>`
       )).join('');
-      renderTable('accounts', [
-        {key: 'account_id', label: 'Account'},
+    }
+
+    function render() {
+      const data = state.data;
+      if (!data) return;
+      renderMetrics(data.stats || {});
+      renderDataTable('overviewTable', '概览', [
+        {label: '类型', render: r => `<span class="pill info">${escapeHtml(r.type)}</span>`},
+        {label: '主键', key: 'id'},
+        {label: '说明', key: 'detail'},
+        {label: '状态', render: r => r.status ? statusPill(r.status) : ''}
+      ], [
+        ...data.accounts.slice(0, 4).map(r => ({type: 'Provider', id: r.account_id, detail: `${r.provider} · ${r.base_url}`, status: r.status})),
+        ...data.profiles.slice(0, 4).map(r => ({type: '项目', id: r.project_id, detail: `能力: ${(r.default_capabilities || []).join(', ') || '未设置'}`, status: r.max_cost_usd ? `预算 ${r.max_cost_usd}` : ''}))
+      ]);
+      renderDataTable('accountsTable', 'Provider 账号', [
+        {key: 'account_id', label: '账号'},
         {key: 'provider', label: 'Provider'},
-        {key: 'status', label: 'Status', render: r => statusPill(r.status)},
+        {label: '状态', render: r => statusPill(r.status)},
         {key: 'base_url', label: 'Base URL'},
         {key: 'secret_ref', label: 'Secret Ref'}
       ], data.accounts);
-      renderTable('models', [
-        {key: 'model_id', label: 'Model'},
-        {key: 'status', label: 'Status', render: r => statusPill(r.status)},
-        {key: 'capabilities', label: 'Capabilities', render: r => escapeHtml((r.capabilities || []).join(', '))},
-        {key: 'input_usd_per_million', label: 'Input'},
-        {key: 'output_usd_per_million', label: 'Output'},
-        {key: 'supports_batch', label: 'Batch'}
+      renderDataTable('modelsTable', '模型目录', [
+        {key: 'model_id', label: '模型'},
+        {label: '状态', render: r => statusPill(r.status)},
+        {label: '能力', render: r => escapeHtml((r.capabilities || []).join(', '))},
+        {key: 'context_window', label: '上下文'},
+        {key: 'input_usd_per_million', label: '输入成本'},
+        {key: 'output_usd_per_million', label: '输出成本'},
+        {label: 'Batch', render: r => boolPill(r.supports_batch)}
       ], data.models);
-      renderTable('abilities', [
-        {key: 'account_id', label: 'Account'},
-        {key: 'model_id', label: 'Model'},
-        {key: 'enabled', label: 'Enabled'},
-        {key: 'priority', label: 'Priority'},
-        {key: 'weight', label: 'Weight'},
-        {key: 'model_mapping', label: 'Provider Model'}
+      renderDataTable('abilitiesTable', '全局路由', [
+        {key: 'account_id', label: '账号'},
+        {key: 'model_id', label: '模型'},
+        {label: '启用', render: r => boolPill(r.enabled)},
+        {key: 'priority', label: '优先级'},
+        {key: 'weight', label: '权重'},
+        {key: 'model_mapping', label: 'Provider 模型名'}
       ], data.abilities);
-      renderTable('profiles', [
-        {key: 'project_id', label: 'Project'},
-        {key: 'default_capabilities', label: 'Capabilities', render: r => escapeHtml((r.default_capabilities || []).join(', '))},
-        {key: 'max_cost_usd', label: 'Max Cost'},
-        {key: 'preferred_providers', label: 'Providers', render: r => escapeHtml((r.preferred_providers || []).join(', '))},
-        {key: 'preferred_accounts', label: 'Accounts', render: r => escapeHtml((r.preferred_accounts || []).join(', '))}
+      renderDataTable('profilesTable', '项目 Profile', [
+        {key: 'project_id', label: '项目'},
+        {label: '默认能力', render: r => escapeHtml((r.default_capabilities || []).join(', '))},
+        {key: 'max_cost_usd', label: '预算上限'},
+        {label: '偏好 Provider', render: r => escapeHtml((r.preferred_providers || []).join(', '))},
+        {label: '偏好账号', render: r => escapeHtml((r.preferred_accounts || []).join(', '))}
       ], data.profiles);
-      renderTable('overrides', [
-        {key: 'project_id', label: 'Project'},
-        {key: 'account_id', label: 'Account'},
-        {key: 'model_id', label: 'Model'},
-        {key: 'enabled', label: 'Enabled'},
-        {key: 'priority', label: 'Priority'},
-        {key: 'weight', label: 'Weight'}
+      renderDataTable('overridesTable', '项目路由覆盖', [
+        {key: 'project_id', label: '项目'},
+        {key: 'account_id', label: '账号'},
+        {key: 'model_id', label: '模型'},
+        {label: '启用', render: r => boolPill(r.enabled)},
+        {key: 'priority', label: '优先级'},
+        {key: 'weight', label: '权重'}
       ], data.overrides);
-    };
-    const refresh = async () => {
+    }
+
+    async function refresh() {
       state.data = await api('/api/state');
       render();
-    };
+    }
+
+    document.querySelectorAll('[data-view]').forEach(button => {
+      button.addEventListener('click', () => setView(button.dataset.view));
+    });
     document.getElementById('refresh').addEventListener('click', refresh);
+    window.addEventListener('hashchange', () => setView(location.hash.replace('#', '') || 'overview'));
+
+    document.addEventListener('input', event => {
+      const id = event.target.dataset.tableSearch;
+      if (!id) return;
+      tableState[id] = tableState[id] || {page: 1, query: ''};
+      tableState[id].query = event.target.value;
+      tableState[id].page = 1;
+      render();
+      const input = document.querySelector(`[data-table-search="${id}"]`);
+      if (input) input.focus();
+    });
+    document.addEventListener('click', event => {
+      const id = event.target.dataset.page;
+      if (!id) return;
+      tableState[id] = tableState[id] || {page: 1, query: ''};
+      tableState[id].page += Number(event.target.dataset.dir || 0);
+      render();
+    });
     for (const form of document.querySelectorAll('form[data-endpoint]')) {
-      form.addEventListener('submit', async (event) => {
+      form.addEventListener('submit', async event => {
         event.preventDefault();
         const endpoint = form.dataset.endpoint;
         try {
@@ -700,6 +982,8 @@ INDEX_HTML = r"""<!doctype html>
         }
       });
     }
+
+    setView(location.hash.replace('#', '') || 'overview');
     refresh();
   </script>
 </body>
