@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import shlex
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -367,6 +369,17 @@ def handle_post(
             secret_ref = store_api_key(account_id, secret_ref)
             secret_mode = secret_ref.split(":", 1)[0]
 
+        usage_access_token_ref = str(payload.get("usage_access_token_ref", "")).strip()
+        usage_access_token = str(payload.get("usage_access_token", "")).strip()
+        if usage_access_token:
+            if usage_access_token.startswith(("env:", "keychain:", "local:", "runtime:")):
+                usage_access_token_ref = usage_access_token
+            else:
+                usage_access_token_ref = store_api_key(
+                    f"{account_id}-usage-access-token",
+                    usage_access_token,
+                )
+
         quota_ref = str(payload.get("quota_ref", "")).strip() or str(
             preset.get("quota_ref", "")
         )
@@ -385,6 +398,18 @@ def handle_post(
                 _payload_note(payload, "tpm_limit"),
                 _payload_note(payload, "cost_multiplier"),
                 _payload_note(payload, "pricing_model_source"),
+                _payload_note(payload, "default_model"),
+                _payload_note(payload, "model_reasoning_effort"),
+                _payload_note(payload, "disable_response_storage"),
+                _payload_note(payload, "wire_api"),
+                _payload_note(payload, "requires_openai_auth"),
+                _payload_note(payload, "usage_template"),
+                _payload_note(payload, "usage_base_url"),
+                _payload_note(payload, "usage_endpoint"),
+                _payload_note(payload, "usage_user_id"),
+                f"usage_access_token_ref={usage_access_token_ref}"
+                if usage_access_token_ref
+                else "",
                 _payload_note(payload, "test_model"),
                 _payload_note(payload, "test_prompt"),
                 _payload_note(payload, "timeout_secs"),
@@ -414,6 +439,9 @@ def handle_post(
         model_ids = _list_value(payload.get("model_ids")) or _list_value(
             preset.get("models")
         )
+        default_model = str(payload.get("default_model", "")).strip()
+        if default_model and default_model in model_ids:
+            model_ids = [default_model, *[item for item in model_ids if item != default_model]]
         stored_models = []
         stored_abilities = []
         for index, model_id in enumerate(model_ids):
@@ -515,6 +543,10 @@ def handle_post(
     if path == "/api/balance-check":
         account = store.get_account(_required(payload, "account_id"))
         return _balance_check(account)
+
+    if path == "/api/provider-script":
+        account = store.get_account(_required(payload, "account_id"))
+        return _provider_script_response(account, store, payload)
 
     if path == "/api/project-import-routes":
         return _project_import_routes(store, payload)
@@ -887,8 +919,12 @@ def _stream_check_config(
     if noted_prompt:
         config["test_prompt"] = noted_prompt
     test_model = _note_value(notes, "test_model")
-    if test_model and "model_id" not in payload:
-        config["test_model"] = test_model
+    default_model = _note_value(notes, "default_model")
+    if "model_id" not in payload:
+        if test_model:
+            config["test_model"] = test_model
+        elif default_model:
+            config["test_model"] = default_model
     if "timeout_secs" in payload:
         config["timeout_secs"] = max(_int_value(payload.get("timeout_secs")), 1)
     if "max_retries" in payload:
@@ -1367,11 +1403,14 @@ def _fetch_models_from_candidates(
             raise ValueError(f"Request failed: {exc.reason}") from exc
 
         parsed = json.loads(raw.decode("utf-8"))
-        entries = parsed.get("data", []) if isinstance(parsed, dict) else []
+        entries = _model_entries(parsed)
         if not isinstance(entries, list):
             raise ValueError("Failed to parse models response: data is not a list")
         models = []
         for item in entries:
+            if isinstance(item, str):
+                models.append({"id": item, "owned_by": ""})
+                continue
             if not isinstance(item, dict) or not item.get("id"):
                 continue
             models.append(
@@ -1382,6 +1421,23 @@ def _fetch_models_from_candidates(
             )
         return sorted(models, key=lambda item: item["id"])
     raise ValueError(f"All model endpoint candidates failed: {last_error}")
+
+
+def _model_entries(parsed: Any) -> list[Any]:
+    if isinstance(parsed, list):
+        return parsed
+    if not isinstance(parsed, dict):
+        return []
+    for key in ("data", "models"):
+        entries = parsed.get(key)
+        if isinstance(entries, list):
+            return entries
+    data = parsed.get("data")
+    if isinstance(data, dict):
+        entries = data.get("models")
+        if isinstance(entries, list):
+            return entries
+    return []
 
 
 def _build_models_url_candidates(
@@ -1435,6 +1491,124 @@ def _unique(items: list[str]) -> list[str]:
         if item not in output:
             output.append(item)
     return output
+
+
+def _provider_script_response(
+    account: ProviderAccount,
+    store: ProviderRouterStore,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    output_format = str(payload.get("format", "shell")).strip() or "shell"
+    try:
+        api_key = resolve_secret_ref(account.secret_ref)
+    except SecretStoreError as exc:
+        raise ValueError(str(exc)) from exc
+    if not api_key:
+        raise ValueError(f"secret is not available for {account.secret_ref}")
+
+    if output_format == "codex_toml":
+        script = _codex_toml_for_account(account, store)
+        return {
+            "account_id": account.account_id,
+            "format": output_format,
+            "contains_secret": False,
+            "script": script,
+        }
+
+    script = _shell_script_for_account(account, api_key)
+    return {
+        "account_id": account.account_id,
+        "format": "shell",
+        "contains_secret": True,
+        "script": script,
+    }
+
+
+def _shell_script_for_account(account: ProviderAccount, api_key: str) -> str:
+    env_var = "OPENAI_API_KEY"
+    base_env = "OPENAI_BASE_URL"
+    if account.provider == "claude":
+        env_var = "ANTHROPIC_API_KEY"
+        base_env = "ANTHROPIC_BASE_URL"
+    elif account.provider == "qwen":
+        env_var = "DASHSCOPE_API_KEY"
+        base_env = "DASHSCOPE_BASE_URL"
+    elif account.provider == "deepseek":
+        env_var = "DEEPSEEK_API_KEY"
+        base_env = "DEEPSEEK_BASE_URL"
+    elif account.provider == "glm":
+        env_var = "ZAI_API_KEY"
+        base_env = "ZAI_BASE_URL"
+    elif account.provider == "minimax":
+        env_var = "MINIMAX_API_KEY"
+        base_env = "MINIMAX_BASE_URL"
+
+    lines = [
+        f"export {env_var}={shlex.quote(api_key)}",
+        f"export {base_env}={shlex.quote(account.base_url)}",
+    ]
+    if account.provider != "openai":
+        lines.append(f"export OPENAI_API_KEY={shlex.quote(api_key)}")
+        lines.append(f"export OPENAI_BASE_URL={shlex.quote(account.base_url)}")
+    if account.proxy_url:
+        lines.append(f"export HTTPS_PROXY={shlex.quote(account.proxy_url)}")
+        lines.append(f"export HTTP_PROXY={shlex.quote(account.proxy_url)}")
+    else:
+        lines.append("unset HTTPS_PROXY HTTP_PROXY")
+    return "\n".join(lines)
+
+
+def _codex_toml_for_account(
+    account: ProviderAccount,
+    store: ProviderRouterStore,
+) -> str:
+    provider_key = _codex_provider_key(account)
+    default_model = _note_value(account.notes, "default_model") or _first_account_model(
+        account,
+        store,
+    )
+    reasoning = _note_value(account.notes, "model_reasoning_effort") or "high"
+    wire_api = _note_value(account.notes, "wire_api") or "responses"
+    disable_storage = _note_value(account.notes, "disable_response_storage") or "true"
+    requires_openai_auth = _note_value(account.notes, "requires_openai_auth") or "true"
+    lines = [
+        f"model_provider = {_toml_string(provider_key)}",
+        f"model = {_toml_string(default_model or 'gpt-5.4')}",
+        f"model_reasoning_effort = {_toml_string(reasoning)}",
+        f"disable_response_storage = {_toml_bool(disable_storage)}",
+        "",
+        f"[model_providers.{provider_key}]",
+        f"name = {_toml_string(provider_key)}",
+        f"base_url = {_toml_string(account.base_url)}",
+        f"wire_api = {_toml_string(wire_api)}",
+        f"requires_openai_auth = {_toml_bool(requires_openai_auth)}",
+    ]
+    return "\n".join(lines)
+
+
+def _first_account_model(
+    account: ProviderAccount,
+    store: ProviderRouterStore,
+) -> str:
+    abilities = store.list_abilities(account_id=account.account_id, enabled=True)
+    if not abilities:
+        return ""
+    return abilities[0].model_mapping or abilities[0].model_id
+
+
+def _codex_provider_key(account: ProviderAccount) -> str:
+    if account.provider == "openai":
+        return "codex"
+    cleaned = re.sub(r"[^a-z0-9_]", "_", account.account_id.lower()).strip("_")
+    return cleaned or "codex"
+
+
+def _toml_string(value: str) -> str:
+    return json.dumps(str(value), ensure_ascii=False)
+
+
+def _toml_bool(value: str) -> str:
+    return "true" if _truthy(str(value)) else "false"
 
 
 def _balance_check(account: ProviderAccount) -> dict[str, Any]:
@@ -1560,6 +1734,13 @@ def _query_provider_balance(
                 }
             ],
         )
+    template = _note_value(account.notes, "usage_template") or "auto"
+    if template in {"auto", "generic", "newapi"}:
+        generic = _query_generic_balance(account, api_key, template=template)
+        if generic["success"] or not provider:
+            return generic
+        if template != "auto":
+            return generic
     return {
         "success": False,
         "data": None,
@@ -1567,15 +1748,186 @@ def _query_provider_balance(
     }
 
 
+def _query_generic_balance(
+    account: ProviderAccount,
+    api_key: str,
+    *,
+    template: str = "auto",
+) -> dict[str, Any]:
+    root = _balance_root_url(_note_value(account.notes, "usage_base_url") or account.base_url)
+    candidates: list[tuple[str, Any, dict[str, str] | None]] = []
+    if template in {"auto", "newapi"}:
+        try:
+            newapi_headers = _newapi_usage_headers(account, api_key)
+        except SecretStoreError as exc:
+            return {"success": False, "data": None, "error": str(exc)}
+        candidates.append(
+            (
+                f"{root}/api/user/self",
+                _parse_newapi_balance,
+                newapi_headers,
+            )
+        )
+    if template in {"auto", "generic"}:
+        usage_endpoint = _note_value(account.notes, "usage_endpoint") or "/v1/usage"
+        candidates.append((_join_url(root, usage_endpoint), _parse_generic_balance, None))
+        candidates.extend(
+            [
+                (f"{root}/user/balance", _parse_generic_balance, None),
+                (f"{root}/v1/user/info", _parse_generic_balance, None),
+                (f"{root}/dashboard/billing/credit_grants", _parse_generic_balance, None),
+                (f"{root}/billing/credit_grants", _parse_generic_balance, None),
+            ]
+        )
+
+    last_result = {
+        "success": False,
+        "data": None,
+        "error": "unsupported balance provider",
+    }
+    for url, parser, headers in _unique_balance_candidates(candidates):
+        result = _query_balance_json(account, api_key, url, parser, headers=headers)
+        if result["success"]:
+            result["template"] = template
+            result["endpoint"] = url
+            return result
+        last_result = result
+        error = str(result.get("error", ""))
+        if "HTTP 401" in error or "HTTP 403" in error:
+            break
+    return last_result
+
+
+def _newapi_usage_headers(account: ProviderAccount, api_key: str) -> dict[str, str]:
+    access_token = api_key
+    access_token_ref = _note_value(account.notes, "usage_access_token_ref")
+    if access_token_ref:
+        access_token = resolve_secret_ref(access_token_ref)
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "User-Agent": "omni-hub/0.1",
+    }
+    user_id = _note_value(account.notes, "usage_user_id")
+    if user_id:
+        headers["New-Api-User"] = user_id
+    return headers
+
+
+def _unique_balance_candidates(
+    candidates: list[tuple[str, Any, dict[str, str] | None]],
+) -> list[tuple[str, Any, dict[str, str] | None]]:
+    output: list[tuple[str, Any, dict[str, str] | None]] = []
+    seen: set[str] = set()
+    for url, parser, headers in candidates:
+        if url in seen:
+            continue
+        seen.add(url)
+        output.append((url, parser, headers))
+    return output
+
+
+def _balance_root_url(base_url: str) -> str:
+    clean = base_url.strip().rstrip("/")
+    for suffix in ("/v1", "/api/v1", "/api/openai/v1"):
+        if clean.lower().endswith(suffix):
+            return clean[: -len(suffix)].rstrip("/")
+    return clean
+
+
+def _join_url(root: str, endpoint: str) -> str:
+    clean_endpoint = endpoint.strip()
+    if clean_endpoint.startswith("http://") or clean_endpoint.startswith("https://"):
+        return clean_endpoint
+    return f"{root.rstrip('/')}/{clean_endpoint.lstrip('/')}"
+
+
+def _parse_newapi_balance(body: dict[str, Any]) -> list[dict[str, Any]]:
+    data = body.get("data", body)
+    if not isinstance(data, dict):
+        return []
+    quota = _json_float(data, "quota")
+    used_quota = _json_float(data, "used_quota")
+    if quota is None and used_quota is None:
+        return _parse_generic_balance(body)
+    scale = 500000
+    remaining = (quota or 0) / scale
+    used = (used_quota or 0) / scale
+    total = remaining + used
+    return [
+        {
+            "plan_name": str(data.get("group") or data.get("plan") or "New API"),
+            "remaining": remaining,
+            "total": total,
+            "used": used,
+            "unit": "USD",
+            "is_valid": bool(body.get("success", True)),
+            "extra": {
+                "raw_quota": quota,
+                "raw_used_quota": used_quota,
+            },
+        }
+    ]
+
+
+def _parse_generic_balance(body: dict[str, Any]) -> list[dict[str, Any]]:
+    data = body.get("data", body)
+    if not isinstance(data, dict):
+        return []
+    quota = data.get("quota")
+    quota_data = quota if isinstance(quota, dict) else {}
+    remaining = (
+        _json_float(data, "remaining")
+        or _json_float(quota_data, "remaining")
+        or _json_float(data, "balance")
+        or _json_float(data, "totalBalance")
+        or _json_float(data, "availableBalance")
+        or _json_float(data, "total_available")
+        or _json_float(data, "credit")
+        or _json_float(data, "credits")
+    )
+    total = (
+        _json_float(data, "total")
+        or _json_float(quota_data, "total")
+        or _json_float(data, "total_credits")
+        or _json_float(data, "limit")
+    )
+    used = (
+        _json_float(data, "used")
+        or _json_float(quota_data, "used")
+        or _json_float(data, "total_usage")
+    )
+    if remaining is None and total is not None and used is not None:
+        remaining = total - used
+    if remaining is None:
+        return []
+    unit = str(data.get("unit") or quota_data.get("unit") or data.get("currency") or "USD")
+    plan_name = str(data.get("plan_name") or data.get("planName") or data.get("plan") or "余额")
+    is_valid = data.get("is_active", data.get("isValid", remaining > 0))
+    return [
+        {
+            "plan_name": plan_name,
+            "remaining": remaining,
+            "total": total,
+            "used": used,
+            "unit": unit,
+            "is_valid": bool(is_valid),
+        }
+    ]
+
+
 def _query_balance_json(
     account: ProviderAccount,
     api_key: str,
     url: str,
     parser: Any,
+    *,
+    headers: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     request = Request(
         url,
-        headers={
+        headers=headers or {
             "Authorization": f"Bearer {api_key}",
             "Accept": "application/json",
         },
@@ -1597,17 +1949,17 @@ def _query_balance_json(
                     else f"API error (HTTP {exc.code})",
                 }
             ],
-            "error": f"HTTP {exc.code}: {body_text}",
+            "error": f"{url}: HTTP {exc.code}: {body_text}",
         }
     except URLError as exc:
-        return {"success": False, "data": None, "error": f"Network error: {exc.reason}"}
+        return {"success": False, "data": None, "error": f"{url}: Network error: {exc.reason}"}
     except json.JSONDecodeError as exc:
-        return {"success": False, "data": None, "error": f"Failed to parse response: {exc}"}
+        return {"success": False, "data": None, "error": f"{url}: Failed to parse response: {exc}"}
 
     try:
         data = parser(body)
     except Exception as exc:
-        return {"success": False, "data": None, "error": f"Failed to parse balance: {exc}"}
+        return {"success": False, "data": None, "error": f"{url}: Failed to parse balance: {exc}"}
     return {"success": True, "data": data or None, "error": None}
 
 

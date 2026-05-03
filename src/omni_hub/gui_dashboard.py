@@ -640,6 +640,14 @@ INDEX_HTML = r"""<!doctype html>
             <label>RPM 限制<input name="rpm_limit" id="rpm-limit" type="number" min="0" placeholder="每分钟请求数"></label>
             <label>TPM 限制<input name="tpm_limit" id="tpm-limit" type="number" min="0" placeholder="每分钟 token"></label>
             <label class="wide">模型列表<textarea name="model_ids" id="model-ids" placeholder="每行一个模型 ID；可以点击发现模型自动填充"></textarea></label>
+            <label>默认模型<select name="default_model" id="default-model"><option value="">自动使用首个模型</option></select></label>
+            <label>推理强度<select name="model_reasoning_effort" id="model-reasoning-effort">
+              <option value="high">high</option>
+              <option value="xhigh">xhigh</option>
+              <option value="medium">medium</option>
+              <option value="low">low</option>
+              <option value="minimal">minimal</option>
+            </select></label>
           </div>
           <details class="advanced">
             <summary>高级配置：测试、协议与计费</summary>
@@ -674,6 +682,28 @@ INDEX_HTML = r"""<!doctype html>
                 <option value="request">按请求模型</option>
                 <option value="response">按返回模型</option>
               </select></label>
+              <label>Codex 协议<select name="wire_api" id="wire-api">
+                <option value="responses">responses</option>
+                <option value="chat">chat</option>
+              </select></label>
+              <label>OpenAI 认证<select name="requires_openai_auth" id="requires-openai-auth">
+                <option value="true">true</option>
+                <option value="false">false</option>
+              </select></label>
+              <label>禁用响应存储<select name="disable_response_storage" id="disable-response-storage">
+                <option value="true">true</option>
+                <option value="false">false</option>
+              </select></label>
+              <label>额度模板<select name="usage_template" id="usage-template">
+                <option value="auto">自动探测</option>
+                <option value="newapi">New API</option>
+                <option value="generic">通用余额</option>
+              </select></label>
+              <label>用量 Base URL<input name="usage_base_url" id="usage-base-url" placeholder="留空使用接口地址"></label>
+              <label>自定义用量路径<input name="usage_endpoint" id="usage-endpoint" placeholder="/v1/usage"></label>
+              <label>New API User ID<input name="usage_user_id" id="usage-user-id" placeholder="New API 用户 ID"></label>
+              <label>New API Access Token<input name="usage_access_token" id="usage-access-token" type="password" autocomplete="off" placeholder="保存到本地 secret；查额度时使用"></label>
+              <input name="usage_access_token_ref" id="usage-access-token-ref" type="hidden">
               <label class="wide">能力<input name="capabilities" id="provider-capabilities" placeholder="text, tools, vision, reasoning, batch, embedding"></label>
               <label class="wide">额度入口<input name="quota_ref" id="quota-ref" placeholder="dashboard 或 quota API 引用"></label>
             </div>
@@ -684,6 +714,7 @@ INDEX_HTML = r"""<!doctype html>
             <button type="button" class="secondary" id="fetch-models">发现模型</button>
             <button type="button" class="secondary" id="test-official-draft">模型探测</button>
             <button type="button" class="secondary" id="copy-script">复制默认脚本</button>
+            <button type="button" class="secondary" id="copy-codex-config">复制 Codex 配置</button>
           </div>
           <pre class="script-box" id="script-preview"></pre>
         </form>
@@ -734,6 +765,20 @@ INDEX_HTML = r"""<!doctype html>
       const line = String(notes || '').split('\n').find(item => item.startsWith(prefix));
       return line ? line.slice(prefix.length).trim() : '';
     };
+    const modelIdsFromTextarea = () => document.getElementById('model-ids').value
+      .split(/\n|,/)
+      .map(item => item.trim())
+      .filter(Boolean);
+    function syncDefaultModelOptions(selected = '') {
+      const select = document.getElementById('default-model');
+      if (!select) return;
+      const current = selected || select.value;
+      const ids = modelIdsFromTextarea();
+      select.innerHTML = '<option value="">自动使用首个模型</option>' + ids.map(id => (
+        `<option value="${escapeAttr(id)}">${escapeHtml(id)}</option>`
+      )).join('');
+      select.value = ids.includes(current) ? current : '';
+    }
     const quotaText = account => {
       const notes = account.notes || '';
       const found = notes.split('\n').find(line => /quota|额度|balance|dashboard/i.test(line));
@@ -845,6 +890,17 @@ INDEX_HTML = r"""<!doctype html>
       document.getElementById('secret-ref').value = '';
       document.getElementById('quota-ref').value = preset.quota_ref || '';
       document.getElementById('model-ids').value = (preset.models || []).join('\n');
+      syncDefaultModelOptions('');
+      document.getElementById('model-reasoning-effort').value = 'high';
+      document.getElementById('wire-api').value = 'responses';
+      document.getElementById('requires-openai-auth').value = 'true';
+      document.getElementById('disable-response-storage').value = 'true';
+      document.getElementById('usage-template').value = 'auto';
+      document.getElementById('usage-base-url').value = '';
+      document.getElementById('usage-endpoint').value = '';
+      document.getElementById('usage-user-id').value = '';
+      document.getElementById('usage-access-token').value = '';
+      document.getElementById('usage-access-token-ref').value = '';
       document.getElementById('provider-capabilities').value = (preset.capabilities || []).join(', ');
       document.getElementById('provider-priority').value = String(preset.rank || 90);
       document.getElementById('api-key').value = '';
@@ -972,6 +1028,7 @@ INDEX_HTML = r"""<!doctype html>
         const account = row.account;
         const quota = quotaText(account);
         const modelText = row.models.join(', ') || '未配置模型';
+        const defaultModel = noteValue(account.notes, 'default_model') || row.models[0] || '未设置';
         const concurrency = noteValue(account.notes, 'max_concurrency') || '未知';
         const rpm = noteValue(account.notes, 'rpm_limit') || '未知';
         return `<div class="config-row" draggable="true" data-account-row="${escapeAttr(account.account_id)}">
@@ -989,13 +1046,14 @@ INDEX_HTML = r"""<!doctype html>
               <span class="pill info">并发 ${escapeHtml(concurrency)}</span>
               <span class="pill info">RPM ${escapeHtml(rpm)}</span>
             </div>
-            <span class="subtle">配置 ID：${escapeHtml(account.account_id)} · 模型：${escapeHtml(modelText)} · 额度：${escapeHtml(quota)}</span>
+            <span class="subtle">配置 ID：${escapeHtml(account.account_id)} · 默认：${escapeHtml(defaultModel)} · 模型：${escapeHtml(modelText)} · 额度：${escapeHtml(quota)}</span>
           </div>
           <div class="config-actions">
             <button class="primary" data-account-action="test" data-account-id="${escapeAttr(account.account_id)}">模型探测</button>
             <button class="secondary" data-account-action="quota" data-account-id="${escapeAttr(account.account_id)}">查额度</button>
             <button class="secondary" data-account-action="monitor" data-account-id="${escapeAttr(account.account_id)}">监控</button>
             <button class="secondary" data-account-action="copy" data-account-id="${escapeAttr(account.account_id)}">复制脚本</button>
+            <button class="secondary" data-account-action="codex-config" data-account-id="${escapeAttr(account.account_id)}">Codex 配置</button>
             <button class="secondary" data-account-action="edit" data-account-id="${escapeAttr(account.account_id)}">修改</button>
             <button class="secondary" data-account-action="up" data-account-id="${escapeAttr(account.account_id)}">上移</button>
             <button class="secondary" data-account-action="down" data-account-id="${escapeAttr(account.account_id)}">下移</button>
@@ -1122,6 +1180,7 @@ INDEX_HTML = r"""<!doctype html>
       document.getElementById('proxy-url').value = account.proxy_url || '';
       document.getElementById('quota-ref').value = quotaText(account).replace(/^quota_ref=/, '');
       document.getElementById('model-ids').value = accountModelIds(accountId).join('\n');
+      syncDefaultModelOptions(noteValue(account.notes, 'default_model'));
       document.getElementById('provider-capabilities').value = '';
       document.getElementById('provider-priority').value = String(accountPriority(accountId) || preset.rank || 90);
       document.getElementById('api-key').value = '';
@@ -1139,6 +1198,16 @@ INDEX_HTML = r"""<!doctype html>
       document.getElementById('degraded-threshold-ms').value = noteValue(account.notes, 'degraded_threshold_ms');
       document.getElementById('cost-multiplier').value = noteValue(account.notes, 'cost_multiplier');
       document.getElementById('pricing-model-source').value = noteValue(account.notes, 'pricing_model_source');
+      document.getElementById('model-reasoning-effort').value = noteValue(account.notes, 'model_reasoning_effort') || 'high';
+      document.getElementById('wire-api').value = noteValue(account.notes, 'wire_api') || 'responses';
+      document.getElementById('requires-openai-auth').value = noteValue(account.notes, 'requires_openai_auth') || 'true';
+      document.getElementById('disable-response-storage').value = noteValue(account.notes, 'disable_response_storage') || 'true';
+      document.getElementById('usage-template').value = noteValue(account.notes, 'usage_template') || 'auto';
+      document.getElementById('usage-base-url').value = noteValue(account.notes, 'usage_base_url');
+      document.getElementById('usage-endpoint').value = noteValue(account.notes, 'usage_endpoint');
+      document.getElementById('usage-user-id').value = noteValue(account.notes, 'usage_user_id');
+      document.getElementById('usage-access-token').value = '';
+      document.getElementById('usage-access-token-ref').value = noteValue(account.notes, 'usage_access_token_ref');
       document.getElementById('channel-form-title').textContent = `修改 ${preset.name} 渠道`;
       document.getElementById('save-provider-button').textContent = '保存修改';
       document.getElementById('provider-list-title').textContent = `${preset.name} 渠道列表`;
@@ -1160,7 +1229,23 @@ INDEX_HTML = r"""<!doctype html>
     async function copyAccountScript(accountId) {
       const account = accountById(accountId);
       if (!account.account_id) throw new Error('配置不存在');
-      await copyText(updateScriptPreview(account), '默认脚本已复制');
+      const data = await api('/api/provider-script', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({account_id: accountId, format: 'shell'})
+      });
+      await copyText(data.script, '带 Key 的默认脚本已复制');
+    }
+
+    async function copyAccountCodexConfig(accountId) {
+      const account = accountById(accountId);
+      if (!account.account_id) throw new Error('请先保存渠道');
+      const data = await api('/api/provider-script', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({account_id: accountId, format: 'codex_toml'})
+      });
+      await copyText(data.script, 'Codex config.toml 片段已复制');
     }
 
     async function showQuota(accountId) {
@@ -1194,7 +1279,8 @@ INDEX_HTML = r"""<!doctype html>
         return;
       }
       document.getElementById('model-ids').value = models.map(item => item.id).join('\n');
-      showToast(`已发现 ${models.length} 个模型`);
+      syncDefaultModelOptions(document.getElementById('default-model').value || models[0]?.id || '');
+      showToast(`已发现 ${models.length} 个模型，可选择默认模型`);
     }
 
     async function saveOfficialConfig(notify = true) {
@@ -1205,9 +1291,12 @@ INDEX_HTML = r"""<!doctype html>
         body: JSON.stringify(payload)
       });
       document.getElementById('api-key').value = '';
+      document.getElementById('usage-access-token').value = '';
       if (data.account?.secret_ref) {
         document.getElementById('secret-ref').value = data.account.secret_ref;
       }
+      const usageRef = noteValue(data.account?.notes, 'usage_access_token_ref');
+      if (usageRef) document.getElementById('usage-access-token-ref').value = usageRef;
       await refresh();
       if (notify) {
         const secretMessage = data.secret_mode === 'local' ? 'API Key 已写入 .omni/secrets.json' : '密钥引用已保存';
@@ -1273,6 +1362,7 @@ INDEX_HTML = r"""<!doctype html>
         if (action === 'edit') editAccount(accountId);
         if (action === 'test') checkAccount(accountId).catch(err => showToast(err.message, 'bad'));
         if (action === 'copy') copyAccountScript(accountId).catch(err => showToast(err.message, 'bad'));
+        if (action === 'codex-config') copyAccountCodexConfig(accountId).catch(err => showToast(err.message, 'bad'));
         if (action === 'quota') showQuota(accountId).catch(err => showToast(err.message, 'bad'));
         if (action === 'monitor') setView('monitor');
         if (action === 'up') reorderAccounts(accountId, null, -1).catch(err => showToast(err.message, 'bad'));
@@ -1350,11 +1440,22 @@ INDEX_HTML = r"""<!doctype html>
     });
     document.getElementById('copy-script').addEventListener('click', async () => {
       try {
-        await copyText(updateScriptPreview(), '默认脚本已复制');
+        const accountId = document.getElementById('account-id').value;
+        if (!accountById(accountId).account_id) throw new Error('请先保存渠道再复制带 Key 脚本');
+        await copyAccountScript(accountId);
       } catch (err) {
         showToast(err.message, 'bad');
       }
     });
+    document.getElementById('copy-codex-config').addEventListener('click', async () => {
+      try {
+        const accountId = document.getElementById('account-id').value;
+        await copyAccountCodexConfig(accountId);
+      } catch (err) {
+        showToast(err.message, 'bad');
+      }
+    });
+    document.getElementById('model-ids').addEventListener('input', () => syncDefaultModelOptions());
     document.getElementById('realtime-toggle').addEventListener('click', event => {
       state.realtime = !state.realtime;
       event.target.textContent = state.realtime ? '停止实时刷新' : '开始实时刷新';

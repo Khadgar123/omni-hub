@@ -15,6 +15,9 @@ from omni_hub.gui import (
     INDEX_HTML,
     OFFICIAL_PROVIDER_PRESETS,
     _fetch_models_from_payload,
+    _model_entries,
+    _parse_newapi_balance,
+    _provider_script_response,
     create_gui_server,
 )
 from omni_hub.provider_router import ProviderAccount, ProviderRouterStore
@@ -29,6 +32,8 @@ class GuiServerTests(unittest.TestCase):
         self.assertIn("模型厂商", INDEX_HTML)
         self.assertIn("API Key", INDEX_HTML)
         self.assertIn("添加渠道", INDEX_HTML)
+        self.assertIn("默认模型", INDEX_HTML)
+        self.assertIn("Codex 配置", INDEX_HTML)
         self.assertIn('id="provider-modal"', INDEX_HTML)
         self.assertIn("默认脚本", INDEX_HTML)
         self.assertIn("拖拽", INDEX_HTML)
@@ -399,6 +404,75 @@ class GuiServerTests(unittest.TestCase):
             self.assertEqual(fetched["models"][0]["id"], "draft-model")
             self.assertEqual(fetch.call_args.args[1], "sk-draft-secret")
             self.assertEqual(fetch.call_args.args[0].account_id, "openai-main")
+
+    def test_gui_model_entries_accept_common_model_response_shapes(self) -> None:
+        self.assertEqual(_model_entries({"data": [{"id": "gpt-test"}]})[0]["id"], "gpt-test")
+        self.assertEqual(_model_entries({"models": ["gpt-list"]})[0], "gpt-list")
+        self.assertEqual(
+            _model_entries({"data": {"models": [{"id": "nested"}]}})[0]["id"],
+            "nested",
+        )
+
+    def test_gui_provider_script_resolves_local_secret_and_codex_toml(self) -> None:
+        with patch.dict(os.environ, {"OMNI_HUB_SECRET_BACKEND": "memory"}):
+            with tempfile.TemporaryDirectory() as tmpdir:
+                store = ProviderRouterStore(tmpdir)
+                secret_ref = store_api_key("openai-main", "sk-script-secret")
+                account = store.upsert_account(
+                    ProviderAccount(
+                        account_id="openai-main",
+                        provider="openai",
+                        name="OpenAI Main",
+                        base_url="https://api.example.com",
+                        secret_ref=secret_ref,
+                        notes="default_model=gpt-5.5\nmodel_reasoning_effort=xhigh",
+                    )
+                )
+                shell = _provider_script_response(
+                    account,
+                    store,
+                    {"account_id": "openai-main", "format": "shell"},
+                )
+                toml = _provider_script_response(
+                    account,
+                    store,
+                    {"account_id": "openai-main", "format": "codex_toml"},
+                )
+
+                self.assertTrue(shell["contains_secret"])
+                self.assertIn("sk-script-secret", shell["script"])
+                self.assertFalse(toml["contains_secret"])
+                self.assertNotIn("sk-script-secret", toml["script"])
+                self.assertIn('model = "gpt-5.5"', toml["script"])
+                self.assertIn('model_reasoning_effort = "xhigh"', toml["script"])
+
+    def test_gui_newapi_balance_parser_matches_cc_switch_template(self) -> None:
+        parsed = _parse_newapi_balance(
+            {
+                "success": True,
+                "data": {
+                    "group": "default",
+                    "quota": 1_000_000,
+                    "used_quota": 500_000,
+                },
+            }
+        )
+
+        self.assertEqual(parsed[0]["plan_name"], "default")
+        self.assertEqual(parsed[0]["remaining"], 2.0)
+        self.assertEqual(parsed[0]["used"], 1.0)
+        self.assertEqual(parsed[0]["total"], 3.0)
+
+    def test_gui_generic_balance_parser_matches_cc_switch_usage_script(self) -> None:
+        from omni_hub.gui import _parse_generic_balance
+
+        parsed = _parse_generic_balance(
+            {"quota": {"remaining": 68.73, "unit": "USD"}, "is_active": True}
+        )
+
+        self.assertEqual(parsed[0]["remaining"], 68.73)
+        self.assertEqual(parsed[0]["unit"], "USD")
+        self.assertTrue(parsed[0]["is_valid"])
 
     def test_gui_adds_model_to_channel_with_manual_model_id(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
