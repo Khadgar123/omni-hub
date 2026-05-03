@@ -93,6 +93,71 @@ def build_parser() -> argparse.ArgumentParser:
     skill_analyze = subparsers.add_parser("skill-analyze")
     skill_analyze.add_argument("--id", action="append", required=True)
 
+    provider_add = subparsers.add_parser("provider-add")
+    provider_add.add_argument("--id", required=True)
+    provider_add.add_argument("--provider", required=True)
+    provider_add.add_argument("--name", required=True)
+    provider_add.add_argument("--base-url", required=True)
+    provider_add.add_argument("--secret-ref", default="")
+    provider_add.add_argument("--status", default="active")
+    provider_add.add_argument("--group", default="")
+    provider_add.add_argument("--notes", default="")
+
+    provider_list = subparsers.add_parser("provider-list")
+    provider_list.add_argument("--provider")
+    provider_list.add_argument("--status")
+
+    provider_disable = subparsers.add_parser("provider-disable")
+    provider_disable.add_argument("--id", required=True)
+    provider_disable.add_argument("--auto", action="store_true")
+    provider_disable.add_argument("--reason", default="")
+
+    model_add = subparsers.add_parser("model-add")
+    model_add.add_argument("--id", required=True)
+    model_add.add_argument("--name", default="")
+    model_add.add_argument("--status", default="active")
+    model_add.add_argument("--capability", action="append", default=[])
+    model_add.add_argument("--context-window", type=int, default=0)
+    model_add.add_argument("--input-cost", type=float, default=0.0)
+    model_add.add_argument("--output-cost", type=float, default=0.0)
+    model_add.add_argument("--cache-read-cost", type=float, default=0.0)
+    model_add.add_argument("--cache-write-cost", type=float, default=0.0)
+    model_add.add_argument("--supports-batch", action="store_true")
+    model_add.add_argument("--notes", default="")
+
+    model_list = subparsers.add_parser("model-list")
+    model_list.add_argument("--status")
+    model_list.add_argument("--capability")
+
+    route_ability = subparsers.add_parser("route-ability-set")
+    route_ability.add_argument("--account", required=True)
+    route_ability.add_argument("--model", required=True)
+    route_ability.add_argument("--priority", type=int, default=0)
+    route_ability.add_argument("--weight", type=float, default=1.0)
+    route_ability.add_argument("--mapping", default="")
+    route_ability.add_argument("--disable", action="store_true")
+    route_ability.add_argument("--notes", default="")
+
+    provider_health = subparsers.add_parser("provider-health-set")
+    provider_health.add_argument("--account", required=True)
+    provider_health.add_argument("--model", default="")
+    provider_health.add_argument("--status", default="unknown")
+    provider_health.add_argument("--latency-ms", type=int)
+    provider_health.add_argument("--failures", type=int, default=0)
+    provider_health.add_argument("--error", default="")
+
+    route_simulate = subparsers.add_parser("route-simulate")
+    route_simulate.add_argument("--capability", action="append", default=[])
+    route_simulate.add_argument("--input-tokens", type=int, default=0)
+    route_simulate.add_argument("--output-tokens", type=int, default=0)
+    route_simulate.add_argument("--max-cost", type=float)
+    route_simulate.add_argument("--require-batch", action="store_true")
+    route_simulate.add_argument("--prefer-provider", action="append", default=[])
+    route_simulate.add_argument("--prefer-account", action="append", default=[])
+    route_simulate.add_argument("--limit", type=int, default=10)
+
+    subparsers.add_parser("provider-router-stats")
+
     policy = subparsers.add_parser("check-policy")
     policy.add_argument("--name", default="manual_check")
     policy.add_argument("--connector", default="local")
@@ -295,6 +360,153 @@ def main(argv: list[str] | None = None) -> int:
             name="analyze_skills",
             action="analyze",
             payload={"skill_ids": args.id},
+            risk_level=RiskLevel.READ_ONLY,
+        )
+        result = runner.run(spec)
+        _print_json(result.to_dict())
+        return 0 if result.error is None else 1
+
+    if args.command == "provider-add":
+        spec = OperationSpec(
+            name="add_provider_account",
+            action="register_provider",
+            payload={
+                "account_id": args.id,
+                "provider": args.provider,
+                "name": args.name,
+                "base_url": args.base_url,
+                "secret_ref": args.secret_ref,
+                "status": args.status,
+                "account_group": args.group,
+                "notes": args.notes,
+            },
+            risk_level=RiskLevel.LOCAL_WRITE,
+        )
+        result = runner.run(spec)
+        _print_json(result.to_dict())
+        return 0 if result.error is None else 1
+
+    if args.command == "provider-list":
+        spec = OperationSpec(
+            name="list_provider_accounts",
+            action="list_providers",
+            payload={"provider": args.provider, "status": args.status},
+            risk_level=RiskLevel.READ_ONLY,
+        )
+        result = runner.run(spec)
+        _print_json(result.to_dict())
+        return 0 if result.error is None else 1
+
+    if args.command == "provider-disable":
+        spec = OperationSpec(
+            name="disable_provider_account",
+            action="disable_provider",
+            payload={
+                "account_id": args.id,
+                "auto": args.auto,
+                "reason": args.reason,
+            },
+            risk_level=RiskLevel.LOCAL_WRITE,
+        )
+        result = runner.run(spec)
+        _print_json(result.to_dict())
+        return 0 if result.error is None else 1
+
+    if args.command == "model-add":
+        spec = OperationSpec(
+            name="add_model",
+            action="register_model",
+            payload={
+                "model_id": args.id,
+                "display_name": args.name,
+                "status": args.status,
+                "capabilities": args.capability,
+                "context_window": args.context_window,
+                "input_usd_per_million": args.input_cost,
+                "output_usd_per_million": args.output_cost,
+                "cache_read_usd_per_million": args.cache_read_cost,
+                "cache_write_usd_per_million": args.cache_write_cost,
+                "supports_batch": args.supports_batch,
+                "notes": args.notes,
+            },
+            risk_level=RiskLevel.LOCAL_WRITE,
+        )
+        result = runner.run(spec)
+        _print_json(result.to_dict())
+        return 0 if result.error is None else 1
+
+    if args.command == "model-list":
+        spec = OperationSpec(
+            name="list_models",
+            action="list_models",
+            payload={"status": args.status, "capability": args.capability},
+            risk_level=RiskLevel.READ_ONLY,
+        )
+        result = runner.run(spec)
+        _print_json(result.to_dict())
+        return 0 if result.error is None else 1
+
+    if args.command == "route-ability-set":
+        spec = OperationSpec(
+            name="set_route_ability",
+            action="set_route_ability",
+            payload={
+                "account_id": args.account,
+                "model_id": args.model,
+                "priority": args.priority,
+                "weight": args.weight,
+                "model_mapping": args.mapping,
+                "enabled": not args.disable,
+                "notes": args.notes,
+            },
+            risk_level=RiskLevel.LOCAL_WRITE,
+        )
+        result = runner.run(spec)
+        _print_json(result.to_dict())
+        return 0 if result.error is None else 1
+
+    if args.command == "provider-health-set":
+        spec = OperationSpec(
+            name="set_provider_health",
+            action="set_provider_health",
+            payload={
+                "account_id": args.account,
+                "model_id": args.model,
+                "status": args.status,
+                "latency_ms": args.latency_ms,
+                "consecutive_failures": args.failures,
+                "last_error": args.error,
+            },
+            risk_level=RiskLevel.LOCAL_WRITE,
+        )
+        result = runner.run(spec)
+        _print_json(result.to_dict())
+        return 0 if result.error is None else 1
+
+    if args.command == "route-simulate":
+        spec = OperationSpec(
+            name="route_simulate",
+            action="route_simulate",
+            payload={
+                "capabilities": args.capability,
+                "input_tokens": args.input_tokens,
+                "output_tokens": args.output_tokens,
+                "max_cost_usd": args.max_cost,
+                "require_batch": args.require_batch,
+                "preferred_providers": args.prefer_provider,
+                "preferred_accounts": args.prefer_account,
+                "limit": args.limit,
+            },
+            risk_level=RiskLevel.READ_ONLY,
+        )
+        result = runner.run(spec)
+        _print_json(result.to_dict())
+        return 0 if result.error is None else 1
+
+    if args.command == "provider-router-stats":
+        spec = OperationSpec(
+            name="provider_router_stats",
+            action="stats",
             risk_level=RiskLevel.READ_ONLY,
         )
         result = runner.run(spec)

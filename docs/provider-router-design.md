@@ -173,6 +173,22 @@ omni-hub health list/check
 omni-hub client detect/list/backup/restore
 ```
 
+当前已实现的 CLI 子集：
+
+```text
+omni-hub provider-add
+omni-hub provider-list
+omni-hub provider-disable
+omni-hub model-add
+omni-hub model-list
+omni-hub route-ability-set
+omni-hub provider-health-set
+omni-hub route-simulate
+omni-hub provider-router-stats
+```
+
+当前实现只做本地注册和路由模拟，还不真实转发 API 请求，也不改写 Codex、Claude、Gemini、Cursor 等外部客户端配置。
+
 Mac app / Web dashboard 对应页面：
 
 - Provider Accounts：API key ref、base URL、状态、余额、速率、优先级。

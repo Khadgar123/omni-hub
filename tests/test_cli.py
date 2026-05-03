@@ -137,6 +137,91 @@ class CliTests(unittest.TestCase):
                 "memory-search",
             )
 
+    def test_provider_router_cli_flow(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            original_cwd = os.getcwd()
+            buffers = [StringIO() for _ in range(4)]
+            try:
+                os.chdir(tmpdir)
+                with redirect_stdout(buffers[0]):
+                    self.assertEqual(
+                        main(
+                            [
+                                "provider-add",
+                                "--id",
+                                "openai-main",
+                                "--provider",
+                                "openai",
+                                "--name",
+                                "OpenAI Main",
+                                "--base-url",
+                                "https://api.openai.com/v1",
+                                "--secret-ref",
+                                "env:OPENAI_API_KEY",
+                            ]
+                        ),
+                        0,
+                    )
+                with redirect_stdout(buffers[1]):
+                    self.assertEqual(
+                        main(
+                            [
+                                "model-add",
+                                "--id",
+                                "gpt-5.4",
+                                "--capability",
+                                "text",
+                                "--capability",
+                                "tools",
+                                "--input-cost",
+                                "2",
+                                "--output-cost",
+                                "10",
+                            ]
+                        ),
+                        0,
+                    )
+                with redirect_stdout(buffers[2]):
+                    self.assertEqual(
+                        main(
+                            [
+                                "route-ability-set",
+                                "--account",
+                                "openai-main",
+                                "--model",
+                                "gpt-5.4",
+                                "--priority",
+                                "10",
+                            ]
+                        ),
+                        0,
+                    )
+                with redirect_stdout(buffers[3]):
+                    exit_code = main(
+                        [
+                            "route-simulate",
+                            "--capability",
+                            "tools",
+                            "--input-tokens",
+                            "1000",
+                            "--output-tokens",
+                            "500",
+                            "--max-cost",
+                            "0.01",
+                        ]
+                    )
+            finally:
+                os.chdir(original_cwd)
+
+            self.assertEqual(exit_code, 0)
+            payload = json.loads(buffers[3].getvalue())
+            self.assertEqual(payload["status"], "succeeded")
+            self.assertEqual(
+                payload["output"]["selected"]["account"]["account_id"],
+                "openai-main",
+            )
+            self.assertTrue((Path(tmpdir) / ".omni/provider-router.sqlite3").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

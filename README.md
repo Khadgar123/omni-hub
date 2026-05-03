@@ -10,13 +10,14 @@
 
 ## 当前开发状态
 
-当前仓库已经完成 v0.1 本地内核，并开始 v0.2 捕获与知识入库：
+当前仓库已经完成 v0.1 本地内核、v0.2 捕获与知识入库，并开始 v0.3 Provider Router：
 
 - `Operation`：所有动作的原子抽象，可审计、可审批、可重试。
 - `Policy`：按风险等级决定是否自动执行、等待人工审批或要求沙箱。
 - `Audit`：本地 JSONL 审计日志，默认写入 `.omni/audit/events.jsonl`。
 - `CLI`：先用本地命令跑通内核，后续再接飞书、Discord、GitHub、Obsidian 和 Web 控制台。
 - `Capture`：v0.2 已开始支持 URL 捕获、HTML 元数据提取、YouTube URL 识别和本地 Inbox 卡片生成。
+- `Provider Router`：v0.3 已开始支持本地 SQLite provider/account/model/ability/health 注册与路由模拟。
 
 ## 快速开始
 
@@ -103,6 +104,30 @@ PYTHONPATH=src python3.12 -m omni_hub.cli skill-recommend --query "youtube captu
 
 ```bash
 PYTHONPATH=src python3.12 -m omni_hub.cli skill-analyze --id url-capture --id vault-proposal --id memory-digest
+```
+
+注册 Provider account：
+
+```bash
+PYTHONPATH=src python3.12 -m omni_hub.cli provider-add --id openai-main --provider openai --name "OpenAI Main" --base-url "https://api.openai.com/v1" --secret-ref env:OPENAI_API_KEY
+```
+
+注册模型：
+
+```bash
+PYTHONPATH=src python3.12 -m omni_hub.cli model-add --id gpt-5.4 --capability text --capability tools --input-cost 2 --output-cost 10
+```
+
+绑定 route ability：
+
+```bash
+PYTHONPATH=src python3.12 -m omni_hub.cli route-ability-set --account openai-main --model gpt-5.4 --priority 10
+```
+
+模拟路由决策：
+
+```bash
+PYTHONPATH=src python3.12 -m omni_hub.cli route-simulate --capability tools --input-tokens 1000 --output-tokens 500 --max-cost 0.01
 ```
 
 运行测试：
