@@ -31,6 +31,13 @@ def build_parser() -> argparse.ArgumentParser:
     write.add_argument("--body", required=True)
     write.add_argument("--approve", action="store_true")
 
+    capture = subparsers.add_parser("capture-url")
+    capture.add_argument("--url", required=True)
+    capture.add_argument("--note", default="")
+    capture.add_argument("--no-fetch", action="store_true")
+    capture.add_argument("--max-bytes", type=int, default=2_000_000)
+    capture.add_argument("--timeout-seconds", type=int, default=20)
+
     policy = subparsers.add_parser("check-policy")
     policy.add_argument("--name", default="manual_check")
     policy.add_argument("--connector", default="local")
@@ -64,6 +71,24 @@ def main(argv: list[str] | None = None) -> int:
             risk_level=RiskLevel.LOCAL_WRITE,
         )
         result = runner.run(spec, approved=args.approve)
+        _print_json(result.to_dict())
+        return 0 if result.error is None else 1
+
+    if args.command == "capture-url":
+        spec = OperationSpec(
+            name="capture_url",
+            connector="web",
+            action="capture_url",
+            payload={
+                "url": args.url,
+                "note": args.note,
+                "fetch": not args.no_fetch,
+                "max_bytes": args.max_bytes,
+                "timeout_seconds": args.timeout_seconds,
+            },
+            risk_level=RiskLevel.LOCAL_WRITE,
+        )
+        result = runner.run(spec)
         _print_json(result.to_dict())
         return 0 if result.error is None else 1
 

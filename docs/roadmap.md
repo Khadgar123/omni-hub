@@ -11,7 +11,7 @@
 ## v0.2 捕获与知识入库
 
 - 普通网页 URL 捕获
-- YouTube 字幕/元数据捕获
+- YouTube URL 识别与元数据卡片
 - Obsidian vault 读取
 - 原始材料、摘要、实体、关系分层存储
 - Graphiti 或 Mem0 初步接入评估

@@ -10,12 +10,13 @@
 
 ## 当前开发状态
 
-当前仓库已经进入 v0.1 本地内核阶段，先实现控制平面的最小骨架：
+当前仓库已经完成 v0.1 本地内核，并开始 v0.2 捕获与知识入库：
 
 - `Operation`：所有动作的原子抽象，可审计、可审批、可重试。
 - `Policy`：按风险等级决定是否自动执行、等待人工审批或要求沙箱。
 - `Audit`：本地 JSONL 审计日志，默认写入 `.omni/audit/events.jsonl`。
 - `CLI`：先用本地命令跑通内核，后续再接飞书、Discord、GitHub、Obsidian 和 Web 控制台。
+- `Capture`：v0.2 已开始支持 URL 捕获、HTML 元数据提取、YouTube URL 识别和本地 Inbox 卡片生成。
 
 ## 快速开始
 
@@ -42,6 +43,18 @@ PYTHONPATH=src python3.12 -m omni_hub.cli write-markdown --path vault/00_Inbox/d
 
 ```bash
 PYTHONPATH=src python3.12 -m omni_hub.cli check-policy --connector x --action publish --risk L3
+```
+
+捕获网页 URL：
+
+```bash
+PYTHONPATH=src python3.12 -m omni_hub.cli capture-url --url "https://example.com"
+```
+
+只登记 YouTube URL，不联网抓取：
+
+```bash
+PYTHONPATH=src python3.12 -m omni_hub.cli capture-url --url "https://youtu.be/dQw4w9WgXcQ" --no-fetch
 ```
 
 运行测试：
@@ -73,6 +86,7 @@ PYTHONPATH=src python3.12 -m unittest discover -s tests
 - [架构方案](docs/architecture.md)
 - [Operation 模型](docs/operation-model.md)
 - [权限与风险模型](docs/permission-model.md)
+- [捕获与入库模型](docs/capture-model.md)
 - [Roadmap](docs/roadmap.md)
 
 ## 维护原则
