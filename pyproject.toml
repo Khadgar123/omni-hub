@@ -1,0 +1,21 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "omni-hub"
+version = "0.1.0"
+description = "Personal knowledge, AI skills, automation workflows, and multi-platform connectors in one control plane."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+authors = [
+  { name = "Khadgar123" }
+]
+dependencies = []
+
+[project.scripts]
+omni-hub = "omni_hub.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/omni_hub"]

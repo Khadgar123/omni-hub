@@ -5,6 +5,20 @@
 .vscode/
 .idea/
 
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+dist/
+build/
+*.egg-info/
+
+# Omni Hub local runtime
+.omni/
+
 # Obsidian volatile state
 .obsidian/workspace.json
 .obsidian/workspace-mobile.json
