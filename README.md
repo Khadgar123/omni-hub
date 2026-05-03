@@ -163,7 +163,7 @@ PYTHONPATH=src python3.12 -m omni_hub.cli agent-plan --project writing --task "�
 PYTHONPATH=src python3.12 -m omni_hub.cli gui
 ```
 
-默认打开 `http://127.0.0.1:8765`。GUI 是中文本地控制台，包含总览、Provider 账号、模型目录、全局路由、项目策略、Agent 规划和安全边界视图；表格支持搜索和分页。它只管理万象中枢自己的本地状态，不改写 Codex、Claude、Gemini、Cursor 等外部客户端配置。
+默认打开 `http://127.0.0.1:8765`。GUI 是中文本地控制台，包含总览、API 接入、路由策略、项目偏好和调用预演；API 接入支持常见模板，模型目录只读展示，表格支持搜索和分页，所有按钮都有操作反馈。它只管理万象中枢自己的本地状态，不改写 Codex、Claude、Gemini、Cursor 等外部客户端配置。
 
 运行测试：
 

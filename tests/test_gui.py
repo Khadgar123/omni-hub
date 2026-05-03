@@ -9,10 +9,19 @@ from urllib.request import Request, urlopen
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from omni_hub.gui import create_gui_server
+from omni_hub.gui import INDEX_HTML, create_gui_server
 
 
 class GuiServerTests(unittest.TestCase):
+    def test_gui_index_uses_user_facing_dashboard_terms(self) -> None:
+        self.assertIn("API 接入", INDEX_HTML)
+        self.assertIn("路由策略", INDEX_HTML)
+        self.assertIn("项目偏好", INDEX_HTML)
+        self.assertIn("调用预演", INDEX_HTML)
+        self.assertIn('id="toast"', INDEX_HTML)
+        self.assertNotIn("Provider 账号", INDEX_HTML)
+        self.assertNotIn("Agent 规划", INDEX_HTML)
+
     def test_gui_api_state_and_agent_plan(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             server = create_gui_server(tmpdir, port=0)

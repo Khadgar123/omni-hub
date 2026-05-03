@@ -1,6 +1,6 @@
 # GUI
 
-万象中枢当前提供一个本地 Web GUI，用于管理 Provider Router 和 Agent Planner 的本地状态。它是阶段 1 的本机控制台，目标是先把 Provider、模型、路由、项目策略和 Agent 调用规划做成一个清晰的操作面板。
+万象中枢当前提供一个本地 Web GUI，用于管理 API 渠道、模型来源、路由策略、项目偏好和调用预演。它是阶段 1 的本机控制台，目标是先把“接入 API -> 选择策略 -> 项目差异化 -> 调用前检查”做成一个清晰的操作面板。
 
 启动：
 
@@ -16,26 +16,23 @@ http://127.0.0.1:8765
 
 ## 当前能力
 
-- 总览本机 provider、模型、全局路由、项目策略、健康记录和调用日志数量。
-- 通过左侧导航进入 Provider 账号、模型目录、全局路由、项目策略、Agent 规划和安全边界视图。
-- 在各个表格中搜索当前数据，并按每页 8 条分页浏览。
-- 查看 provider account、model、route ability、project profile、project override 的当前状态。
-- 添加或更新 provider account。
-- 添加或更新 model catalog。
-- 添加或更新全局 account/model route ability。
-- 添加或更新项目级 route profile。
-- 添加或更新项目级 account/model priority override。
-- 规划一次自有 agent 调用，返回 provider、account、model、secret ref、成本估算和路由原因。
+- 总览本机 API 渠道、已知模型、默认策略、项目偏好、健康记录和调用日志数量。
+- 通过左侧导航进入总览、API 接入、路由策略、项目偏好和调用预演。
+- API 接入提供 OpenAI、OpenRouter、DeepSeek、SiliconFlow 和自定义中转站模板，减少手填字段。
+- 模型目录在 GUI 中只读展示，不再要求用户手工维护；后续由厂商 `/models`、价格表和调用日志自动补全。
+- 路由策略用于设置默认 API 渠道和模型选择顺序。
+- 项目偏好用于为不同项目设置能力、预算和项目专属优先级。
+- 调用预演用于真实花钱前检查当前策略会选中哪个 API 渠道和模型。
+- 各个表格支持搜索和每页 8 条分页浏览。
+- 所有按钮点击后都会给出成功或失败反馈。
 
 ## 页面结构
 
-- `总览`：展示本机状态指标、基本配置步骤和最近配置概览。
-- `Provider 账号`：登记 provider、base URL、secret ref、状态和分组。
-- `模型目录`：登记模型能力、上下文窗口、输入/输出成本和 batch 支持。
-- `全局路由`：配置默认 account/model priority、weight 和 provider 侧模型名映射。
-- `项目策略`：配置项目 profile 和项目级 route override。
-- `Agent 规划`：根据项目、能力、预算和输出 token 生成一次自有 agent 调用计划。
-- `安全边界`：说明当前阶段的本地运行、密钥引用和外部客户端隔离规则。
+- `总览`：展示本机状态指标、快速入口和当前接入概览。
+- `API 接入`：通过模板登记官方 API、中转站、公司网关或本地网关。
+- `路由策略`：配置默认 account/model priority、weight 和 provider 侧模型名映射。
+- `项目偏好`：配置项目 profile 和项目级 route override。
+- `调用预演`：根据项目、能力、预算和输出 token 生成一次 dry run 调用计划。
 
 ## 安全边界
 

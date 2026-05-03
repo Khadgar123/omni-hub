@@ -413,6 +413,30 @@ INDEX_HTML = r"""<!doctype html>
       border-radius: 8px;
       padding: 12px 14px;
     }
+    .toast {
+      position: fixed;
+      right: 18px;
+      bottom: 18px;
+      z-index: 20;
+      min-width: 240px;
+      max-width: min(420px, calc(100vw - 36px));
+      padding: 12px 14px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--ink);
+      box-shadow: 0 12px 32px rgba(21, 33, 43, .18);
+      opacity: 0;
+      transform: translateY(8px);
+      pointer-events: none;
+      transition: opacity .16s ease, transform .16s ease;
+    }
+    .toast.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    .toast.ok { border-color: #bfe3d4; }
+    .toast.bad { border-color: #f5c5c0; }
     .metrics {
       display: grid;
       grid-template-columns: repeat(6, minmax(126px, 1fr));
@@ -452,6 +476,60 @@ INDEX_HTML = r"""<!doctype html>
       letter-spacing: 0;
     }
     .subtle { color: var(--muted); }
+    .quick-grid, .preset-grid, .check-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(160px, 1fr));
+      gap: 10px;
+    }
+    .preset-grid, .check-grid { grid-column: 1 / -1; }
+    .choice-button, .action-button {
+      height: auto;
+      min-height: 58px;
+      padding: 11px 12px;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--ink);
+      text-align: left;
+      display: grid;
+      gap: 4px;
+    }
+    .choice-button.active {
+      border-color: #7da2ee;
+      background: var(--soft-blue);
+    }
+    .choice-button strong, .action-button strong {
+      display: block;
+      font-size: 14px;
+    }
+    .choice-button span, .action-button span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .side-stack {
+      min-width: 0;
+      display: grid;
+      gap: 12px;
+      align-content: start;
+    }
+    .advanced {
+      grid-column: 1 / -1;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      padding: 9px 10px;
+      background: #fbfcfd;
+    }
+    .advanced summary {
+      cursor: pointer;
+      color: var(--ink);
+      font-weight: 600;
+    }
+    .advanced-grid {
+      margin-top: 10px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
     .split-panel {
       display: grid;
       grid-template-columns: minmax(320px, 390px) minmax(0, 1fr);
@@ -491,6 +569,17 @@ INDEX_HTML = r"""<!doctype html>
     input[type="checkbox"] {
       width: auto;
       justify-self: start;
+    }
+    .check-grid label {
+      min-height: 36px;
+      grid-template-columns: auto 1fr;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      color: var(--ink);
+      background: #fff;
     }
     button {
       height: 36px;
@@ -618,6 +707,8 @@ INDEX_HTML = r"""<!doctype html>
       .split-panel { grid-template-columns: 1fr; }
       form { border-right: 0; border-bottom: 1px solid var(--line); }
       .guide { grid-template-columns: 1fr; }
+      .quick-grid, .preset-grid, .check-grid { grid-template-columns: 1fr; }
+      .advanced-grid { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -626,16 +717,14 @@ INDEX_HTML = r"""<!doctype html>
     <aside>
       <div class="brand">
         <h1>万象中枢</h1>
-        <p>本地 Provider Router 与 Agent 控制台</p>
+        <p>本地 AI 接入与调度控制台</p>
       </div>
       <nav>
         <button class="nav-item" data-view="overview">总览</button>
-        <button class="nav-item" data-view="providers">Provider 账号</button>
-        <button class="nav-item" data-view="models">模型目录</button>
-        <button class="nav-item" data-view="routes">全局路由</button>
-        <button class="nav-item" data-view="projects">项目策略</button>
-        <button class="nav-item" data-view="agent">Agent 规划</button>
-        <button class="nav-item" data-view="safety">安全边界</button>
+        <button class="nav-item" data-view="connectors">API 接入</button>
+        <button class="nav-item" data-view="routing">路由策略</button>
+        <button class="nav-item" data-view="projects">项目偏好</button>
+        <button class="nav-item" data-view="preview">调用预演</button>
       </nav>
     </aside>
 
@@ -644,7 +733,7 @@ INDEX_HTML = r"""<!doctype html>
         <div class="topbar">
           <div class="title">
             <h2 id="page-title">总览</h2>
-            <p id="page-subtitle">本机状态、路由配置和 Agent 调用前规划。</p>
+            <p id="page-subtitle">本机 API 接入、策略和调用预演状态。</p>
           </div>
           <button class="secondary" id="refresh">刷新数据</button>
         </div>
@@ -652,64 +741,78 @@ INDEX_HTML = r"""<!doctype html>
 
       <main class="content">
         <section class="view" data-view-panel="overview">
-          <div class="notice">当前控制台只管理万象中枢自己的本地状态，不改写 Codex、Claude、Gemini、Cursor、VS Code 等外部客户端配置。</div>
+          <div class="notice">万象中枢先把 API 渠道、模型来源、项目偏好和调用预演串起来。模型目录不需要手填，后续由厂商接口、价格表和调用日志自动补全。</div>
           <div class="metrics" id="metrics"></div>
-          <div class="guide">
-            <div class="guide-item"><h4>1. 配置账号</h4><p>登记 provider、base URL 和 secret ref。不要输入 raw API key。</p></div>
-            <div class="guide-item"><h4>2. 配置模型</h4><p>登记模型能力、上下文、成本和 batch 支持情况。</p></div>
-            <div class="guide-item"><h4>3. 配置路由</h4><p>全局路由是默认值，项目策略会为自有 agent 覆盖优先级。</p></div>
+          <div class="quick-grid">
+            <button type="button" class="action-button" data-jump="connectors"><strong>接入 API 渠道</strong><span>官方 API 或 OpenAI 兼容中转站</span></button>
+            <button type="button" class="action-button" data-jump="routing"><strong>设置默认策略</strong><span>决定平时优先走哪个通道和模型</span></button>
+            <button type="button" class="action-button" data-jump="preview"><strong>预演一次调用</strong><span>花钱前先看会选中哪个模型</span></button>
           </div>
           <div class="panel">
-            <div class="panel-head"><h3>最近配置概览</h3><span class="subtle">显示前 8 条 Provider 与项目策略</span></div>
+            <div class="panel-head"><h3>当前接入</h3><span class="subtle">API 渠道与项目偏好</span></div>
             <div id="overviewTable"></div>
           </div>
         </section>
 
-        <section class="view" data-view-panel="providers">
+        <section class="view" data-view-panel="connectors">
           <div class="split-panel">
-            <form data-endpoint="/api/providers">
-              <div class="form-help">Provider 账号表示一组 base URL 和凭证引用。Secret 只能填 env:、keychain: 或 runtime: 引用。</div>
-              <label>账号 ID<input name="account_id" placeholder="openai-main" required></label>
-              <label>Provider<input name="provider" placeholder="openai" required></label>
-              <label class="wide">显示名称<input name="name" placeholder="OpenAI 主账号" required></label>
-              <label class="wide">Base URL<input name="base_url" placeholder="https://api.openai.com/v1" required></label>
-              <label class="wide">Secret Ref<input name="secret_ref" placeholder="env:OPENAI_API_KEY"></label>
-              <label>状态<select name="status"><option value="active">active</option><option value="disabled">disabled</option><option value="auto_disabled">auto_disabled</option></select></label>
-              <label>分组<input name="account_group" placeholder="default"></label>
-              <button class="primary">保存 Provider</button>
+            <form data-endpoint="/api/providers" data-success="API 渠道已保存">
+              <div class="form-help">API 渠道就是一个可调用入口：官方 API、中转站、公司网关或本地网关都算。这里只保存密钥引用，不输入原始 key。</div>
+              <div class="preset-grid">
+                <button type="button" class="choice-button" data-preset="openai"><strong>OpenAI 官方</strong><span>官方接口</span></button>
+                <button type="button" class="choice-button active" data-preset="openrouter"><strong>OpenRouter</strong><span>聚合中转</span></button>
+                <button type="button" class="choice-button" data-preset="deepseek"><strong>DeepSeek</strong><span>OpenAI 兼容</span></button>
+                <button type="button" class="choice-button" data-preset="siliconflow"><strong>SiliconFlow</strong><span>国内中转</span></button>
+                <button type="button" class="choice-button" data-preset="custom"><strong>自定义中转</strong><span>任何 OpenAI 兼容地址</span></button>
+              </div>
+              <label>渠道名<input id="connector-account" name="account_id" value="openrouter-main" placeholder="openrouter-main" required></label>
+              <label>密钥引用<input id="connector-secret" name="secret_ref" value="env:OPENROUTER_API_KEY" placeholder="env:OPENROUTER_API_KEY"></label>
+              <label class="wide">显示名称<input id="connector-name" name="name" value="OpenRouter 主渠道" placeholder="OpenRouter 主渠道" required></label>
+              <label class="wide">模型获取方式<select id="model-source"><option>优先调用 /models 或厂商模型列表</option><option>没有接口时从价格表和调用日志估算</option><option>稍后从文件批量导入</option></select></label>
+              <input name="status" type="hidden" value="active">
+              <input name="account_group" type="hidden" value="default">
+              <details class="advanced">
+                <summary>高级配置</summary>
+                <div class="advanced-grid">
+                  <label class="wide">Base URL<input id="connector-base" name="base_url" value="https://openrouter.ai/api/v1" placeholder="https://openrouter.ai/api/v1" required></label>
+                  <label>Provider 标识<input id="connector-provider" name="provider" value="openrouter" placeholder="openrouter" required></label>
+                </div>
+              </details>
+              <button class="primary">保存 API 渠道</button>
             </form>
-            <div id="accountsTable"></div>
+            <div class="side-stack">
+              <div id="accountsTable"></div>
+              <div class="table-wrap">
+                <div class="panel-head"><h3>已知模型</h3><button type="button" class="secondary" data-action="refresh-models">刷新模型列表</button></div>
+                <div id="modelsTable"></div>
+              </div>
+            </div>
           </div>
         </section>
 
-        <section class="view" data-view-panel="models">
+        <section class="view" data-view-panel="routing">
           <div class="split-panel">
-            <form data-endpoint="/api/models">
-              <div class="form-help">能力用逗号分隔，例如 text, tools, vision。成本单位是每百万 token 美元。</div>
-              <label class="wide">模型 ID<input name="model_id" placeholder="gpt-5.4" required></label>
-              <label class="wide">显示名称<input name="display_name" placeholder="GPT 5.4"></label>
-              <label class="wide">能力<input name="capabilities" data-list placeholder="text, tools, vision"></label>
-              <label>输入成本<input name="input_usd_per_million" type="number" min="0" step="0.0001"></label>
-              <label>输出成本<input name="output_usd_per_million" type="number" min="0" step="0.0001"></label>
-              <label>上下文窗口<input name="context_window" type="number" min="0" step="1"></label>
-              <label>支持 Batch<input name="supports_batch" type="checkbox"></label>
-              <button class="primary">保存模型</button>
-            </form>
-            <div id="modelsTable"></div>
-          </div>
-        </section>
-
-        <section class="view" data-view-panel="routes">
-          <div class="split-panel">
-            <form data-endpoint="/api/route-abilities">
-              <div class="form-help">全局路由是默认选择规则。项目策略可以覆盖 priority 或 weight，但不能绕过禁用和健康状态。</div>
-              <label>账号 ID<input name="account_id" required></label>
-              <label>模型 ID<input name="model_id" required></label>
-              <label>优先级<input name="priority" type="number" step="1" value="0"></label>
-              <label>权重<input name="weight" type="number" min="0" step="0.1" value="1"></label>
-              <label class="wide">Provider 侧模型名<input name="model_mapping" placeholder="如果不同于内部模型 ID"></label>
-              <label>启用<input name="enabled" type="checkbox" checked></label>
-              <button class="primary">保存全局路由</button>
+            <form data-endpoint="/api/route-abilities" data-success="默认路由策略已保存">
+              <div class="form-help">默认策略用于没有指定项目时的选择顺序。它决定哪个 API 渠道和模型先被尝试，失败后再换下一个。</div>
+              <div class="preset-grid">
+                <button type="button" class="choice-button active" data-route-preset="reliable"><strong>优先可靠</strong><span>高优先级，低随机权重</span></button>
+                <button type="button" class="choice-button" data-route-preset="cheap"><strong>优先便宜</strong><span>中等优先级，高权重</span></button>
+                <button type="button" class="choice-button" data-route-preset="fallback"><strong>备用通道</strong><span>主通道挂了再用</span></button>
+              </div>
+              <label>API 渠道<select name="account_id" data-account-select required></select></label>
+              <label>模型<select name="model_id" data-model-select required></select></label>
+              <input id="route-priority" name="priority" type="hidden" value="90">
+              <input id="route-weight" name="weight" type="hidden" value="1">
+              <input name="enabled" type="hidden" value="true">
+              <details class="advanced">
+                <summary>高级配置</summary>
+                <div class="advanced-grid">
+                  <label>优先级<input id="route-priority-visible" type="number" step="1" value="90"></label>
+                  <label>权重<input id="route-weight-visible" type="number" min="0" step="0.1" value="1"></label>
+                  <label class="wide">Provider 侧模型名<input name="model_mapping" placeholder="如果不同于内部模型 ID"></label>
+                </div>
+              </details>
+              <button class="primary">保存默认策略</button>
             </form>
             <div id="abilitiesTable"></div>
           </div>
@@ -717,76 +820,124 @@ INDEX_HTML = r"""<!doctype html>
 
         <section class="view" data-view-panel="projects">
           <div class="split-panel">
-            <form data-endpoint="/api/project-profiles">
-              <div class="form-help">项目 Profile 用来定义默认能力、预算上限和偏好，供万象中枢自有 agent 使用。</div>
-              <label class="wide">项目 ID<input name="project_id" placeholder="writing" required></label>
-              <label class="wide">默认能力<input name="default_capabilities" data-list placeholder="text, tools"></label>
-              <label>预算上限<input name="max_cost_usd" type="number" min="0" step="0.0001"></label>
+            <form data-endpoint="/api/project-profiles" data-success="项目偏好已保存">
+              <div class="form-help">项目偏好用于区分不同项目的默认能力、预算上限和是否要求 batch。比如论文写作、视频理解、自动驾驶研究可以走不同策略。</div>
+              <label class="wide">项目 ID<input name="project_id" placeholder="auto-driving-research" required></label>
+              <div class="check-grid">
+                <label><input type="checkbox" data-list-target="default_capabilities" data-list-value="text" checked>文本</label>
+                <label><input type="checkbox" data-list-target="default_capabilities" data-list-value="tools">工具调用</label>
+                <label><input type="checkbox" data-list-target="default_capabilities" data-list-value="vision">视觉</label>
+                <label><input type="checkbox" data-list-target="default_capabilities" data-list-value="batch">批处理</label>
+              </div>
+              <label>预算上限<input name="max_cost_usd" type="number" min="0" step="0.0001" placeholder="0.02"></label>
               <label>要求 Batch<input name="require_batch" type="checkbox"></label>
-              <label class="wide">偏好 Provider<input name="preferred_providers" data-list placeholder="anthropic, openai"></label>
-              <label class="wide">偏好账号<input name="preferred_accounts" data-list placeholder="anthropic-main"></label>
-              <button class="primary">保存项目 Profile</button>
+              <details class="advanced">
+                <summary>高级配置</summary>
+                <div class="advanced-grid">
+                  <label class="wide">偏好 Provider<input name="preferred_providers" data-list placeholder="openai, openrouter"></label>
+                  <label class="wide">偏好渠道<input name="preferred_accounts" data-list placeholder="openrouter-main"></label>
+                </div>
+              </details>
+              <button class="primary">保存项目偏好</button>
             </form>
             <div id="profilesTable"></div>
           </div>
           <div class="split-panel">
-            <form data-endpoint="/api/project-routes">
-              <div class="form-help">项目 Override 用于指定某个项目里的 account/model 优先级。</div>
-              <label>项目 ID<input name="project_id" required></label>
-              <label>账号 ID<input name="account_id" required></label>
-              <label>模型 ID<input name="model_id" required></label>
-              <label>优先级<input name="priority" type="number" step="1"></label>
-              <label>权重<input name="weight" type="number" min="0" step="0.1"></label>
-              <label>启用<input name="enabled" type="checkbox" checked></label>
-              <button class="primary">保存项目路由</button>
+            <form data-endpoint="/api/project-routes" data-success="项目专属优先级已保存">
+              <div class="form-help">项目专属优先级只在该项目内生效，用来让重要项目优先走更稳或更强的模型。</div>
+              <label>项目<select name="project_id" data-project-select required></select></label>
+              <label>API 渠道<select name="account_id" data-account-select required></select></label>
+              <label>模型<select name="model_id" data-model-select required></select></label>
+              <label>优先级<input name="priority" type="number" step="1" value="80"></label>
+              <input name="weight" type="hidden" value="1">
+              <input name="enabled" type="hidden" value="true">
+              <button class="primary">保存项目优先级</button>
             </form>
             <div id="overridesTable"></div>
           </div>
         </section>
 
-        <section class="view" data-view-panel="agent">
+        <section class="view" data-view-panel="preview">
           <div class="split-panel">
-            <form data-endpoint="/api/agent-plan">
-              <div class="form-help">这里只做调用前规划，不真实请求模型。完整任务不会进入 Operation payload。</div>
-              <label>项目 ID<input name="project_id" placeholder="writing"></label>
-              <label>输出 token<input name="output_tokens" type="number" min="0" step="1"></label>
+            <form data-endpoint="/api/agent-plan" data-success="调用预演完成">
+              <div class="form-help">调用预演是花钱前的 dry run：它只告诉你当前策略会选哪个 API 渠道和模型，不真实请求外部模型。</div>
+              <label>项目<select name="project_id" data-project-select data-allow-empty="1"></select></label>
+              <label>输出 token<input name="output_tokens" type="number" min="0" step="1" value="800"></label>
               <label class="wide">任务<textarea name="task" placeholder="帮我整理这个项目的上下文"></textarea></label>
-              <label class="wide">能力<input name="capabilities" data-list placeholder="text, tools"></label>
-              <label>预算上限<input name="max_cost_usd" type="number" min="0" step="0.0001"></label>
+              <div class="check-grid">
+                <label><input type="checkbox" data-list-target="capabilities" data-list-value="text" checked>文本</label>
+                <label><input type="checkbox" data-list-target="capabilities" data-list-value="tools">工具调用</label>
+                <label><input type="checkbox" data-list-target="capabilities" data-list-value="vision">视觉</label>
+                <label><input type="checkbox" data-list-target="capabilities" data-list-value="batch">批处理</label>
+              </div>
+              <label>预算上限<input name="max_cost_usd" type="number" min="0" step="0.0001" placeholder="0.02"></label>
               <label>要求 Batch<input name="require_batch" type="checkbox"></label>
-              <button class="primary">规划 Agent 调用</button>
+              <button class="primary">预演调用</button>
             </form>
             <pre id="agent-result">{}</pre>
-          </div>
-        </section>
-
-        <section class="view" data-view-panel="safety">
-          <div class="panel">
-            <div class="panel-head"><h3>安全边界</h3><span class="subtle">阶段 1 只运行在本机</span></div>
-            <div class="guide" style="padding: 14px;">
-              <div class="guide-item"><h4>不保存原始密钥</h4><p>只保存 env:、keychain:、runtime: 形式的引用。</p></div>
-              <div class="guide-item"><h4>不改外部客户端</h4><p>不会写 Codex、Claude、Gemini、Cursor、VS Code 配置。</p></div>
-              <div class="guide-item"><h4>不真实调用 API</h4><p>当前 GUI 只做配置与规划，真实模型调用后续接入。</p></div>
-            </div>
           </div>
         </section>
       </main>
     </div>
   </div>
 
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
   <script>
     const PAGE_SIZE = 8;
     const views = {
-      overview: ['总览', '本机状态、路由配置和 Agent 调用前规划。'],
-      providers: ['Provider 账号', '管理 provider、base URL 和 secret 引用。'],
-      models: ['模型目录', '管理模型能力、上下文窗口和成本。'],
-      routes: ['全局路由', '管理默认 account/model priority 与 provider 模型名映射。'],
-      projects: ['项目策略', '为不同项目设置模型优先级和预算边界。'],
-      agent: ['Agent 规划', '为万象中枢自有 agent 生成一次调用计划。'],
-      safety: ['安全边界', '本地控制面不会改写外部客户端配置。']
+      overview: ['总览', '本机 API 接入、策略和调用预演状态。'],
+      connectors: ['API 接入', '用模板接入官方 API 或 OpenAI 兼容中转站。'],
+      routing: ['路由策略', '设置默认 API 渠道、模型和失败切换顺序。'],
+      projects: ['项目偏好', '为不同项目设置预算、能力和专属优先级。'],
+      preview: ['调用预演', '真实调用前先检查会选中哪个 API 渠道和模型。']
     };
     const state = { data: null, view: 'overview' };
     const tableState = {};
+    const presets = {
+      openai: {
+        account_id: 'openai-main',
+        provider: 'openai',
+        name: 'OpenAI 官方',
+        base_url: 'https://api.openai.com/v1',
+        secret_ref: 'env:OPENAI_API_KEY'
+      },
+      openrouter: {
+        account_id: 'openrouter-main',
+        provider: 'openrouter',
+        name: 'OpenRouter 主渠道',
+        base_url: 'https://openrouter.ai/api/v1',
+        secret_ref: 'env:OPENROUTER_API_KEY'
+      },
+      deepseek: {
+        account_id: 'deepseek-main',
+        provider: 'deepseek',
+        name: 'DeepSeek 主渠道',
+        base_url: 'https://api.deepseek.com',
+        secret_ref: 'env:DEEPSEEK_API_KEY'
+      },
+      siliconflow: {
+        account_id: 'siliconflow-main',
+        provider: 'siliconflow',
+        name: 'SiliconFlow 主渠道',
+        base_url: 'https://api.siliconflow.cn/v1',
+        secret_ref: 'env:SILICONFLOW_API_KEY'
+      },
+      custom: {
+        account_id: 'custom-gateway',
+        provider: 'openai-compatible',
+        name: '自定义中转站',
+        base_url: 'https://example.com/v1',
+        secret_ref: 'env:CUSTOM_API_KEY'
+      }
+    };
+    const endpointSuccess = {
+      '/api/providers': 'API 渠道已保存',
+      '/api/route-abilities': '默认路由策略已保存',
+      '/api/project-profiles': '项目偏好已保存',
+      '/api/project-routes': '项目专属优先级已保存',
+      '/api/agent-plan': '调用预演完成'
+    };
 
     const api = async (url, options = {}) => {
       const res = await fetch(url, options);
@@ -799,9 +950,23 @@ INDEX_HTML = r"""<!doctype html>
     }[ch]));
     const escapeAttr = (value) => escapeHtml(value).replace(/`/g, '&#96;');
     const listValue = (value) => value.split(',').map(v => v.trim()).filter(Boolean);
+    function showToast(message, tone = 'ok') {
+      const toast = document.getElementById('toast');
+      toast.textContent = message;
+      toast.className = `toast show ${tone}`;
+      clearTimeout(showToast.timer);
+      showToast.timer = setTimeout(() => toast.className = 'toast', 2400);
+    }
     const formPayload = (form) => {
       const out = {};
       for (const el of form.elements) {
+        if (el.dataset.listTarget) {
+          if (el.checked) {
+            out[el.dataset.listTarget] = out[el.dataset.listTarget] || [];
+            out[el.dataset.listTarget].push(el.dataset.listValue);
+          }
+          continue;
+        }
         if (!el.name) continue;
         if (el.type === 'checkbox') out[el.name] = el.checked;
         else if (el.dataset.list !== undefined) out[el.name] = listValue(el.value);
@@ -864,11 +1029,11 @@ INDEX_HTML = r"""<!doctype html>
 
     function renderMetrics(stats) {
       const labels = {
-        provider_accounts: 'Provider',
-        model_catalog: '模型',
-        route_abilities: '全局路由',
-        project_route_profiles: '项目 Profile',
-        project_route_overrides: '项目路由',
+        provider_accounts: 'API 渠道',
+        model_catalog: '已知模型',
+        route_abilities: '默认策略',
+        project_route_profiles: '项目偏好',
+        project_route_overrides: '项目优先级',
         provider_health: '健康记录',
         usage_request_logs: '调用日志'
       };
@@ -877,27 +1042,56 @@ INDEX_HTML = r"""<!doctype html>
       )).join('');
     }
 
+    function renderSelectors(data) {
+      const accountOptions = data.accounts.map(account => (
+        `<option value="${escapeAttr(account.account_id)}">${escapeHtml(account.name || account.account_id)}</option>`
+      )).join('');
+      const modelOptions = data.models.map(model => (
+        `<option value="${escapeAttr(model.model_id)}">${escapeHtml(model.display_name || model.model_id)}</option>`
+      )).join('');
+      const projectOptions = data.profiles.map(profile => (
+        `<option value="${escapeAttr(profile.project_id)}">${escapeHtml(profile.project_id)}</option>`
+      )).join('');
+      document.querySelectorAll('[data-account-select]').forEach(select => {
+        const current = select.value;
+        select.innerHTML = accountOptions || '<option value="">先添加 API 渠道</option>';
+        if (current) select.value = current;
+      });
+      document.querySelectorAll('[data-model-select]').forEach(select => {
+        const current = select.value;
+        select.innerHTML = modelOptions || '<option value="">等待模型同步</option>';
+        if (current) select.value = current;
+      });
+      document.querySelectorAll('[data-project-select]').forEach(select => {
+        const current = select.value;
+        const empty = select.dataset.allowEmpty ? '<option value="">不指定项目</option>' : '<option value="">先保存项目偏好</option>';
+        select.innerHTML = empty + projectOptions;
+        if (current) select.value = current;
+      });
+    }
+
     function render() {
       const data = state.data;
       if (!data) return;
       renderMetrics(data.stats || {});
+      renderSelectors(data);
       renderDataTable('overviewTable', '概览', [
         {label: '类型', render: r => `<span class="pill info">${escapeHtml(r.type)}</span>`},
         {label: '主键', key: 'id'},
         {label: '说明', key: 'detail'},
         {label: '状态', render: r => r.status ? statusPill(r.status) : ''}
       ], [
-        ...data.accounts.slice(0, 4).map(r => ({type: 'Provider', id: r.account_id, detail: `${r.provider} · ${r.base_url}`, status: r.status})),
-        ...data.profiles.slice(0, 4).map(r => ({type: '项目', id: r.project_id, detail: `能力: ${(r.default_capabilities || []).join(', ') || '未设置'}`, status: r.max_cost_usd ? `预算 ${r.max_cost_usd}` : ''}))
+        ...data.accounts.slice(0, 5).map(r => ({type: 'API 渠道', id: r.account_id, detail: `${r.name || r.provider} · ${r.base_url}`, status: r.status})),
+        ...data.profiles.slice(0, 5).map(r => ({type: '项目偏好', id: r.project_id, detail: `能力: ${(r.default_capabilities || []).join(', ') || '未设置'}`, status: r.max_cost_usd ? `预算 ${r.max_cost_usd}` : ''}))
       ]);
-      renderDataTable('accountsTable', 'Provider 账号', [
-        {key: 'account_id', label: '账号'},
+      renderDataTable('accountsTable', 'API 渠道', [
+        {key: 'account_id', label: '渠道'},
         {key: 'provider', label: 'Provider'},
         {label: '状态', render: r => statusPill(r.status)},
         {key: 'base_url', label: 'Base URL'},
-        {key: 'secret_ref', label: 'Secret Ref'}
+        {key: 'secret_ref', label: '密钥引用'}
       ], data.accounts);
-      renderDataTable('modelsTable', '模型目录', [
+      renderDataTable('modelsTable', '只读模型目录', [
         {key: 'model_id', label: '模型'},
         {label: '状态', render: r => statusPill(r.status)},
         {label: '能力', render: r => escapeHtml((r.capabilities || []).join(', '))},
@@ -906,24 +1100,24 @@ INDEX_HTML = r"""<!doctype html>
         {key: 'output_usd_per_million', label: '输出成本'},
         {label: 'Batch', render: r => boolPill(r.supports_batch)}
       ], data.models);
-      renderDataTable('abilitiesTable', '全局路由', [
-        {key: 'account_id', label: '账号'},
+      renderDataTable('abilitiesTable', '默认路由策略', [
+        {key: 'account_id', label: 'API 渠道'},
         {key: 'model_id', label: '模型'},
         {label: '启用', render: r => boolPill(r.enabled)},
         {key: 'priority', label: '优先级'},
         {key: 'weight', label: '权重'},
         {key: 'model_mapping', label: 'Provider 模型名'}
       ], data.abilities);
-      renderDataTable('profilesTable', '项目 Profile', [
+      renderDataTable('profilesTable', '项目偏好', [
         {key: 'project_id', label: '项目'},
         {label: '默认能力', render: r => escapeHtml((r.default_capabilities || []).join(', '))},
         {key: 'max_cost_usd', label: '预算上限'},
         {label: '偏好 Provider', render: r => escapeHtml((r.preferred_providers || []).join(', '))},
-        {label: '偏好账号', render: r => escapeHtml((r.preferred_accounts || []).join(', '))}
+        {label: '偏好渠道', render: r => escapeHtml((r.preferred_accounts || []).join(', '))}
       ], data.profiles);
-      renderDataTable('overridesTable', '项目路由覆盖', [
+      renderDataTable('overridesTable', '项目专属优先级', [
         {key: 'project_id', label: '项目'},
-        {key: 'account_id', label: '账号'},
+        {key: 'account_id', label: 'API 渠道'},
         {key: 'model_id', label: '模型'},
         {label: '启用', render: r => boolPill(r.enabled)},
         {key: 'priority', label: '优先级'},
@@ -931,16 +1125,72 @@ INDEX_HTML = r"""<!doctype html>
       ], data.overrides);
     }
 
-    async function refresh() {
+    async function refresh(showMessage = false) {
       state.data = await api('/api/state');
       render();
+      if (showMessage) showToast('数据已刷新');
     }
 
     document.querySelectorAll('[data-view]').forEach(button => {
       button.addEventListener('click', () => setView(button.dataset.view));
     });
-    document.getElementById('refresh').addEventListener('click', refresh);
+    document.getElementById('refresh').addEventListener('click', () => refresh(true));
     window.addEventListener('hashchange', () => setView(location.hash.replace('#', '') || 'overview'));
+
+    document.addEventListener('click', event => {
+      const jump = event.target.closest('[data-jump]');
+      if (!jump) return;
+      setView(jump.dataset.jump);
+      showToast(`已进入${views[state.view][0]}`);
+    });
+    document.addEventListener('click', event => {
+      const presetButton = event.target.closest('[data-preset]');
+      if (!presetButton) return;
+      const preset = presets[presetButton.dataset.preset];
+      if (!preset) return;
+      document.getElementById('connector-account').value = preset.account_id;
+      document.getElementById('connector-provider').value = preset.provider;
+      document.getElementById('connector-name').value = preset.name;
+      document.getElementById('connector-base').value = preset.base_url;
+      document.getElementById('connector-secret').value = preset.secret_ref;
+      document.querySelectorAll('[data-preset]').forEach(button => {
+        button.classList.toggle('active', button === presetButton);
+      });
+      showToast(`已套用${preset.name}模板`);
+    });
+    document.addEventListener('click', event => {
+      const routeButton = event.target.closest('[data-route-preset]');
+      if (!routeButton) return;
+      const mode = routeButton.dataset.routePreset;
+      const values = {
+        reliable: [90, 1],
+        cheap: [60, 3],
+        fallback: [10, 1]
+      }[mode] || [50, 1];
+      document.getElementById('route-priority').value = values[0];
+      document.getElementById('route-weight').value = values[1];
+      document.getElementById('route-priority-visible').value = values[0];
+      document.getElementById('route-weight-visible').value = values[1];
+      document.querySelectorAll('[data-route-preset]').forEach(button => {
+        button.classList.toggle('active', button === routeButton);
+      });
+      showToast(`已选择${routeButton.querySelector('strong').textContent}`);
+    });
+    document.addEventListener('input', event => {
+      if (event.target.id === 'route-priority-visible') {
+        document.getElementById('route-priority').value = event.target.value;
+      }
+      if (event.target.id === 'route-weight-visible') {
+        document.getElementById('route-weight').value = event.target.value;
+      }
+    });
+    document.addEventListener('click', event => {
+      const action = event.target.closest('[data-action]');
+      if (!action) return;
+      if (action.dataset.action === 'refresh-models') {
+        refresh(false).then(() => showToast('已刷新本地模型目录；自动同步接口将在后续接入'));
+      }
+    });
 
     document.addEventListener('input', event => {
       const id = event.target.dataset.tableSearch;
@@ -958,12 +1208,19 @@ INDEX_HTML = r"""<!doctype html>
       tableState[id] = tableState[id] || {page: 1, query: ''};
       tableState[id].page += Number(event.target.dataset.dir || 0);
       render();
+      showToast(`已切换到第 ${tableState[id].page} 页`);
     });
     for (const form of document.querySelectorAll('form[data-endpoint]')) {
       form.addEventListener('submit', async event => {
         event.preventDefault();
         const endpoint = form.dataset.endpoint;
+        const button = form.querySelector('button.primary');
+        const oldText = button ? button.textContent : '';
         try {
+          if (button) {
+            button.disabled = true;
+            button.textContent = '处理中...';
+          }
           const data = await api(endpoint, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
@@ -973,11 +1230,16 @@ INDEX_HTML = r"""<!doctype html>
             document.getElementById('agent-result').textContent = JSON.stringify(data, null, 2);
           }
           await refresh();
+          showToast(form.dataset.success || endpointSuccess[endpoint] || '操作已完成');
         } catch (err) {
+          showToast(err.message, 'bad');
           if (endpoint === '/api/agent-plan') {
             document.getElementById('agent-result').textContent = JSON.stringify({error: err.message}, null, 2);
-          } else {
-            alert(err.message);
+          }
+        } finally {
+          if (button) {
+            button.disabled = false;
+            button.textContent = oldText;
           }
         }
       });
