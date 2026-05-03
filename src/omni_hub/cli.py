@@ -38,6 +38,17 @@ def build_parser() -> argparse.ArgumentParser:
     capture.add_argument("--max-bytes", type=int, default=2_000_000)
     capture.add_argument("--timeout-seconds", type=int, default=20)
 
+    vault_list = subparsers.add_parser("vault-list")
+    vault_list.add_argument("--limit", type=int, default=100)
+    vault_list.add_argument("--vault-dir", default="vault")
+
+    vault_read = subparsers.add_parser("vault-read")
+    vault_read.add_argument("--path", required=True)
+    vault_read.add_argument("--max-body-chars", type=int, default=4000)
+
+    propose = subparsers.add_parser("propose-note")
+    propose.add_argument("--path", required=True)
+
     policy = subparsers.add_parser("check-policy")
     policy.add_argument("--name", default="manual_check")
     policy.add_argument("--connector", default="local")
@@ -86,6 +97,39 @@ def main(argv: list[str] | None = None) -> int:
                 "max_bytes": args.max_bytes,
                 "timeout_seconds": args.timeout_seconds,
             },
+            risk_level=RiskLevel.LOCAL_WRITE,
+        )
+        result = runner.run(spec)
+        _print_json(result.to_dict())
+        return 0 if result.error is None else 1
+
+    if args.command == "vault-list":
+        spec = OperationSpec(
+            name="list_vault_notes",
+            action="list",
+            payload={"limit": args.limit, "vault_dir": args.vault_dir},
+            risk_level=RiskLevel.READ_ONLY,
+        )
+        result = runner.run(spec)
+        _print_json(result.to_dict())
+        return 0 if result.error is None else 1
+
+    if args.command == "vault-read":
+        spec = OperationSpec(
+            name="read_vault_note",
+            action="read",
+            payload={"path": args.path, "max_body_chars": args.max_body_chars},
+            risk_level=RiskLevel.READ_ONLY,
+        )
+        result = runner.run(spec)
+        _print_json(result.to_dict())
+        return 0 if result.error is None else 1
+
+    if args.command == "propose-note":
+        spec = OperationSpec(
+            name="propose_knowledge",
+            action="write_proposal",
+            payload={"path": args.path},
             risk_level=RiskLevel.LOCAL_WRITE,
         )
         result = runner.run(spec)

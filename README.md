@@ -57,6 +57,18 @@ PYTHONPATH=src python3.12 -m omni_hub.cli capture-url --url "https://example.com
 PYTHONPATH=src python3.12 -m omni_hub.cli capture-url --url "https://youtu.be/dQw4w9WgXcQ" --no-fetch
 ```
 
+列出本地 vault 笔记：
+
+```bash
+PYTHONPATH=src python3.12 -m omni_hub.cli vault-list --limit 20
+```
+
+为 Inbox 中的笔记生成知识提案：
+
+```bash
+PYTHONPATH=src python3.12 -m omni_hub.cli propose-note --path vault/00_Inbox/example.md
+```
+
 运行测试：
 
 ```bash
@@ -87,6 +99,8 @@ PYTHONPATH=src python3.12 -m unittest discover -s tests
 - [Operation 模型](docs/operation-model.md)
 - [权限与风险模型](docs/permission-model.md)
 - [捕获与入库模型](docs/capture-model.md)
+- [提案层模型](docs/proposal-model.md)
+- [参考项目](docs/reference-projects.md)
 - [Roadmap](docs/roadmap.md)
 
 ## 维护原则

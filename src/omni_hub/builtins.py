@@ -5,7 +5,9 @@ from pathlib import Path
 from .connectors.web import build_resource_from_body, fetch_url
 from .content_store import ContentStore
 from .models import OperationSpec
+from .proposals import ProposalStore, build_knowledge_proposal
 from .registry import OperationRegistry
+from .vault import VaultReader
 
 
 def summarize_text(spec: OperationSpec) -> dict[str, str | int]:
@@ -91,10 +93,58 @@ def make_capture_url(workspace: Path):
     return capture_url
 
 
+def make_list_vault_notes(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def list_vault_notes(spec: OperationSpec) -> dict[str, object]:
+        limit = int(spec.payload.get("limit", 100))
+        vault_dir = str(spec.payload.get("vault_dir", "vault"))
+        notes = VaultReader(workspace_root, vault_dir=vault_dir).list_notes(limit=limit)
+        return {
+            "count": len(notes),
+            "notes": [note.to_dict() for note in notes],
+        }
+
+    return list_vault_notes
+
+
+def make_read_vault_note(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def read_vault_note(spec: OperationSpec) -> dict[str, object]:
+        note_path = str(spec.payload["path"])
+        document = VaultReader(workspace_root).read_note(note_path)
+        data = document.to_dict()
+        max_body_chars = int(spec.payload.get("max_body_chars", 4000))
+        data["body"] = document.body[:max_body_chars]
+        data["body_chars"] = len(document.body)
+        return data
+
+    return read_vault_note
+
+
+def make_propose_knowledge(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def propose_knowledge(spec: OperationSpec) -> dict[str, object]:
+        note_path = str(spec.payload["path"])
+        document = VaultReader(workspace_root).read_note(note_path)
+        proposal = build_knowledge_proposal(document)
+        stored_paths = ProposalStore(workspace_root).store(proposal)
+        output = proposal.to_dict()
+        output.update(stored_paths)
+        return output
+
+    return propose_knowledge
+
+
 def build_default_registry(workspace: Path | str = ".") -> OperationRegistry:
     workspace_path = Path(workspace)
     registry = OperationRegistry()
     registry.register("summarize_text", summarize_text)
     registry.register("write_markdown", make_write_markdown(workspace_path))
     registry.register("capture_url", make_capture_url(workspace_path))
+    registry.register("list_vault_notes", make_list_vault_notes(workspace_path))
+    registry.register("read_vault_note", make_read_vault_note(workspace_path))
+    registry.register("propose_knowledge", make_propose_knowledge(workspace_path))
     return registry

@@ -12,8 +12,8 @@
 
 - 普通网页 URL 捕获
 - YouTube URL 识别与元数据卡片
-- Obsidian vault 读取
-- 原始材料、摘要、实体、关系分层存储
+- Obsidian / Markdown vault 读取
+- 原始材料、摘要、实体、关系提案分层存储
 - Graphiti 或 Mem0 初步接入评估
 
 ## v0.3 智能编排
