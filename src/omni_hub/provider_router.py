@@ -1357,15 +1357,15 @@ def validate_project_id(project_id: str) -> None:
 def validate_secret_ref(secret_ref: str) -> None:
     if not secret_ref:
         return
-    if secret_ref.startswith(("env:", "keychain:", "runtime:")):
+    if secret_ref.startswith(("env:", "keychain:", "local:", "runtime:")):
         if len(secret_ref.split(":", 1)[1].strip()) < 2:
             raise ValueError("secret_ref target is required")
         return
     if _looks_like_raw_secret(secret_ref):
         raise ValueError(
-            "secret_ref must reference env:, keychain:, or runtime:, not a raw secret"
+            "secret_ref must reference env:, keychain:, local:, or runtime:, not a raw secret"
         )
-    raise ValueError("secret_ref must start with env:, keychain:, or runtime:")
+    raise ValueError("secret_ref must start with env:, keychain:, local:, or runtime:")
 
 
 def validate_proxy_url(proxy_url: str) -> None:

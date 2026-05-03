@@ -247,14 +247,15 @@ INDEX_HTML = r"""<!doctype html>
     }
     .config-row {
       display: grid;
-      grid-template-columns: 44px minmax(0, 1fr) minmax(210px, auto);
+      grid-template-columns: 34px minmax(0, 1fr) auto;
       gap: 10px;
       align-items: center;
-      padding: 10px;
+      padding: 12px;
       border: 1px solid var(--line);
       border-radius: 8px;
       background: #fbfcfd;
     }
+    .config-row:hover { border-color: #b7c6e5; background: #fff; }
     .config-row.dragging { opacity: .55; }
     .drag-handle {
       min-height: 34px;
@@ -271,6 +272,31 @@ INDEX_HTML = r"""<!doctype html>
       min-width: 0;
       display: grid;
       gap: 5px;
+    }
+    .config-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+    .provider-avatar {
+      width: 30px;
+      height: 30px;
+      flex: 0 0 auto;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: #fff;
+      display: grid;
+      place-items: center;
+      font-weight: 700;
+      color: var(--blue);
+    }
+    .config-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
     }
     .tag-row {
       display: flex;
@@ -403,6 +429,42 @@ INDEX_HTML = r"""<!doctype html>
       overflow: auto;
       border-radius: 8px;
     }
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 15;
+      display: none;
+      place-items: center;
+      padding: 22px;
+      background: rgba(16, 24, 32, .48);
+    }
+    .modal-backdrop.open { display: grid; }
+    .modal {
+      width: min(980px, 100%);
+      max-height: min(860px, calc(100vh - 44px));
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      box-shadow: 0 24px 72px rgba(20, 33, 43, .28);
+      overflow: hidden;
+    }
+    .modal-head {
+      min-height: 58px;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .modal-head h3 { margin: 0; font-size: 16px; }
+    .modal-body {
+      min-height: 0;
+      overflow: auto;
+      padding: 14px;
+    }
     .toast {
       position: fixed;
       right: 18px;
@@ -426,6 +488,7 @@ INDEX_HTML = r"""<!doctype html>
       aside { position: static; height: auto; }
       nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .workspace, .form-grid, .dense-form, .config-row, .vendor-grid { grid-template-columns: 1fr; }
+      .config-actions { justify-content: flex-start; }
     }
   </style>
 </head>
@@ -434,7 +497,7 @@ INDEX_HTML = r"""<!doctype html>
     <aside>
       <div class="brand">
         <h1>万象中枢</h1>
-        <p>本地模型配置、项目 Agent 与 Skill 控制台</p>
+        <p>本地模型配置、项目模型包与 Skill 控制台</p>
       </div>
       <nav>
         <button class="nav-item" data-view="overview">总览</button>
@@ -473,76 +536,12 @@ INDEX_HTML = r"""<!doctype html>
         <section class="view" data-view-panel="channels">
           <div class="workspace vendor-workspace">
             <div class="panel">
-              <div class="panel-head"><h3>模型厂商</h3><span class="subtle">选择后只显示该厂商渠道</span></div>
+              <div class="panel-head">
+                <div><h3>模型厂商</h3><span class="subtle">选择厂商后，列表只显示它的官方和中转渠道</span></div>
+                <button class="primary" id="add-channel">添加渠道</button>
+              </div>
               <div class="panel-body compact-body">
                 <div class="vendor-grid" id="official-provider-list"></div>
-              </div>
-            </div>
-
-            <div class="panel">
-              <div class="panel-head"><h3 id="channel-form-title">添加渠道</h3><span class="subtle">官方和中转站都属于当前模型厂商</span></div>
-              <div class="panel-body">
-                <form id="official-form">
-                  <input name="provider" id="official-provider" type="hidden" value="openai">
-                  <div class="form-grid dense-form">
-                    <label>渠道 ID<input name="account_id" id="account-id" required></label>
-                    <label>渠道名称<input name="name" id="provider-name" required placeholder="官方 / OpenRouter / 胜算云"></label>
-                    <label class="wide">接口地址<input name="base_url" id="base-url" placeholder="由预设填充；中转站可直接改" required></label>
-                    <label class="wide">API Key<input name="api_key" id="api-key" type="password" autocomplete="off" placeholder="可直接填；保存到 macOS Keychain，数据库只存 keychain 引用"></label>
-                    <label>密钥引用<input name="secret_ref" id="secret-ref" placeholder="env:OPENAI_API_KEY"></label>
-                    <label>代理连接<input name="proxy_url" id="proxy-url" placeholder="留空表示 unset；如 http://127.0.0.1:7890"></label>
-                    <label>调用优先级<input name="priority" id="provider-priority" type="number" value="90"></label>
-                    <label>并发上限<input name="max_concurrency" id="max-concurrency" type="number" min="0" placeholder="未知可留空"></label>
-                    <label>RPM 限制<input name="rpm_limit" id="rpm-limit" type="number" min="0" placeholder="每分钟请求数"></label>
-                    <label>TPM 限制<input name="tpm_limit" id="tpm-limit" type="number" min="0" placeholder="每分钟 token"></label>
-                    <label class="wide">模型列表<textarea name="model_ids" id="model-ids" placeholder="每行一个模型 ID；可以点击发现模型自动填充"></textarea></label>
-                  </div>
-                  <details class="advanced">
-                    <summary>高级配置：测试、协议与计费</summary>
-                    <div class="form-grid dense-form">
-                      <label>API 格式<select name="api_format" id="api-format">
-                        <option value="">按厂商默认</option>
-                        <option value="openai_chat">OpenAI Chat Completions</option>
-                        <option value="openai_responses">OpenAI Responses</option>
-                        <option value="anthropic">Anthropic Messages</option>
-                        <option value="gemini_native">Gemini Native</option>
-                      </select></label>
-                      <label>认证字段<select name="auth_field" id="auth-field">
-                        <option value="">按厂商默认</option>
-                        <option value="Authorization">Authorization: Bearer</option>
-                        <option value="x-api-key">x-api-key</option>
-                        <option value="ANTHROPIC_AUTH_TOKEN">ANTHROPIC_AUTH_TOKEN</option>
-                        <option value="ANTHROPIC_API_KEY">ANTHROPIC_API_KEY</option>
-                      </select></label>
-                      <label>完整端点模式<select name="is_full_url" id="is-full-url">
-                        <option value="">否，自动拼接 endpoint</option>
-                        <option value="true">是，base URL 已是完整 endpoint</option>
-                      </select></label>
-                      <label>模型发现 URL<input name="models_url" id="models-url" placeholder="可选，覆盖 /v1/models 候选"></label>
-                      <label>测试模型<input name="test_model" id="test-model" placeholder="留空使用列表首个模型"></label>
-                      <label>测试提示词<input name="test_prompt" id="test-prompt" placeholder="Who are you?"></label>
-                      <label>超时秒数<input name="timeout_secs" id="timeout-secs" type="number" min="1" placeholder="45"></label>
-                      <label>最大重试<input name="max_retries" id="max-retries" type="number" min="0" placeholder="2"></label>
-                      <label>降级阈值 ms<input name="degraded_threshold_ms" id="degraded-threshold-ms" type="number" min="100" placeholder="6000"></label>
-                      <label>成本倍率<input name="cost_multiplier" id="cost-multiplier" type="number" min="0" step="0.01" placeholder="1.0"></label>
-                      <label>计费模型<select name="pricing_model_source" id="pricing-model-source">
-                        <option value="">继承默认</option>
-                        <option value="request">按请求模型</option>
-                        <option value="response">按返回模型</option>
-                      </select></label>
-                      <label class="wide">能力<input name="capabilities" id="provider-capabilities" placeholder="text, tools, vision, reasoning, batch, embedding"></label>
-                      <label class="wide">额度入口<input name="quota_ref" id="quota-ref" placeholder="dashboard 或 quota API 引用"></label>
-                    </div>
-                  </details>
-                  <input name="status" type="hidden" value="active">
-                  <div class="buttons">
-                    <button class="primary">添加到当前厂商列表</button>
-                    <button type="button" class="secondary" id="fetch-models">发现模型</button>
-                    <button type="button" class="secondary" id="test-official-draft">模型探测</button>
-                    <button type="button" class="secondary" id="copy-script">复制默认脚本</button>
-                  </div>
-                  <pre class="script-box" id="script-preview"></pre>
-                </form>
               </div>
             </div>
 
@@ -617,6 +616,81 @@ INDEX_HTML = r"""<!doctype html>
     </div>
   </div>
 
+  <div class="modal-backdrop" id="provider-modal" role="dialog" aria-modal="true" aria-labelledby="channel-form-title">
+    <div class="modal">
+      <div class="modal-head">
+        <div>
+          <h3 id="channel-form-title">添加渠道</h3>
+          <span class="subtle">官方和中转站都属于当前模型厂商；添加和修改使用同一个弹窗</span>
+        </div>
+        <button class="secondary" id="close-provider-modal">关闭</button>
+      </div>
+      <div class="modal-body">
+        <form id="official-form">
+          <input name="provider" id="official-provider" type="hidden" value="openai">
+          <div class="form-grid dense-form">
+            <label>渠道 ID<input name="account_id" id="account-id" required></label>
+            <label>渠道名称<input name="name" id="provider-name" required placeholder="官方 / OpenRouter / 胜算云"></label>
+            <label class="wide">接口地址<input name="base_url" id="base-url" placeholder="由预设填充；中转站可直接改" required></label>
+            <label class="wide">API Key<input name="api_key" id="api-key" type="password" autocomplete="off" placeholder="可直接填；macOS 写 Keychain，Windows/Linux 写 .omni/secrets.json"></label>
+            <label>密钥引用<input name="secret_ref" id="secret-ref" placeholder="env:OPENAI_API_KEY"></label>
+            <label>代理连接<input name="proxy_url" id="proxy-url" placeholder="留空表示 unset；如 http://127.0.0.1:7890"></label>
+            <label>调用优先级<input name="priority" id="provider-priority" type="number" value="90"></label>
+            <label>并发上限<input name="max_concurrency" id="max-concurrency" type="number" min="0" placeholder="未知可留空"></label>
+            <label>RPM 限制<input name="rpm_limit" id="rpm-limit" type="number" min="0" placeholder="每分钟请求数"></label>
+            <label>TPM 限制<input name="tpm_limit" id="tpm-limit" type="number" min="0" placeholder="每分钟 token"></label>
+            <label class="wide">模型列表<textarea name="model_ids" id="model-ids" placeholder="每行一个模型 ID；可以点击发现模型自动填充"></textarea></label>
+          </div>
+          <details class="advanced">
+            <summary>高级配置：测试、协议与计费</summary>
+            <div class="form-grid dense-form">
+              <label>API 格式<select name="api_format" id="api-format">
+                <option value="">按厂商默认</option>
+                <option value="openai_chat">OpenAI Chat Completions</option>
+                <option value="openai_responses">OpenAI Responses</option>
+                <option value="anthropic">Anthropic Messages</option>
+                <option value="gemini_native">Gemini Native</option>
+              </select></label>
+              <label>认证字段<select name="auth_field" id="auth-field">
+                <option value="">按厂商默认</option>
+                <option value="Authorization">Authorization: Bearer</option>
+                <option value="x-api-key">x-api-key</option>
+                <option value="ANTHROPIC_AUTH_TOKEN">ANTHROPIC_AUTH_TOKEN</option>
+                <option value="ANTHROPIC_API_KEY">ANTHROPIC_API_KEY</option>
+              </select></label>
+              <label>完整端点模式<select name="is_full_url" id="is-full-url">
+                <option value="">否，自动拼接 endpoint</option>
+                <option value="true">是，base URL 已是完整 endpoint</option>
+              </select></label>
+              <label>模型发现 URL<input name="models_url" id="models-url" placeholder="可选，覆盖 /v1/models 候选"></label>
+              <label>测试模型<input name="test_model" id="test-model" placeholder="留空使用列表首个模型"></label>
+              <label>测试提示词<input name="test_prompt" id="test-prompt" placeholder="Who are you?"></label>
+              <label>超时秒数<input name="timeout_secs" id="timeout-secs" type="number" min="1" placeholder="45"></label>
+              <label>最大重试<input name="max_retries" id="max-retries" type="number" min="0" placeholder="2"></label>
+              <label>降级阈值 ms<input name="degraded_threshold_ms" id="degraded-threshold-ms" type="number" min="100" placeholder="6000"></label>
+              <label>成本倍率<input name="cost_multiplier" id="cost-multiplier" type="number" min="0" step="0.01" placeholder="1.0"></label>
+              <label>计费模型<select name="pricing_model_source" id="pricing-model-source">
+                <option value="">继承默认</option>
+                <option value="request">按请求模型</option>
+                <option value="response">按返回模型</option>
+              </select></label>
+              <label class="wide">能力<input name="capabilities" id="provider-capabilities" placeholder="text, tools, vision, reasoning, batch, embedding"></label>
+              <label class="wide">额度入口<input name="quota_ref" id="quota-ref" placeholder="dashboard 或 quota API 引用"></label>
+            </div>
+          </details>
+          <input name="status" type="hidden" value="active">
+          <div class="buttons">
+            <button class="primary" id="save-provider-button">保存渠道</button>
+            <button type="button" class="secondary" id="fetch-models">发现模型</button>
+            <button type="button" class="secondary" id="test-official-draft">模型探测</button>
+            <button type="button" class="secondary" id="copy-script">复制默认脚本</button>
+          </div>
+          <pre class="script-box" id="script-preview"></pre>
+        </form>
+      </div>
+    </div>
+  </div>
+
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <script>
@@ -628,7 +702,7 @@ INDEX_HTML = r"""<!doctype html>
       monitor: ['监控检测', '检测模型配置、实时延迟、额度、代理和失败。'],
       skills: ['Skills', '技能安装、同步、质量评分和项目推荐的控制面。']
     };
-    const state = {data: null, view: 'overview', officialProvider: null, realtime: false, realtimeTimer: null, dragAccount: null, projectBundle: null};
+    const state = {data: null, view: 'overview', officialProvider: null, providerModalMode: 'add', realtime: false, realtimeTimer: null, dragAccount: null, projectBundle: null};
     const tableState = {};
 
     const api = async (url, options = {}) => {
@@ -781,11 +855,22 @@ INDEX_HTML = r"""<!doctype html>
         if (element) element.value = '';
       });
       document.getElementById('channel-form-title').textContent = `添加 ${preset.name} 渠道`;
+      document.getElementById('save-provider-button').textContent = '添加渠道';
       document.getElementById('provider-list-title').textContent = `${preset.name} 渠道列表`;
       renderOfficialProviders();
       renderTables();
       updateScriptPreview();
       if (notify) showToast(`已选择 ${preset.name}`);
+    }
+
+    function openProviderModal(mode = 'add') {
+      state.providerModalMode = mode;
+      document.getElementById('provider-modal').classList.add('open');
+      document.getElementById('account-id').focus();
+    }
+
+    function closeProviderModal() {
+      document.getElementById('provider-modal').classList.remove('open');
     }
 
     function updateScriptPreview(account = null) {
@@ -892,7 +977,10 @@ INDEX_HTML = r"""<!doctype html>
         return `<div class="config-row" draggable="true" data-account-row="${escapeAttr(account.account_id)}">
           <div class="drag-handle" title="拖拽调整优先级">拖拽</div>
           <div class="config-main">
-            <strong>${escapeHtml(providerName(account.provider))} · ${escapeHtml(account.name || account.account_id)}</strong>
+            <div class="config-title">
+              <span class="provider-avatar">${escapeHtml(providerName(account.provider).slice(0, 1))}</span>
+              <strong>${escapeHtml(providerName(account.provider))} · ${escapeHtml(account.name || account.account_id)}</strong>
+            </div>
             <div class="tag-row">
               ${pill(account.status)}
               ${pill(row.health.status || 'unknown')}
@@ -903,12 +991,12 @@ INDEX_HTML = r"""<!doctype html>
             </div>
             <span class="subtle">配置 ID：${escapeHtml(account.account_id)} · 模型：${escapeHtml(modelText)} · 额度：${escapeHtml(quota)}</span>
           </div>
-          <div class="buttons">
-            <button class="secondary" data-account-action="edit" data-account-id="${escapeAttr(account.account_id)}">修改</button>
-            <button class="secondary" data-account-action="test" data-account-id="${escapeAttr(account.account_id)}">模型探测</button>
-            <button class="secondary" data-account-action="copy" data-account-id="${escapeAttr(account.account_id)}">复制</button>
+          <div class="config-actions">
+            <button class="primary" data-account-action="test" data-account-id="${escapeAttr(account.account_id)}">模型探测</button>
             <button class="secondary" data-account-action="quota" data-account-id="${escapeAttr(account.account_id)}">查额度</button>
             <button class="secondary" data-account-action="monitor" data-account-id="${escapeAttr(account.account_id)}">监控</button>
+            <button class="secondary" data-account-action="copy" data-account-id="${escapeAttr(account.account_id)}">复制脚本</button>
+            <button class="secondary" data-account-action="edit" data-account-id="${escapeAttr(account.account_id)}">修改</button>
             <button class="secondary" data-account-action="up" data-account-id="${escapeAttr(account.account_id)}">上移</button>
             <button class="secondary" data-account-action="down" data-account-id="${escapeAttr(account.account_id)}">下移</button>
           </div>
@@ -1052,11 +1140,12 @@ INDEX_HTML = r"""<!doctype html>
       document.getElementById('cost-multiplier').value = noteValue(account.notes, 'cost_multiplier');
       document.getElementById('pricing-model-source').value = noteValue(account.notes, 'pricing_model_source');
       document.getElementById('channel-form-title').textContent = `修改 ${preset.name} 渠道`;
+      document.getElementById('save-provider-button').textContent = '保存修改';
       document.getElementById('provider-list-title').textContent = `${preset.name} 渠道列表`;
       renderOfficialProviders();
       renderTables();
       updateScriptPreview();
-      showToast('已载入配置，可修改后保存');
+      openProviderModal('edit');
     }
 
     async function copyText(text, message) {
@@ -1118,7 +1207,10 @@ INDEX_HTML = r"""<!doctype html>
       document.getElementById('api-key').value = '';
       await refresh();
       if (notify) {
-        showToast(data.secret_mode === 'keychain' ? '配置已加入列表；API Key 已写入 Keychain，数据库只保存引用' : '配置已加入列表');
+        const secretMessage = data.secret_mode === 'keychain'
+          ? 'API Key 已写入 Keychain'
+          : (data.secret_mode === 'local' ? 'API Key 已写入 .omni/secrets.json' : '密钥引用已保存');
+        showToast(`渠道已保存；${secretMessage}`);
       }
       return data;
     }
@@ -1155,7 +1247,19 @@ INDEX_HTML = r"""<!doctype html>
 
     document.querySelectorAll('[data-view]').forEach(button => button.addEventListener('click', () => setView(button.dataset.view)));
     document.getElementById('refresh').addEventListener('click', () => refresh(true));
+    document.getElementById('add-channel').addEventListener('click', () => {
+      const preset = state.officialProvider || officialProviders()[0];
+      if (preset) applyOfficialProvider(preset, false);
+      openProviderModal('add');
+    });
+    document.getElementById('close-provider-modal').addEventListener('click', closeProviderModal);
+    document.getElementById('provider-modal').addEventListener('click', event => {
+      if (event.target.id === 'provider-modal') closeProviderModal();
+    });
     window.addEventListener('hashchange', () => setView(location.hash.replace('#', '') || 'overview'));
+    window.addEventListener('keydown', event => {
+      if (event.key === 'Escape') closeProviderModal();
+    });
     document.addEventListener('click', event => {
       const jump = event.target.closest('[data-jump]');
       if (jump) setView(jump.dataset.jump);
@@ -1223,6 +1327,7 @@ INDEX_HTML = r"""<!doctype html>
       event.preventDefault();
       try {
         await saveOfficialConfig(true);
+        closeProviderModal();
       } catch (err) {
         showToast(err.message, 'bad');
       }

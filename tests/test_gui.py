@@ -21,6 +21,8 @@ class GuiServerTests(unittest.TestCase):
         self.assertIn("监控检测", INDEX_HTML)
         self.assertIn("模型厂商", INDEX_HTML)
         self.assertIn("API Key", INDEX_HTML)
+        self.assertIn("添加渠道", INDEX_HTML)
+        self.assertIn('id="provider-modal"', INDEX_HTML)
         self.assertIn("默认脚本", INDEX_HTML)
         self.assertIn("拖拽", INDEX_HTML)
         self.assertIn("自动切换队列", INDEX_HTML)
@@ -172,6 +174,46 @@ class GuiServerTests(unittest.TestCase):
                     self.assertIn("api_format=openai_chat", configured["account"]["notes"])
                     self.assertIn("max_concurrency=3", configured["account"]["notes"])
                     self.assertIn("rpm_limit=120", configured["account"]["notes"])
+                finally:
+                    server.shutdown()
+                    thread.join(timeout=2)
+                    server.server_close()
+
+    def test_gui_official_provider_config_can_store_local_secret_file_ref(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            secret_file = Path(tmpdir) / "local-secrets.json"
+            with patch.dict(
+                os.environ,
+                {
+                    "OMNI_HUB_SECRET_BACKEND": "local",
+                    "OMNI_HUB_SECRET_FILE": str(secret_file),
+                },
+            ):
+                server = create_gui_server(tmpdir, port=0)
+                thread = threading.Thread(target=server.serve_forever, daemon=True)
+                thread.start()
+                base_url = f"http://{server.server_address[0]}:{server.server_address[1]}"
+                try:
+                    configured = _post_json(
+                        f"{base_url}/api/official-provider-config",
+                        {
+                            "provider": "openai",
+                            "account_id": "openai-local",
+                            "name": "OpenAI Local",
+                            "api_key": "sk-local-secret",
+                            "model_ids": "gpt-5.4",
+                        },
+                    )
+
+                    self.assertEqual(
+                        configured["account"]["secret_ref"],
+                        "local:omni-hub/openai-local",
+                    )
+                    self.assertEqual(configured["secret_mode"], "local")
+                    self.assertNotIn("sk-local", json.dumps(configured))
+                    state = _get_json(f"{base_url}/api/state")
+                    self.assertNotIn("sk-local", json.dumps(state))
+                    self.assertIn("sk-local-secret", secret_file.read_text())
                 finally:
                     server.shutdown()
                     thread.join(timeout=2)

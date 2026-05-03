@@ -3,6 +3,9 @@ from __future__ import annotations
 import os
 import platform
 import subprocess
+import json
+from pathlib import Path
+from tempfile import NamedTemporaryFile
 
 
 KEYCHAIN_PREFIX = "omni-hub"
@@ -18,24 +21,28 @@ def store_api_key(account_id: str, api_key: str) -> str:
     if not key:
         raise SecretStoreError("api key is empty")
     target = _target(account_id)
-    if _backend() == "memory":
+    backend = _backend()
+    if backend == "memory":
         _MEMORY_SECRETS[target] = key
         return f"keychain:{target}"
-    if platform.system() != "Darwin":
-        raise SecretStoreError("macOS Keychain is required for local secret storage")
-    _run_security(
-        [
-            "add-generic-password",
-            "-a",
-            account_id,
-            "-s",
-            target,
-            "-w",
-            key,
-            "-U",
-        ]
-    )
-    return f"keychain:{target}"
+    if backend == "keychain" or (backend == "auto" and platform.system() == "Darwin"):
+        _run_security(
+            [
+                "add-generic-password",
+                "-a",
+                account_id,
+                "-s",
+                target,
+                "-w",
+                key,
+                "-U",
+            ]
+        )
+        return f"keychain:{target}"
+    if backend in {"auto", "local", "file"}:
+        _write_local_secret(target, key)
+        return f"local:{target}"
+    raise SecretStoreError(f"unsupported secret backend: {backend}")
 
 
 def resolve_secret_ref(secret_ref: str) -> str:
@@ -47,6 +54,8 @@ def resolve_secret_ref(secret_ref: str) -> str:
         return os.environ.get(value, "")
     if prefix == "runtime":
         return _MEMORY_SECRETS.get(value, "")
+    if prefix == "local":
+        return _read_local_secret(value)
     if prefix == "keychain":
         if _backend() == "memory":
             return _MEMORY_SECRETS.get(value, "")
@@ -71,7 +80,58 @@ def _target(account_id: str) -> str:
 
 
 def _backend() -> str:
-    return os.environ.get("OMNI_HUB_SECRET_BACKEND", "keychain").strip().lower()
+    return os.environ.get("OMNI_HUB_SECRET_BACKEND", "auto").strip().lower()
+
+
+def _local_secret_path() -> Path:
+    configured = os.environ.get("OMNI_HUB_SECRET_FILE", "").strip()
+    if configured:
+        return Path(configured).expanduser()
+    base = os.environ.get("OMNI_HUB_HOME", "").strip()
+    root = Path(base).expanduser() if base else Path.cwd() / ".omni"
+    return root / "secrets.json"
+
+
+def _read_local_secrets() -> dict[str, str]:
+    path = _local_secret_path()
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise SecretStoreError(f"failed to read local secret file: {exc}") from exc
+    except json.JSONDecodeError as exc:
+        raise SecretStoreError(f"failed to parse local secret file: {exc}") from exc
+    secrets = data.get("secrets", data) if isinstance(data, dict) else {}
+    if not isinstance(secrets, dict):
+        raise SecretStoreError("local secret file has invalid format")
+    return {str(key): str(value) for key, value in secrets.items()}
+
+
+def _write_local_secret(target: str, value: str) -> None:
+    path = _local_secret_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    secrets = _read_local_secrets()
+    secrets[target] = value
+    payload = {"version": 1, "secrets": secrets}
+    try:
+        with NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=path.parent,
+            delete=False,
+        ) as handle:
+            json.dump(payload, handle, ensure_ascii=False, indent=2, sort_keys=True)
+            handle.write("\n")
+            temp_name = handle.name
+        Path(temp_name).replace(path)
+        path.chmod(0o600)
+    except OSError as exc:
+        raise SecretStoreError(f"failed to write local secret file: {exc}") from exc
+
+
+def _read_local_secret(target: str) -> str:
+    return _read_local_secrets().get(target, "")
 
 
 def _run_security(args: list[str]) -> subprocess.CompletedProcess[str]:

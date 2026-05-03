@@ -54,6 +54,17 @@ class ProviderRouterTests(unittest.TestCase):
                 secret_ref="sk-test-raw-secret",
             )
 
+    def test_accepts_local_secret_ref(self) -> None:
+        account = ProviderAccount(
+            account_id="openai-main",
+            provider="openai",
+            name="OpenAI Main",
+            base_url="https://api.openai.com/v1",
+            secret_ref="local:omni-hub/openai-main",
+        )
+
+        self.assertEqual(account.secret_ref, "local:omni-hub/openai-main")
+
     def test_routes_by_priority_capability_budget_and_health(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             store = ProviderRouterStore(tmpdir)

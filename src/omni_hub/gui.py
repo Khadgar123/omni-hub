@@ -360,14 +360,14 @@ def handle_post(
         )
         secret_mode = "ref"
         if api_key:
-            if api_key.startswith(("env:", "keychain:", "runtime:")):
+            if api_key.startswith(("env:", "keychain:", "local:", "runtime:")):
                 secret_ref = api_key
             else:
                 secret_ref = store_api_key(account_id, api_key)
-                secret_mode = "keychain"
-        elif secret_ref and not secret_ref.startswith(("env:", "keychain:", "runtime:")):
+                secret_mode = secret_ref.split(":", 1)[0]
+        elif secret_ref and not secret_ref.startswith(("env:", "keychain:", "local:", "runtime:")):
             secret_ref = store_api_key(account_id, secret_ref)
-            secret_mode = "keychain"
+            secret_mode = secret_ref.split(":", 1)[0]
 
         quota_ref = str(payload.get("quota_ref", "")).strip() or str(
             preset.get("quota_ref", "")
@@ -377,7 +377,7 @@ def handle_post(
             for item in [
                 f"official_provider={preset['slug']}",
                 f"quota_ref={quota_ref}" if quota_ref else "",
-                "api_key_storage=keychain" if secret_mode == "keychain" else "",
+                f"api_key_storage={secret_mode}" if secret_mode != "ref" else "",
                 _payload_note(payload, "api_format"),
                 _payload_note(payload, "auth_field"),
                 _payload_note(payload, "is_full_url"),
@@ -1826,7 +1826,7 @@ def _project_model_bundle(
         "routes": sorted_routes,
         "security": {
             "api_key": "not_exported",
-            "secret_ref": "resolve at runtime from Keychain/env/runtime",
+            "secret_ref": "resolve at runtime from Keychain/local file/env/runtime",
         },
     }
 
