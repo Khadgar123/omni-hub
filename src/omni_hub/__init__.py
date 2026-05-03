@@ -2,6 +2,7 @@
 
 from .content_store import ContentStore, StoredCapture
 from .markdown import MarkdownDocument
+from .memory import MemoryDigestResult, MemorySearchResult, MemoryStore
 from .models import OperationSpec, OperationStatus, RiskLevel
 from .policy import PolicyConfig, PolicyDecision, PolicyEngine
 from .proposals import EntityProposal, KnowledgeProposal, RelationProposal
@@ -13,6 +14,9 @@ __all__ = [
     "EntityProposal",
     "KnowledgeProposal",
     "MarkdownDocument",
+    "MemoryDigestResult",
+    "MemorySearchResult",
+    "MemoryStore",
     "OperationRunner",
     "OperationSpec",
     "OperationStatus",

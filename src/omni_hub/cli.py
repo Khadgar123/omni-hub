@@ -49,6 +49,15 @@ def build_parser() -> argparse.ArgumentParser:
     propose = subparsers.add_parser("propose-note")
     propose.add_argument("--path", required=True)
 
+    digest = subparsers.add_parser("memory-digest-proposal")
+    digest.add_argument("--proposal", required=True)
+
+    memory_search = subparsers.add_parser("memory-search")
+    memory_search.add_argument("--query", required=True)
+    memory_search.add_argument("--limit", type=int, default=10)
+
+    subparsers.add_parser("memory-stats")
+
     policy = subparsers.add_parser("check-policy")
     policy.add_argument("--name", default="manual_check")
     policy.add_argument("--connector", default="local")
@@ -131,6 +140,38 @@ def main(argv: list[str] | None = None) -> int:
             action="write_proposal",
             payload={"path": args.path},
             risk_level=RiskLevel.LOCAL_WRITE,
+        )
+        result = runner.run(spec)
+        _print_json(result.to_dict())
+        return 0 if result.error is None else 1
+
+    if args.command == "memory-digest-proposal":
+        spec = OperationSpec(
+            name="digest_proposal",
+            action="digest_proposal",
+            payload={"proposal": args.proposal},
+            risk_level=RiskLevel.LOCAL_WRITE,
+        )
+        result = runner.run(spec)
+        _print_json(result.to_dict())
+        return 0 if result.error is None else 1
+
+    if args.command == "memory-search":
+        spec = OperationSpec(
+            name="search_memory",
+            action="search",
+            payload={"query": args.query, "limit": args.limit},
+            risk_level=RiskLevel.READ_ONLY,
+        )
+        result = runner.run(spec)
+        _print_json(result.to_dict())
+        return 0 if result.error is None else 1
+
+    if args.command == "memory-stats":
+        spec = OperationSpec(
+            name="memory_stats",
+            action="stats",
+            risk_level=RiskLevel.READ_ONLY,
         )
         result = runner.run(spec)
         _print_json(result.to_dict())

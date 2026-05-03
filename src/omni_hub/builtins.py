@@ -4,6 +4,7 @@ from pathlib import Path
 
 from .connectors.web import build_resource_from_body, fetch_url
 from .content_store import ContentStore
+from .memory import MemoryStore
 from .models import OperationSpec
 from .proposals import ProposalStore, build_knowledge_proposal
 from .registry import OperationRegistry
@@ -138,6 +139,43 @@ def make_propose_knowledge(workspace: Path):
     return propose_knowledge
 
 
+def make_digest_proposal(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def digest_proposal(spec: OperationSpec) -> dict[str, object]:
+        proposal_ref = str(spec.payload["proposal"])
+        proposal = ProposalStore(workspace_root).load(proposal_ref)
+        result = MemoryStore(workspace_root).digest_proposal(proposal)
+        return result.to_dict()
+
+    return digest_proposal
+
+
+def make_search_memory(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def search_memory(spec: OperationSpec) -> dict[str, object]:
+        query = str(spec.payload["query"])
+        limit = int(spec.payload.get("limit", 10))
+        results = MemoryStore(workspace_root, create=False).search(query, limit=limit)
+        return {
+            "query": query,
+            "count": len(results),
+            "results": [result.to_dict() for result in results],
+        }
+
+    return search_memory
+
+
+def make_memory_stats(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def memory_stats(spec: OperationSpec) -> dict[str, int]:
+        return MemoryStore(workspace_root, create=False).stats()
+
+    return memory_stats
+
+
 def build_default_registry(workspace: Path | str = ".") -> OperationRegistry:
     workspace_path = Path(workspace)
     registry = OperationRegistry()
@@ -147,4 +185,7 @@ def build_default_registry(workspace: Path | str = ".") -> OperationRegistry:
     registry.register("list_vault_notes", make_list_vault_notes(workspace_path))
     registry.register("read_vault_note", make_read_vault_note(workspace_path))
     registry.register("propose_knowledge", make_propose_knowledge(workspace_path))
+    registry.register("digest_proposal", make_digest_proposal(workspace_path))
+    registry.register("search_memory", make_search_memory(workspace_path))
+    registry.register("memory_stats", make_memory_stats(workspace_path))
     return registry

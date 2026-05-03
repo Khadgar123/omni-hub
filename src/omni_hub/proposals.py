@@ -39,6 +39,15 @@ class EntityProposal:
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
 
+    @classmethod
+    def from_dict(cls, data: dict[str, object]) -> "EntityProposal":
+        return cls(
+            name=str(data["name"]),
+            kind=str(data["kind"]),
+            evidence=str(data["evidence"]),
+            confidence=float(data["confidence"]),
+        )
+
 
 @dataclass(slots=True)
 class RelationProposal:
@@ -50,6 +59,16 @@ class RelationProposal:
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, object]) -> "RelationProposal":
+        return cls(
+            source=str(data["source"]),
+            relation=str(data["relation"]),
+            target=str(data["target"]),
+            evidence=str(data["evidence"]),
+            confidence=float(data["confidence"]),
+        )
 
 
 @dataclass(slots=True)
@@ -67,6 +86,28 @@ class KnowledgeProposal:
         data["entities"] = [entity.to_dict() for entity in self.entities]
         data["relations"] = [relation.to_dict() for relation in self.relations]
         return data
+
+    @classmethod
+    def from_dict(cls, data: dict[str, object]) -> "KnowledgeProposal":
+        entity_data = data.get("entities", [])
+        relation_data = data.get("relations", [])
+        return cls(
+            proposal_id=str(data["proposal_id"]),
+            source_path=str(data["source_path"]),
+            title=str(data["title"]),
+            summary=str(data["summary"]),
+            entities=[
+                EntityProposal.from_dict(item)
+                for item in entity_data
+                if isinstance(item, dict)
+            ],
+            relations=[
+                RelationProposal.from_dict(item)
+                for item in relation_data
+                if isinstance(item, dict)
+            ],
+            created_at=str(data.get("created_at", datetime.now(UTC).isoformat())),
+        )
 
 
 class ProposalStore:
@@ -89,6 +130,27 @@ class ProposalStore:
             "proposal_json_path": str(json_path.relative_to(self.workspace)),
             "proposal_markdown_path": str(markdown_path.relative_to(self.workspace)),
         }
+
+    def load(self, proposal_id_or_path: str) -> KnowledgeProposal:
+        path = self._resolve_proposal_path(proposal_id_or_path)
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            raise ValueError("proposal JSON must contain an object")
+        return KnowledgeProposal.from_dict(data)
+
+    def _resolve_proposal_path(self, proposal_id_or_path: str) -> Path:
+        value = proposal_id_or_path.strip()
+        if not value:
+            raise ValueError("proposal id or path is required")
+
+        if value.endswith(".json") or "/" in value:
+            path = self._safe_path(value)
+        else:
+            path = self._safe_path(f".omni/proposals/{value}.json")
+
+        if not path.exists():
+            raise FileNotFoundError(f"proposal does not exist: {proposal_id_or_path}")
+        return path
 
     def _safe_path(self, relative_path: str) -> Path:
         target = (self.workspace / relative_path).resolve()

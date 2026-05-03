@@ -36,6 +36,27 @@
 
 ## 可作为模块或外部服务的项目
 
+### Microsoft Copilot Studio
+
+- 地址：https://learn.microsoft.com/en-us/microsoft-copilot-studio/fundamentals-what-is-copilot-studio
+- 定位：微软企业低代码 Agent 和 agent flow 平台。
+- 用法：参考低代码 Agent Builder、企业连接器和 Microsoft 365 扩展方式。
+- 差异：商业平台，强绑定 Microsoft 生态，不适合作为万象中枢内核。
+
+### Salesforce Agentforce
+
+- 地址：https://www.salesforce.com/ap/agentforce
+- 定位：Salesforce CRM 内的 enterprise digital labor / AI agent 平台。
+- 用法：参考业务对象、动作、权限和 Slack/CRM 场景。
+- 差异：强绑定 Salesforce 数据和业务流程。
+
+### Glean
+
+- 地址：https://www.glean.com/
+- 定位：企业搜索、企业图谱、AI Assistant 和 Agents 平台。
+- 用法：参考 enterprise graph、personal graph、connectors、agent governance。
+- 差异：商业 SaaS，更像企业版知识中枢，不是个人自托管底座。
+
 ### Khoj
 
 - 地址：https://github.com/khoj-ai/khoj
@@ -77,6 +98,27 @@
 - 地址：https://github.com/langchain-ai/langgraph
 - 定位：stateful agents as graphs，支持 durable execution、human-in-the-loop、memory。
 - 用法：如果后续不只用 OpenAI Agents SDK，可参考其图式编排和持久执行模型。
+
+### AutoGen
+
+- 地址：https://github.com/microsoft/autogen
+- 定位：Microsoft Research 出来的多 Agent 编排框架。
+- 用法：参考多 Agent 通信、AgentChat、Studio 原型工具。
+- 差异：官方已进入 maintenance mode，新项目不建议作为核心。
+
+### CrewAI
+
+- 地址：https://docs.crewai.com/en/introduction
+- 定位：Crews + Flows 的多 Agent 和工作流框架。
+- 用法：参考 agent team、task、flow 的开发者体验。
+- 差异：抽象更高，适合快速搭建多 Agent 自动化；万象中枢仍应保留自己的控制平面。
+
+### Zapier
+
+- 地址：https://help.zapier.com/hc/en-us/articles/37518970271245-What-is-Zapier
+- 定位：云端 AI orchestration 和自动化平台。
+- 用法：参考大规模 app connector 生态。
+- 差异：闭源云服务，个人数据和执行控制力弱于 n8n。
 
 ### AnythingLLM / Open WebUI / Flowise
 

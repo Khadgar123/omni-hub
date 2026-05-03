@@ -14,6 +14,7 @@
 - YouTube URL 识别与元数据卡片
 - Obsidian / Markdown vault 读取
 - 原始材料、摘要、实体、关系提案分层存储
+- 本地 SQLite 记忆层
 - Graphiti 或 Mem0 初步接入评估
 
 ## v0.3 智能编排

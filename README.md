@@ -69,6 +69,18 @@ PYTHONPATH=src python3.12 -m omni_hub.cli vault-list --limit 20
 PYTHONPATH=src python3.12 -m omni_hub.cli propose-note --path vault/00_Inbox/example.md
 ```
 
+接受提案并写入本地 SQLite 记忆层：
+
+```bash
+PYTHONPATH=src python3.12 -m omni_hub.cli memory-digest-proposal --proposal "<proposal_id>"
+```
+
+搜索本地记忆：
+
+```bash
+PYTHONPATH=src python3.12 -m omni_hub.cli memory-search --query "Graphiti"
+```
+
 运行测试：
 
 ```bash
@@ -100,6 +112,8 @@ PYTHONPATH=src python3.12 -m unittest discover -s tests
 - [权限与风险模型](docs/permission-model.md)
 - [捕获与入库模型](docs/capture-model.md)
 - [提案层模型](docs/proposal-model.md)
+- [记忆层模型](docs/memory-model.md)
+- [推荐组合架构](docs/recommended-stack.md)
 - [参考项目](docs/reference-projects.md)
 - [Roadmap](docs/roadmap.md)
 
