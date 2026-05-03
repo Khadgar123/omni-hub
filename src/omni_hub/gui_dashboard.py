@@ -632,7 +632,7 @@ INDEX_HTML = r"""<!doctype html>
             <label>渠道 ID<input name="account_id" id="account-id" required></label>
             <label>渠道名称<input name="name" id="provider-name" required placeholder="官方 / OpenRouter / 胜算云"></label>
             <label class="wide">接口地址<input name="base_url" id="base-url" placeholder="由预设填充；中转站可直接改" required></label>
-            <label class="wide">API Key<input name="api_key" id="api-key" type="password" autocomplete="off" placeholder="可直接填；macOS 写 Keychain，Windows/Linux 写 .omni/secrets.json"></label>
+            <label class="wide">API Key<input name="api_key" id="api-key" type="password" autocomplete="off" placeholder="可直接填；保存到本地 .omni/secrets.json，数据库只存 local 引用"></label>
             <label>密钥引用<input name="secret_ref" id="secret-ref" placeholder="env:OPENAI_API_KEY"></label>
             <label>代理连接<input name="proxy_url" id="proxy-url" placeholder="留空表示 unset；如 http://127.0.0.1:7890"></label>
             <label>调用优先级<input name="priority" id="provider-priority" type="number" value="90"></label>
@@ -1207,9 +1207,7 @@ INDEX_HTML = r"""<!doctype html>
       document.getElementById('api-key').value = '';
       await refresh();
       if (notify) {
-        const secretMessage = data.secret_mode === 'keychain'
-          ? 'API Key 已写入 Keychain'
-          : (data.secret_mode === 'local' ? 'API Key 已写入 .omni/secrets.json' : '密钥引用已保存');
+        const secretMessage = data.secret_mode === 'local' ? 'API Key 已写入 .omni/secrets.json' : '密钥引用已保存';
         showToast(`渠道已保存；${secretMessage}`);
       }
       return data;

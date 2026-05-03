@@ -137,7 +137,7 @@ class GuiServerTests(unittest.TestCase):
                 thread.join(timeout=2)
                 server.server_close()
 
-    def test_gui_official_provider_config_stores_keychain_ref_routes(self) -> None:
+    def test_gui_official_provider_config_stores_local_ref_routes(self) -> None:
         with patch.dict(os.environ, {"OMNI_HUB_SECRET_BACKEND": "memory"}):
             with tempfile.TemporaryDirectory() as tmpdir:
                 server = create_gui_server(tmpdir, port=0)
@@ -162,9 +162,9 @@ class GuiServerTests(unittest.TestCase):
 
                     self.assertEqual(
                         configured["account"]["secret_ref"],
-                        "keychain:omni-hub/openai-main",
+                        "local:omni-hub/openai-main",
                     )
-                    self.assertEqual(configured["secret_mode"], "keychain")
+                    self.assertEqual(configured["secret_mode"], "local")
                     self.assertNotIn("sk-test", json.dumps(configured))
                     state = _get_json(f"{base_url}/api/state")
                     self.assertNotIn("sk-test", json.dumps(state))
@@ -305,7 +305,7 @@ class GuiServerTests(unittest.TestCase):
                     self.assertEqual(len(imported["routes"]), 1)
                     route = imported["bundle"]["routes"][0]
                     self.assertEqual(route["base_url"], "https://api.openai.com/v1")
-                    self.assertEqual(route["secret_ref"], "keychain:omni-hub/openai-main")
+                    self.assertEqual(route["secret_ref"], "local:omni-hub/openai-main")
                     self.assertEqual(route["max_concurrency"], "4")
                     self.assertIn("slot_routes", imported["bundle"])
                     self.assertEqual(imported["bundle"]["slot_routes"][0]["slot"], "default")

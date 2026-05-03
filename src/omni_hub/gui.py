@@ -1826,7 +1826,7 @@ def _project_model_bundle(
         "routes": sorted_routes,
         "security": {
             "api_key": "not_exported",
-            "secret_ref": "resolve at runtime from Keychain/local file/env/runtime",
+            "secret_ref": "resolve at runtime from local file/env/runtime",
         },
     }
 

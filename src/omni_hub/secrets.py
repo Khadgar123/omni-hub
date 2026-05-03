@@ -24,22 +24,8 @@ def store_api_key(account_id: str, api_key: str) -> str:
     backend = _backend()
     if backend == "memory":
         _MEMORY_SECRETS[target] = key
-        return f"keychain:{target}"
-    if backend == "keychain" or (backend == "auto" and platform.system() == "Darwin"):
-        _run_security(
-            [
-                "add-generic-password",
-                "-a",
-                account_id,
-                "-s",
-                target,
-                "-w",
-                key,
-                "-U",
-            ]
-        )
-        return f"keychain:{target}"
-    if backend in {"auto", "local", "file"}:
+        return f"local:{target}"
+    if backend in {"local", "file"}:
         _write_local_secret(target, key)
         return f"local:{target}"
     raise SecretStoreError(f"unsupported secret backend: {backend}")
@@ -55,6 +41,8 @@ def resolve_secret_ref(secret_ref: str) -> str:
     if prefix == "runtime":
         return _MEMORY_SECRETS.get(value, "")
     if prefix == "local":
+        if _backend() == "memory":
+            return _MEMORY_SECRETS.get(value, "")
         return _read_local_secret(value)
     if prefix == "keychain":
         if _backend() == "memory":
@@ -80,7 +68,7 @@ def _target(account_id: str) -> str:
 
 
 def _backend() -> str:
-    return os.environ.get("OMNI_HUB_SECRET_BACKEND", "auto").strip().lower()
+    return os.environ.get("OMNI_HUB_SECRET_BACKEND", "local").strip().lower()
 
 
 def _local_secret_path() -> Path:

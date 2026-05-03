@@ -21,7 +21,7 @@ http://127.0.0.1:8765
 - 模型配置页按模型厂商分类：OpenAI、Claude、Qwen、DeepSeek、GLM、MiniMax。主页面以渠道列表为中心，添加和修改都进入同一个弹窗。
 - 一个模型厂商可以保存多套渠道，包括官方 API 和多个中转站 API；当前厂商列表只展示该厂商渠道，便于查找和排序。
 - 配置列表支持修改、模型探测、模型发现、复制默认脚本、查额度、监控，以及拖拽或上移/下移调整调用优先级。
-- 网页端提供 API Key 输入框；raw key 不写入 SQLite。macOS 默认写入 Keychain，Windows/Linux 默认写入本地 `.omni/secrets.json`，数据库只保存 `keychain:` 或 `local:` 引用，并生成默认环境脚本。
+- 网页端提供 API Key 输入框；raw key 不写入 SQLite。所有平台默认写入本地 `.omni/secrets.json`，数据库只保存 `local:` 引用，并生成默认环境脚本。
 - 每个厂商配置都可以设置代理连接；留空表示该渠道调用时 `unset` 代理。
 - Base URL、API Key、密钥引用、代理、并发上限、RPM/TPM 和模型列表是主配置；高级配置只放 API 格式、认证字段、完整端点模式、模型发现 URL、测试参数和计费参数。
 - 一个渠道可以挂多个模型，同一模型厂商下的不同渠道按优先级启用；某个渠道健康状态为 down 时自动切到下一级候选。
@@ -46,7 +46,7 @@ http://127.0.0.1:8765
 ## 安全边界
 
 - 默认只绑定 `127.0.0.1`。
-- 不保存 raw API key 到 SQLite，只保存 `env:`、`keychain:`、`local:`、`runtime:` 形式的 secret ref；本地 secret 文件位于 `.omni/secrets.json`，随 `.omni/` 被 git ignore。
+- 不保存 raw API key 到 SQLite，只保存 `env:`、`local:`、`runtime:` 形式的 secret ref；本地 secret 文件位于 `.omni/secrets.json`，随 `.omni/` 被 git ignore。
 - 不改写 Codex、Claude、Gemini、Cursor、VS Code 等外部客户端配置。
 - 只有“模型探测”会真实调用外部模型 API，并使用最小请求；项目模型包只生成路由配置，不调用外部模型。
 - 不把完整 agent task 写入 Operation payload；GUI agent plan API 只向 Planner 传递截断后的 `task_preview`、字符数和 token 估算。
