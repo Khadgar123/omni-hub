@@ -81,6 +81,18 @@ PYTHONPATH=src python3.12 -m omni_hub.cli memory-digest-proposal --proposal "<pr
 PYTHONPATH=src python3.12 -m omni_hub.cli memory-search --query "Graphiti"
 ```
 
+注册 Skill：
+
+```bash
+PYTHONPATH=src python3.12 -m omni_hub.cli skill-register --id url-capture --name "URL Capture" --kind connector --description "Capture HTTP pages into the inbox." --entrypoint operation:capture_url --risk L1 --connector web --tag capture
+```
+
+列出 Skill：
+
+```bash
+PYTHONPATH=src python3.12 -m omni_hub.cli skill-list
+```
+
 运行测试：
 
 ```bash
@@ -92,6 +104,7 @@ PYTHONPATH=src python3.12 -m unittest discover -s tests
 ```text
 .
 ├── docs/              # 架构、权限、路线图
+├── registry/          # 机器可读注册表
 ├── src/omni_hub/      # 控制平面核心代码
 ├── tests/             # 基础单元测试
 ├── vault/             # 本地 Markdown / Obsidian 知识库
@@ -113,6 +126,7 @@ PYTHONPATH=src python3.12 -m unittest discover -s tests
 - [捕获与入库模型](docs/capture-model.md)
 - [提案层模型](docs/proposal-model.md)
 - [记忆层模型](docs/memory-model.md)
+- [Skill Registry](docs/skill-registry.md)
 - [推荐组合架构](docs/recommended-stack.md)
 - [参考项目](docs/reference-projects.md)
 - [Roadmap](docs/roadmap.md)

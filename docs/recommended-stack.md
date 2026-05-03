@@ -32,7 +32,7 @@ omni-hub
 
 | 层 | 当前实现 | 下一步 |
 | --- | --- | --- |
-| 控制平面 | Operation / Policy / Audit | Approval queue / Skill registry |
+| 控制平面 | Operation / Policy / Audit / Skill registry | Approval queue / Router |
 | 捕获层 | URL / YouTube URL / Markdown vault | 更多连接器 |
 | 提案层 | 摘要、实体、关系提案 | LLM 提案生成器 |
 | 记忆层 | SQLite documents / entities / relations | Graphiti / Mem0 adapter |

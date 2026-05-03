@@ -5,9 +5,10 @@ from pathlib import Path
 from .connectors.web import build_resource_from_body, fetch_url
 from .content_store import ContentStore
 from .memory import MemoryStore
-from .models import OperationSpec
+from .models import OperationSpec, RiskLevel
 from .proposals import ProposalStore, build_knowledge_proposal
 from .registry import OperationRegistry
+from .skills import SkillKind, SkillRegistry, SkillSpec, SkillStatus
 from .vault import VaultReader
 
 
@@ -176,6 +177,70 @@ def make_memory_stats(workspace: Path):
     return memory_stats
 
 
+def make_register_skill(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def register_skill(spec: OperationSpec) -> dict[str, object]:
+        payload = spec.payload
+        skill = SkillSpec(
+            skill_id=str(payload["skill_id"]),
+            name=str(payload["name"]),
+            kind=SkillKind(str(payload["kind"])),
+            description=str(payload["description"]),
+            version=str(payload.get("version", "0.1.0")),
+            status=SkillStatus(str(payload.get("status", SkillStatus.DRAFT.value))),
+            entrypoint=str(payload.get("entrypoint", "")),
+            risk_level=RiskLevel.parse(payload.get("risk_level", "L0")),
+            required_permissions=list(payload.get("required_permissions", [])),
+            connectors=list(payload.get("connectors", [])),
+            tags=list(payload.get("tags", [])),
+            inputs=dict(payload.get("inputs", {})),
+            outputs=dict(payload.get("outputs", {})),
+            source_path=str(payload.get("source_path", "")),
+        )
+        write_card = bool(payload.get("write_card", True))
+        return SkillRegistry(workspace_root).upsert(skill, write_card=write_card)
+
+    return register_skill
+
+
+def make_list_skills(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def list_skills(spec: OperationSpec) -> dict[str, object]:
+        skills = SkillRegistry(workspace_root).list(
+            kind=spec.payload.get("kind"),
+            status=spec.payload.get("status"),
+            tag=spec.payload.get("tag"),
+        )
+        return {
+            "count": len(skills),
+            "skills": [skill.to_dict() for skill in skills],
+        }
+
+    return list_skills
+
+
+def make_get_skill(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def get_skill(spec: OperationSpec) -> dict[str, object]:
+        skill = SkillRegistry(workspace_root).get(str(spec.payload["skill_id"]))
+        return {"skill": skill.to_dict()}
+
+    return get_skill
+
+
+def make_disable_skill(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def disable_skill(spec: OperationSpec) -> dict[str, object]:
+        skill = SkillRegistry(workspace_root).disable(str(spec.payload["skill_id"]))
+        return {"skill": skill.to_dict()}
+
+    return disable_skill
+
+
 def build_default_registry(workspace: Path | str = ".") -> OperationRegistry:
     workspace_path = Path(workspace)
     registry = OperationRegistry()
@@ -188,4 +253,8 @@ def build_default_registry(workspace: Path | str = ".") -> OperationRegistry:
     registry.register("digest_proposal", make_digest_proposal(workspace_path))
     registry.register("search_memory", make_search_memory(workspace_path))
     registry.register("memory_stats", make_memory_stats(workspace_path))
+    registry.register("register_skill", make_register_skill(workspace_path))
+    registry.register("list_skills", make_list_skills(workspace_path))
+    registry.register("get_skill", make_get_skill(workspace_path))
+    registry.register("disable_skill", make_disable_skill(workspace_path))
     return registry

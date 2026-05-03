@@ -54,6 +54,47 @@ class CliTests(unittest.TestCase):
             self.assertEqual(payload["output"]["documents"], 0)
             self.assertFalse((Path(tmpdir) / ".omni" / "memory.sqlite3").exists())
 
+    def test_skill_register_and_list(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            original_cwd = os.getcwd()
+            register_buffer = StringIO()
+            list_buffer = StringIO()
+            try:
+                os.chdir(tmpdir)
+                with redirect_stdout(register_buffer):
+                    register_exit = main(
+                        [
+                            "skill-register",
+                            "--id",
+                            "url-capture",
+                            "--name",
+                            "URL Capture",
+                            "--kind",
+                            "connector",
+                            "--description",
+                            "Capture HTTP pages into the inbox.",
+                            "--entrypoint",
+                            "operation:capture_url",
+                            "--risk",
+                            "L1",
+                            "--connector",
+                            "web",
+                            "--tag",
+                            "capture",
+                        ]
+                    )
+                with redirect_stdout(list_buffer):
+                    list_exit = main(["skill-list", "--kind", "connector"])
+            finally:
+                os.chdir(original_cwd)
+
+            self.assertEqual(register_exit, 0)
+            self.assertEqual(list_exit, 0)
+            self.assertTrue((Path(tmpdir) / "registry/skills.json").exists())
+            self.assertTrue((Path(tmpdir) / "vault/30_Skills/url-capture.md").exists())
+            payload = json.loads(list_buffer.getvalue())
+            self.assertEqual(payload["output"]["count"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

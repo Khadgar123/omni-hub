@@ -1,0 +1,141 @@
+[
+  {
+    "skill_id": "memory-digest",
+    "name": "Memory Digest",
+    "kind": "memory",
+    "description": "Accept a knowledge proposal and write it into canonical SQLite memory.",
+    "version": "0.1.0",
+    "status": "active",
+    "entrypoint": "operation:digest_proposal",
+    "risk_level": "L1",
+    "required_permissions": [],
+    "connectors": [],
+    "tags": [
+      "memory",
+      "proposal"
+    ],
+    "inputs": {
+      "proposal": "proposal id or proposal JSON path"
+    },
+    "outputs": {
+      "document_count": "int",
+      "entity_count": "int",
+      "relation_count": "int"
+    },
+    "source_path": "src/omni_hub/memory.py",
+    "created_at": "2026-05-03T00:00:00+00:00",
+    "updated_at": "2026-05-03T00:00:00+00:00"
+  },
+  {
+    "skill_id": "memory-search",
+    "name": "Memory Search",
+    "kind": "memory",
+    "description": "Search canonical local memory across documents, entities, and relations.",
+    "version": "0.1.0",
+    "status": "active",
+    "entrypoint": "operation:search_memory",
+    "risk_level": "L0",
+    "required_permissions": [],
+    "connectors": [],
+    "tags": [
+      "memory",
+      "search"
+    ],
+    "inputs": {
+      "query": "search query",
+      "limit": "max result count"
+    },
+    "outputs": {
+      "results": "ranked memory search results"
+    },
+    "source_path": "src/omni_hub/memory.py",
+    "created_at": "2026-05-03T00:00:00+00:00",
+    "updated_at": "2026-05-03T00:00:00+00:00"
+  },
+  {
+    "skill_id": "skill-registry",
+    "name": "Skill Registry",
+    "kind": "utility",
+    "description": "Register, list, read, and disable Omni Hub skills.",
+    "version": "0.1.0",
+    "status": "active",
+    "entrypoint": "operation:register_skill",
+    "risk_level": "L1",
+    "required_permissions": [],
+    "connectors": [],
+    "tags": [
+      "registry",
+      "skill"
+    ],
+    "inputs": {
+      "skill_id": "skill identifier",
+      "kind": "project | connector | workflow | agent | memory | utility"
+    },
+    "outputs": {
+      "registry_path": "registry JSON path",
+      "skill_card_path": "optional vault card path"
+    },
+    "source_path": "src/omni_hub/skills.py",
+    "created_at": "2026-05-03T00:00:00+00:00",
+    "updated_at": "2026-05-03T00:00:00+00:00"
+  },
+  {
+    "skill_id": "url-capture",
+    "name": "URL Capture",
+    "kind": "connector",
+    "description": "Capture HTTP or HTTPS URLs, extract basic metadata, and write inbox cards.",
+    "version": "0.1.0",
+    "status": "active",
+    "entrypoint": "operation:capture_url",
+    "risk_level": "L1",
+    "required_permissions": [],
+    "connectors": [
+      "web"
+    ],
+    "tags": [
+      "capture",
+      "web",
+      "youtube"
+    ],
+    "inputs": {
+      "url": "http or https URL",
+      "fetch": "whether to fetch content"
+    },
+    "outputs": {
+      "markdown_path": "inbox card path",
+      "raw_path": "raw content path"
+    },
+    "source_path": "src/omni_hub/connectors/web.py",
+    "created_at": "2026-05-03T00:00:00+00:00",
+    "updated_at": "2026-05-03T00:00:00+00:00"
+  },
+  {
+    "skill_id": "vault-proposal",
+    "name": "Vault Proposal",
+    "kind": "workflow",
+    "description": "Read a Markdown vault note and generate summary, entity, and relation proposals.",
+    "version": "0.1.0",
+    "status": "active",
+    "entrypoint": "operation:propose_knowledge",
+    "risk_level": "L1",
+    "required_permissions": [],
+    "connectors": [
+      "vault"
+    ],
+    "tags": [
+      "knowledge",
+      "proposal",
+      "vault"
+    ],
+    "inputs": {
+      "path": "vault Markdown path"
+    },
+    "outputs": {
+      "proposal_id": "knowledge proposal id",
+      "proposal_json_path": "proposal JSON path"
+    },
+    "source_path": "src/omni_hub/proposals.py",
+    "created_at": "2026-05-03T00:00:00+00:00",
+    "updated_at": "2026-05-03T00:00:00+00:00"
+  }
+]

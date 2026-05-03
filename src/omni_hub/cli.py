@@ -58,6 +58,32 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser("memory-stats")
 
+    skill_register = subparsers.add_parser("skill-register")
+    skill_register.add_argument("--id", required=True)
+    skill_register.add_argument("--name", required=True)
+    skill_register.add_argument("--kind", required=True)
+    skill_register.add_argument("--description", required=True)
+    skill_register.add_argument("--version", default="0.1.0")
+    skill_register.add_argument("--status", default="draft")
+    skill_register.add_argument("--entrypoint", default="")
+    skill_register.add_argument("--risk", default="L0")
+    skill_register.add_argument("--permission", action="append", default=[])
+    skill_register.add_argument("--connector", action="append", default=[])
+    skill_register.add_argument("--tag", action="append", default=[])
+    skill_register.add_argument("--source-path", default="")
+    skill_register.add_argument("--no-card", action="store_true")
+
+    skill_list = subparsers.add_parser("skill-list")
+    skill_list.add_argument("--kind")
+    skill_list.add_argument("--status")
+    skill_list.add_argument("--tag")
+
+    skill_get = subparsers.add_parser("skill-get")
+    skill_get.add_argument("--id", required=True)
+
+    skill_disable = subparsers.add_parser("skill-disable")
+    skill_disable.add_argument("--id", required=True)
+
     policy = subparsers.add_parser("check-policy")
     policy.add_argument("--name", default="manual_check")
     policy.add_argument("--connector", default="local")
@@ -172,6 +198,68 @@ def main(argv: list[str] | None = None) -> int:
             name="memory_stats",
             action="stats",
             risk_level=RiskLevel.READ_ONLY,
+        )
+        result = runner.run(spec)
+        _print_json(result.to_dict())
+        return 0 if result.error is None else 1
+
+    if args.command == "skill-register":
+        spec = OperationSpec(
+            name="register_skill",
+            action="register",
+            payload={
+                "skill_id": args.id,
+                "name": args.name,
+                "kind": args.kind,
+                "description": args.description,
+                "version": args.version,
+                "status": args.status,
+                "entrypoint": args.entrypoint,
+                "risk_level": args.risk,
+                "required_permissions": args.permission,
+                "connectors": args.connector,
+                "tags": args.tag,
+                "source_path": args.source_path,
+                "write_card": not args.no_card,
+            },
+            risk_level=RiskLevel.LOCAL_WRITE,
+        )
+        result = runner.run(spec)
+        _print_json(result.to_dict())
+        return 0 if result.error is None else 1
+
+    if args.command == "skill-list":
+        spec = OperationSpec(
+            name="list_skills",
+            action="list",
+            payload={
+                "kind": args.kind,
+                "status": args.status,
+                "tag": args.tag,
+            },
+            risk_level=RiskLevel.READ_ONLY,
+        )
+        result = runner.run(spec)
+        _print_json(result.to_dict())
+        return 0 if result.error is None else 1
+
+    if args.command == "skill-get":
+        spec = OperationSpec(
+            name="get_skill",
+            action="read",
+            payload={"skill_id": args.id},
+            risk_level=RiskLevel.READ_ONLY,
+        )
+        result = runner.run(spec)
+        _print_json(result.to_dict())
+        return 0 if result.error is None else 1
+
+    if args.command == "skill-disable":
+        spec = OperationSpec(
+            name="disable_skill",
+            action="disable",
+            payload={"skill_id": args.id},
+            risk_level=RiskLevel.LOCAL_WRITE,
         )
         result = runner.run(spec)
         _print_json(result.to_dict())
