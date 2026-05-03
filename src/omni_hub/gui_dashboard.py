@@ -213,6 +213,78 @@ INDEX_HTML = r"""<!doctype html>
       display: grid;
       gap: 14px;
     }
+    .vendor-workspace {
+      grid-template-columns: minmax(380px, 560px) minmax(0, 1fr);
+    }
+    .vendor-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .vendor-card {
+      min-height: 74px;
+      padding: 11px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      text-align: left;
+      display: grid;
+      gap: 5px;
+    }
+    .vendor-card.active {
+      border-color: #7da2ee;
+      background: var(--soft-blue);
+    }
+    .vendor-card strong { font-size: 15px; }
+    .vendor-card span { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+    .config-list {
+      display: grid;
+      gap: 10px;
+      padding: 12px;
+    }
+    .config-row {
+      display: grid;
+      grid-template-columns: 44px minmax(0, 1fr) minmax(210px, auto);
+      gap: 10px;
+      align-items: center;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfcfd;
+    }
+    .config-row.dragging { opacity: .55; }
+    .drag-handle {
+      min-height: 34px;
+      display: grid;
+      place-items: center;
+      border-radius: 6px;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--muted);
+      cursor: grab;
+      font-size: 12px;
+    }
+    .config-main {
+      min-width: 0;
+      display: grid;
+      gap: 5px;
+    }
+    .tag-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      align-items: center;
+    }
+    .script-box {
+      min-height: 118px;
+      margin: 0;
+      padding: 12px;
+      border-radius: 8px;
+      overflow: auto;
+      background: #101820;
+      color: #e7edf3;
+      font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
     .segment {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -352,7 +424,7 @@ INDEX_HTML = r"""<!doctype html>
       .shell { grid-template-columns: 1fr; }
       aside { position: static; height: auto; }
       nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .workspace, .form-grid, .role-row { grid-template-columns: 1fr; }
+      .workspace, .form-grid, .role-row, .config-row, .vendor-grid { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -377,7 +449,7 @@ INDEX_HTML = r"""<!doctype html>
         <div class="topbar">
           <div class="title">
             <h2 id="page-title">总览</h2>
-            <p id="page-subtitle">模型配置、渠道、代理、用量和项目 AI 编组。</p>
+            <p id="page-subtitle">官方厂商、调用队列、代理、用量和项目 AI 编组。</p>
           </div>
           <button class="secondary" id="refresh">刷新</button>
         </div>
@@ -385,10 +457,10 @@ INDEX_HTML = r"""<!doctype html>
 
       <main class="content">
         <section class="view" data-view-panel="overview">
-          <div class="notice">主对象是模型：同一个模型可以挂多条中转站配置，并分别监控延迟、额度、代理和优先级。中转站批量配置只是模型配置页里的另一种录入方式。</div>
+          <div class="notice">先按官方厂商配置：OpenAI、Claude、Qwen、DeepSeek、GLM、MiniMax。每个厂商可以保存多套配置，配置列表支持修改、测试、复制脚本、查额度、监控和优先级排序；路由会按优先级选择，故障时自动切到下一级。</div>
           <div class="metrics" id="metrics"></div>
           <div class="grid">
-            <button class="action" data-jump="channels"><strong>配置模型</strong><span>一个模型可挂多个中转站配置并切优先级</span></button>
+            <button class="action" data-jump="channels"><strong>配置官方厂商</strong><span>填写 API Key，一键加入厂商配置列表</span></button>
             <button class="action" data-jump="projects"><strong>分配给项目 Agent</strong><span>为不同 agent 指定模型和 skills</span></button>
             <button class="action" data-jump="monitor"><strong>看延迟和额度</strong><span>检测、实时刷新和可视化监控</span></button>
           </div>
@@ -399,68 +471,56 @@ INDEX_HTML = r"""<!doctype html>
         </section>
 
         <section class="view" data-view-panel="channels">
-          <div class="workspace">
+          <div class="workspace vendor-workspace">
             <div class="split-stack">
-              <div class="segment">
-                <button type="button" class="active" data-config-tab="model">按模型配置</button>
-                <button type="button" data-config-tab="provider">按中转站批量配置</button>
-              </div>
-              <div class="panel active" data-config-mode="model">
-                <div class="panel-head"><h3>按模型配置</h3><span class="subtle">默认方式：模型 ID 手写，别名只作填充</span></div>
+              <div class="panel">
+                <div class="panel-head"><h3>官方厂商</h3><span class="subtle">先选厂商，再填写密钥</span></div>
                 <div class="panel-body">
-                  <form id="model-form">
-                    <div class="preset-list" id="model-preset-list"></div>
-                    <div class="form-grid">
-                      <label>模型 ID<input name="model_id" id="model-id" placeholder="例如 claude-sonnet-4.5" required></label>
-                      <label>模型别名<input name="display_name" id="model-name" placeholder="可选；没有明确别名可留空"></label>
-                      <label>添加到中转站<select name="account_id" id="model-account"></select></label>
-                      <label>Provider 模型名<input name="model_mapping" id="model-mapping" placeholder="和模型 ID 不同时填写"></label>
-                      <label>能力<input name="capabilities" id="model-capabilities" placeholder="text, tools, vision"></label>
-                      <label>优先级<input name="priority" type="number" value="70"></label>
-                    </div>
-                    <div class="buttons">
-                      <button class="primary">添加模型配置</button>
-                      <button type="button" class="secondary" id="check-model-config">检测该配置</button>
-                    </div>
-                  </form>
+                  <div class="vendor-grid" id="official-provider-list"></div>
                 </div>
               </div>
-              <div class="panel" data-config-mode="provider">
-                <div class="panel-head"><h3>按中转站批量配置</h3><span class="subtle">一次配置密钥、代理、额度，再挂多种模型</span></div>
+              <div class="panel">
+                <div class="panel-head"><h3>厂商配置</h3><span class="subtle">API Key 可填写；默认脚本可复制</span></div>
                 <div class="panel-body">
-                  <form id="channel-form">
-                    <div class="preset-select">
-                      <label>中转站厂商<select id="preset-select"></select></label>
-                      <div class="preset-list" id="preset-list"></div>
-                    </div>
+                  <form id="official-form">
+                    <input name="provider" id="official-provider" type="hidden" value="openai">
                     <div class="form-grid">
-                      <label>渠道 ID<input name="account_id" id="account-id" required></label>
-                      <label>Provider 标识<input name="provider" id="provider-id" required></label>
-                      <label class="wide">显示名称<input name="name" id="provider-name" required></label>
-                      <label>密钥引用<input name="secret_ref" id="secret-ref" placeholder="env:OPENROUTER_API_KEY"></label>
+                      <label>配置 ID<input name="account_id" id="account-id" required></label>
+                      <label>显示名称<input name="name" id="provider-name" required></label>
+                      <label class="wide">API Key<input name="api_key" id="api-key" type="password" autocomplete="off" placeholder="可直接填；保存到 macOS Keychain，数据库只存 keychain 引用"></label>
+                      <label>密钥引用<input name="secret_ref" id="secret-ref" placeholder="env:OPENAI_API_KEY"></label>
                       <label>代理连接<input name="proxy_url" id="proxy-url" placeholder="留空表示 unset；如 http://127.0.0.1:7890"></label>
-                      <label class="wide">额度监控来源<input name="notes" id="quota-ref" placeholder="例如 dashboard:OpenRouter 或 quota_ref:env:OPENROUTER_QUOTA_URL"></label>
+                      <label>调用优先级<input name="priority" id="provider-priority" type="number" value="90"></label>
+                      <label class="wide">模型列表<textarea name="model_ids" id="model-ids" placeholder="每行一个模型 ID"></textarea></label>
+                      <label class="wide">额度入口<input name="quota_ref" id="quota-ref" placeholder="dashboard 或 quota API 引用"></label>
                     </div>
                     <details class="advanced">
                       <summary>高级配置</summary>
                       <div class="form-grid">
                         <label class="wide">接口地址<input name="base_url" id="base-url" placeholder="由预设填充；自定义时手动填写" required></label>
+                        <label class="wide">能力<input name="capabilities" id="provider-capabilities" placeholder="text, tools, vision"></label>
                       </div>
                     </details>
                     <input name="status" type="hidden" value="active">
-                    <input name="account_group" type="hidden" value="default">
                     <div class="buttons">
-                      <button class="primary">保存渠道</button>
-                      <button type="button" class="secondary" id="check-channel">检测渠道</button>
+                      <button class="primary">一键添加到列表</button>
+                      <button type="button" class="secondary" id="test-official-draft">测试当前配置</button>
+                      <button type="button" class="secondary" id="copy-script">复制默认脚本</button>
                     </div>
+                    <pre class="script-box" id="script-preview"></pre>
                   </form>
                 </div>
               </div>
             </div>
-            <div class="panel table-box">
-              <div class="panel-head"><h3>模型配置矩阵</h3><span class="subtle">单个模型的多中转站配置</span></div>
-              <div id="poolTable"></div>
-              <div id="channelsTable"></div>
+            <div class="split-stack">
+              <div class="panel table-box">
+                <div class="panel-head"><h3>厂商配置列表</h3><span class="subtle">拖拽或用上移/下移调整调用优先级</span></div>
+                <div id="providerConfigList"></div>
+              </div>
+              <div class="panel table-box">
+                <div class="panel-head"><h3>自动切换队列</h3><span class="subtle">上一个不可用时切下一级</span></div>
+                <div id="fallbackQueueTable"></div>
+              </div>
             </div>
           </div>
         </section>
@@ -555,14 +615,14 @@ INDEX_HTML = r"""<!doctype html>
   <script>
     const PAGE_SIZE = 8;
     const views = {
-      overview: ['总览', '模型配置、渠道、代理、用量和项目 AI 编组。'],
-      channels: ['模型配置', '默认按模型配置；同一模型可挂多条中转站配置。'],
+      overview: ['总览', '官方厂商、调用队列、代理、用量和项目 AI 编组。'],
+      channels: ['模型配置', '按官方厂商配置，并维护自动失败切换队列。'],
       projects: ['项目编组', '为项目 Agent 分配模型和 Skills。'],
       select: ['使用选择', '按项目和任务类型选择当前应使用的模型。'],
       monitor: ['监控检测', '检测模型配置、实时延迟、额度、代理和失败。'],
       skills: ['Skills', '技能安装、同步、质量评分和项目推荐的控制面。']
     };
-    const state = {data: null, view: 'overview', preset: null, mode: 'text', realtime: false, realtimeTimer: null};
+    const state = {data: null, view: 'overview', officialProvider: null, mode: 'text', realtime: false, realtimeTimer: null, dragAccount: null};
     const tableState = {};
 
     const api = async (url, options = {}) => {
@@ -594,6 +654,21 @@ INDEX_HTML = r"""<!doctype html>
       const found = notes.split('\n').find(line => /quota|额度|balance|dashboard/i.test(line));
       return found || '未配置';
     };
+    const officialProviders = () => state.data?.official_providers || [];
+    const providerPreset = slug => officialProviders().find(item => item.slug === slug || item.provider === slug);
+    const providerName = slug => providerPreset(slug)?.name || slug;
+    const accountModelIds = accountId => poolRows().filter(row => row.account_id === accountId).map(row => row.model_id);
+    const accountPriority = accountId => {
+      const rows = poolRows().filter(row => row.account_id === accountId);
+      return rows.length ? Math.max(...rows.map(row => Number(row.priority || 0))) : 0;
+    };
+    const accountRows = () => (state.data?.accounts || []).map(account => ({
+      account,
+      models: accountModelIds(account.account_id),
+      health: healthFor(account.account_id),
+      priority: accountPriority(account.account_id),
+      preset: providerPreset(account.provider)
+    })).sort((a, b) => b.priority - a.priority || a.account.account_id.localeCompare(b.account.account_id));
     const searchText = row => JSON.stringify(row).toLowerCase();
 
     function setView(view) {
@@ -654,39 +729,57 @@ INDEX_HTML = r"""<!doctype html>
         health: healthFor(ability.account_id)
       }));
     }
-    function modelConfigKey(row) {
-      return `${row.account_id}::${row.model_id}`;
-    }
-
-    function renderPresets() {
-      const presets = [...(state.data?.provider_presets || [])].sort((a, b) => (b.rank || 0) - (a.rank || 0));
-      const hot = presets.slice(0, 8);
-      document.getElementById('preset-select').innerHTML = presets.map((preset, index) => (
-        `<option value="${index}">${escapeHtml(preset.name)}${preset.base_url ? '' : '（需补接口）'}</option>`
-      )).join('');
-      document.getElementById('preset-list').innerHTML = hot.map((preset, index) => (
-        `<button type="button" class="choice ${index === 0 ? 'active' : ''}" data-preset-index="${presets.indexOf(preset)}">
+    function renderOfficialProviders() {
+      const presets = officialProviders();
+      document.getElementById('official-provider-list').innerHTML = presets.map((preset, index) => (
+        `<button type="button" class="vendor-card ${state.officialProvider?.slug === preset.slug ? 'active' : ''}" data-official-index="${index}">
           <strong>${escapeHtml(preset.name)}</strong>
-          <span>${preset.category === 'official' ? '官方' : '热门'} · ${preset.base_url ? '已带默认接口' : '需补接口'}</span>
+          <span>${escapeHtml((preset.models || []).slice(0, 3).join(' / '))}</span>
+          <span>${escapeHtml(preset.base_url)}</span>
         </button>`
       )).join('');
-      document.getElementById('model-preset-list').innerHTML = (state.data?.model_presets || []).slice(0, 7).map((model, index) => (
-        `<button type="button" class="choice" data-model-preset-index="${index}">
-          <strong>${escapeHtml(model.alias)}</strong>
-          <span>${escapeHtml(model.model_id)} · 推荐 ${escapeHtml(model.provider)}</span>
-        </button>`
-      )).join('');
-      if (!state.preset && presets[0]) applyPreset(presets[0], false);
+      if (!state.officialProvider && presets[0]) applyOfficialProvider(presets[0], false);
     }
 
-    function applyPreset(preset, notify = true) {
-      state.preset = preset;
+    function applyOfficialProvider(preset, notify = true) {
+      state.officialProvider = preset;
+      document.getElementById('official-provider').value = preset.slug;
       document.getElementById('account-id').value = `${preset.slug}-main`;
-      document.getElementById('provider-id').value = preset.slug;
-      document.getElementById('provider-name').value = preset.name;
+      document.getElementById('provider-name').value = `${preset.name} Main`;
       document.getElementById('base-url').value = preset.base_url || '';
       document.getElementById('secret-ref').value = preset.secret_ref || '';
-      if (notify) showToast(preset.base_url ? `已套用 ${preset.name}` : `${preset.name} 需要补接口地址`, preset.base_url ? 'ok' : 'warn');
+      document.getElementById('quota-ref').value = preset.quota_ref || '';
+      document.getElementById('model-ids').value = (preset.models || []).join('\n');
+      document.getElementById('provider-capabilities').value = (preset.capabilities || []).join(', ');
+      document.getElementById('provider-priority').value = String(preset.rank || 90);
+      document.getElementById('api-key').value = '';
+      renderOfficialProviders();
+      updateScriptPreview();
+      if (notify) showToast(`已选择 ${preset.name}`);
+    }
+
+    function updateScriptPreview(account = null) {
+      const preset = account ? providerPreset(account.provider) : state.officialProvider;
+      if (!preset) return;
+      const secretRef = account ? account.secret_ref : document.getElementById('secret-ref').value;
+      const baseUrl = account ? account.base_url : document.getElementById('base-url').value;
+      const proxyUrl = account ? account.proxy_url : document.getElementById('proxy-url').value;
+      const envVar = secretRef?.startsWith('env:') ? secretRef.split(':', 2)[1] : (preset.env_var || 'PROVIDER_API_KEY');
+      const baseEnv = preset.base_env_var || `${envVar.replace(/_API_KEY$/, '')}_BASE_URL`;
+      const lines = [
+        `export ${envVar}="<API_KEY>"`,
+        `export ${baseEnv}="${baseUrl || preset.base_url || ''}"`,
+      ];
+      if (proxyUrl) {
+        lines.push(`export HTTPS_PROXY="${proxyUrl}"`);
+        lines.push(`export HTTP_PROXY="${proxyUrl}"`);
+      } else {
+        lines.push('unset HTTPS_PROXY HTTP_PROXY');
+      }
+      const script = lines.join('\n');
+      const preview = document.getElementById('script-preview');
+      if (preview && !account) preview.textContent = script;
+      return script;
     }
 
     function renderSelectors() {
@@ -695,7 +788,6 @@ INDEX_HTML = r"""<!doctype html>
       const projects = state.data?.profiles || [];
       const accountOptions = accounts.map(item => `<option value="${escapeAttr(item.account_id)}">${escapeHtml(item.name || item.account_id)}</option>`).join('');
       const modelOptions = models.map(item => `<option value="${escapeAttr(item.model_id)}">${escapeHtml(item.display_name || item.model_id)}</option>`).join('');
-      document.getElementById('model-account').innerHTML = accountOptions || '<option value="">先保存渠道</option>';
       document.querySelectorAll('[data-role]').forEach(row => {
         const role = row.dataset.role;
         const priority = row.dataset.priority;
@@ -738,30 +830,8 @@ INDEX_HTML = r"""<!doctype html>
         {key: 'detail', label: '说明'},
         {label: '状态', render: row => pill(row.status)}
       ], overview);
-      renderDataTable('channelsTable', 'API 渠道', [
-        {key: 'account_id', label: '渠道'},
-        {key: 'name', label: '名称'},
-        {label: '代理', render: row => escapeHtml(proxyText(row))},
-        {label: '额度来源', render: row => escapeHtml(quotaText(row))},
-        {label: '检测', render: row => pill(healthFor(row.account_id).status || 'unknown')},
-        {label: '操作', render: row => `<button class="secondary" data-check-account="${escapeAttr(row.account_id)}">检测</button>`}
-      ], data.accounts || []);
-      renderDataTable('poolTable', '模型配置矩阵', [
-        {key: 'model_id', label: '模型'},
-        {label: '别名', render: row => escapeHtml(row.model.display_name || '')},
-        {label: '中转站配置', render: row => escapeHtml(row.account.name || row.account_id)},
-        {label: '能力', render: row => escapeHtml((row.model.capabilities || []).join(', '))},
-        {key: 'priority', label: '优先级'},
-        {label: '延迟', render: row => row.health.latency_ms == null ? '待检测' : `${row.health.latency_ms} ms`},
-        {label: '额度', render: row => escapeHtml(quotaText(row.account))},
-        {label: '状态', render: row => pill(row.health.status || 'unknown')},
-        {label: '操作', render: row => `
-          <div class="buttons">
-            <button class="secondary" data-check-account="${escapeAttr(row.account_id)}">检测</button>
-            <button class="secondary" data-priority-config="${escapeAttr(modelConfigKey(row))}" data-priority-value="100">设为首选</button>
-            <button class="secondary" data-priority-config="${escapeAttr(modelConfigKey(row))}" data-priority-value="20">备用</button>
-          </div>`}
-      ], poolRows());
+      renderProviderConfigList();
+      renderFallbackQueueTable();
       renderDataTable('profilesTable', '项目偏好', [
         {key: 'project_id', label: '项目'},
         {label: '能力', render: row => escapeHtml((row.default_capabilities || []).join(', '))},
@@ -788,6 +858,58 @@ INDEX_HTML = r"""<!doctype html>
       renderLatencyChart(data.accounts || []);
     }
 
+    function renderProviderConfigList() {
+      const container = document.getElementById('providerConfigList');
+      if (!container) return;
+      const rows = accountRows();
+      container.innerHTML = rows.length ? `<div class="config-list">${rows.map(row => {
+        const account = row.account;
+        const quota = quotaText(account);
+        const modelText = row.models.join(', ') || '未配置模型';
+        return `<div class="config-row" draggable="true" data-account-row="${escapeAttr(account.account_id)}">
+          <div class="drag-handle" title="拖拽调整优先级">拖拽</div>
+          <div class="config-main">
+            <strong>${escapeHtml(providerName(account.provider))} · ${escapeHtml(account.name || account.account_id)}</strong>
+            <div class="tag-row">
+              ${pill(account.status)}
+              ${pill(row.health.status || 'unknown')}
+              <span class="pill info">优先级 ${escapeHtml(row.priority)}</span>
+              <span class="pill info">代理 ${escapeHtml(proxyText(account))}</span>
+            </div>
+            <span class="subtle">配置 ID：${escapeHtml(account.account_id)} · 模型：${escapeHtml(modelText)} · 额度：${escapeHtml(quota)}</span>
+          </div>
+          <div class="buttons">
+            <button class="secondary" data-account-action="edit" data-account-id="${escapeAttr(account.account_id)}">修改</button>
+            <button class="secondary" data-account-action="test" data-account-id="${escapeAttr(account.account_id)}">测试</button>
+            <button class="secondary" data-account-action="copy" data-account-id="${escapeAttr(account.account_id)}">复制</button>
+            <button class="secondary" data-account-action="quota" data-account-id="${escapeAttr(account.account_id)}">查额度</button>
+            <button class="secondary" data-account-action="monitor" data-account-id="${escapeAttr(account.account_id)}">监控</button>
+            <button class="secondary" data-account-action="up" data-account-id="${escapeAttr(account.account_id)}">上移</button>
+            <button class="secondary" data-account-action="down" data-account-id="${escapeAttr(account.account_id)}">下移</button>
+          </div>
+        </div>`;
+      }).join('')}</div>` : '<div class="panel-body subtle">暂无厂商配置。先在左侧选择官方厂商并添加到列表。</div>';
+    }
+
+    function renderFallbackQueueTable() {
+      const rows = poolRows().slice().sort((a, b) => Number(b.priority || 0) - Number(a.priority || 0) || a.account_id.localeCompare(b.account_id));
+      const queue = rows.map((row, index) => ({
+        ...row,
+        order: index + 1,
+        next: rows[index + 1] ? `${rows[index + 1].account.name || rows[index + 1].account_id} / ${rows[index + 1].model_id}` : '无'
+      }));
+      renderDataTable('fallbackQueueTable', '自动切换队列', [
+        {key: 'order', label: '顺序'},
+        {label: '厂商', render: row => escapeHtml(providerName(row.account.provider))},
+        {label: '配置', render: row => escapeHtml(row.account.name || row.account_id)},
+        {key: 'model_id', label: '模型'},
+        {key: 'priority', label: '优先级'},
+        {label: '健康', render: row => pill(row.health.status || 'unknown')},
+        {label: '延迟', render: row => row.health.latency_ms == null ? '待检测' : `${row.health.latency_ms} ms`},
+        {key: 'next', label: '失败后切换'}
+      ], queue);
+    }
+
     function renderLatencyChart(accounts) {
       const rows = accounts.map(account => ({account, health: healthFor(account.account_id)}));
       const max = Math.max(1000, ...rows.map(row => row.health.latency_ms || 0));
@@ -804,7 +926,7 @@ INDEX_HTML = r"""<!doctype html>
 
     async function refresh(showMessage = false) {
       state.data = await api('/api/state');
-      renderPresets();
+      renderOfficialProviders();
       renderSelectors();
       renderMetrics();
       renderTables();
@@ -812,6 +934,7 @@ INDEX_HTML = r"""<!doctype html>
     }
 
     async function checkAccount(accountId) {
+      if (!accountId) throw new Error('请先选择配置');
       const data = await api('/api/provider-check', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -821,24 +944,98 @@ INDEX_HTML = r"""<!doctype html>
       showToast(`检测完成：${data.health.status}`);
     }
 
-    async function updateConfigPriority(key, priority) {
-      const [accountId, modelId] = key.split('::');
-      const row = poolRows().find(item => item.account_id === accountId && item.model_id === modelId);
-      if (!row) throw new Error('模型配置不存在');
-      await api('/api/route-abilities', {
+    async function updateAccountPriority(accountId, priority) {
+      const rows = poolRows().filter(item => item.account_id === accountId);
+      if (!rows.length) throw new Error('该配置还没有模型');
+      for (const row of rows) {
+        await api('/api/route-abilities', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            account_id: accountId,
+            model_id: row.model_id,
+            priority,
+            weight: row.weight || 1,
+            model_mapping: row.model_mapping || row.model_id,
+            enabled: row.enabled !== false,
+            notes: row.notes || ''
+          })
+        });
+      }
+    }
+
+    async function reorderAccounts(sourceId, targetId = null, direction = 0) {
+      const rows = accountRows();
+      const from = rows.findIndex(row => row.account.account_id === sourceId);
+      if (from < 0) throw new Error('配置不存在');
+      let to = targetId ? rows.findIndex(row => row.account.account_id === targetId) : from + direction;
+      to = Math.max(0, Math.min(rows.length - 1, to));
+      if (from === to) return;
+      const [moved] = rows.splice(from, 1);
+      rows.splice(to, 0, moved);
+      for (let index = 0; index < rows.length; index += 1) {
+        await updateAccountPriority(rows[index].account.account_id, Math.max(100 - index * 10, 0));
+      }
+      await refresh();
+      showToast('调用优先级已更新');
+    }
+
+    function editAccount(accountId) {
+      const account = accountById(accountId);
+      if (!account.account_id) throw new Error('配置不存在');
+      const preset = providerPreset(account.provider) || officialProviders()[0];
+      state.officialProvider = preset;
+      document.getElementById('official-provider').value = preset.slug;
+      document.getElementById('account-id').value = account.account_id;
+      document.getElementById('provider-name').value = account.name || account.account_id;
+      document.getElementById('base-url').value = account.base_url || preset.base_url || '';
+      document.getElementById('secret-ref').value = account.secret_ref || preset.secret_ref || '';
+      document.getElementById('proxy-url').value = account.proxy_url || '';
+      document.getElementById('quota-ref').value = quotaText(account).replace(/^quota_ref=/, '');
+      document.getElementById('model-ids').value = accountModelIds(accountId).join('\n');
+      document.getElementById('provider-capabilities').value = '';
+      document.getElementById('provider-priority').value = String(accountPriority(accountId) || preset.rank || 90);
+      document.getElementById('api-key').value = '';
+      renderOfficialProviders();
+      updateScriptPreview();
+      showToast('已载入配置，可修改后保存');
+    }
+
+    async function copyText(text, message) {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        showToast(message);
+      } else {
+        showToast('浏览器不支持自动复制，请手动复制脚本', 'warn');
+      }
+    }
+
+    async function copyAccountScript(accountId) {
+      const account = accountById(accountId);
+      if (!account.account_id) throw new Error('配置不存在');
+      await copyText(updateScriptPreview(account), '默认脚本已复制');
+    }
+
+    async function showQuota(accountId) {
+      const account = accountById(accountId);
+      if (!account.account_id) throw new Error('配置不存在');
+      const quota = quotaText(account);
+      await copyText(quota, quota === '未配置' ? '该配置还没有额度入口' : '额度入口已复制');
+    }
+
+    async function saveOfficialConfig(notify = true) {
+      const payload = formPayload(document.getElementById('official-form'));
+      const data = await api('/api/official-provider-config', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          account_id: accountId,
-          model_id: modelId,
-          priority,
-          weight: row.weight || 1,
-          model_mapping: row.model_mapping || '',
-          enabled: true
-        })
+        body: JSON.stringify(payload)
       });
+      document.getElementById('api-key').value = '';
       await refresh();
-      showToast(priority >= 100 ? '已设为首选' : '已降为备用');
+      if (notify) {
+        showToast(data.secret_mode === 'keychain' ? '配置已加入列表；API Key 已写入 Keychain，数据库只保存引用' : '配置已加入列表');
+      }
+      return data;
     }
 
     document.querySelectorAll('[data-view]').forEach(button => button.addEventListener('click', () => setView(button.dataset.view)));
@@ -847,26 +1044,19 @@ INDEX_HTML = r"""<!doctype html>
     document.addEventListener('click', event => {
       const jump = event.target.closest('[data-jump]');
       if (jump) setView(jump.dataset.jump);
-      const configTab = event.target.closest('[data-config-tab]');
-      if (configTab) {
-        document.querySelectorAll('[data-config-tab]').forEach(item => item.classList.toggle('active', item === configTab));
-        document.querySelectorAll('[data-config-mode]').forEach(item => item.classList.toggle('active', item.dataset.configMode === configTab.dataset.configTab));
-        showToast(configTab.dataset.configTab === 'model' ? '已切换到按模型配置' : '已切换到按中转站批量配置');
-      }
-      const presetButton = event.target.closest('[data-preset-index]');
-      if (presetButton) {
-        document.querySelectorAll('[data-preset-index]').forEach(item => item.classList.toggle('active', item === presetButton));
-        applyPreset(state.data.provider_presets[Number(presetButton.dataset.presetIndex)]);
-        document.getElementById('preset-select').value = presetButton.dataset.presetIndex;
-      }
-      const modelPresetButton = event.target.closest('[data-model-preset-index]');
-      if (modelPresetButton) {
-        const model = state.data.model_presets[Number(modelPresetButton.dataset.modelPresetIndex)];
-        document.querySelectorAll('[data-model-preset-index]').forEach(item => item.classList.toggle('active', item === modelPresetButton));
-        document.getElementById('model-id').value = model.model_id;
-        document.getElementById('model-name').value = model.alias;
-        document.getElementById('model-capabilities').value = (model.capabilities || []).join(', ');
-        showToast(`已填入模型别名 ${model.alias}`);
+      const officialButton = event.target.closest('[data-official-index]');
+      if (officialButton) applyOfficialProvider(officialProviders()[Number(officialButton.dataset.officialIndex)]);
+      const accountAction = event.target.closest('[data-account-action]');
+      if (accountAction) {
+        const accountId = accountAction.dataset.accountId;
+        const action = accountAction.dataset.accountAction;
+        if (action === 'edit') editAccount(accountId);
+        if (action === 'test') checkAccount(accountId).catch(err => showToast(err.message, 'bad'));
+        if (action === 'copy') copyAccountScript(accountId).catch(err => showToast(err.message, 'bad'));
+        if (action === 'quota') showQuota(accountId).catch(err => showToast(err.message, 'bad'));
+        if (action === 'monitor') setView('monitor');
+        if (action === 'up') reorderAccounts(accountId, null, -1).catch(err => showToast(err.message, 'bad'));
+        if (action === 'down') reorderAccounts(accountId, null, 1).catch(err => showToast(err.message, 'bad'));
       }
       const modeButton = event.target.closest('[data-mode]');
       if (modeButton) {
@@ -876,8 +1066,6 @@ INDEX_HTML = r"""<!doctype html>
       }
       const checkButton = event.target.closest('[data-check-account]');
       if (checkButton) checkAccount(checkButton.dataset.checkAccount).catch(err => showToast(err.message, 'bad'));
-      const priorityButton = event.target.closest('[data-priority-config]');
-      if (priorityButton) updateConfigPriority(priorityButton.dataset.priorityConfig, Number(priorityButton.dataset.priorityValue)).catch(err => showToast(err.message, 'bad'));
       const pageButton = event.target.closest('[data-page]');
       if (pageButton) {
         const id = pageButton.dataset.page;
@@ -888,7 +1076,10 @@ INDEX_HTML = r"""<!doctype html>
     });
     document.addEventListener('input', event => {
       const id = event.target.dataset.tableSearch;
-      if (!id) return;
+      if (!id) {
+        if (event.target.closest('#official-form')) updateScriptPreview();
+        return;
+      }
       tableState[id] = tableState[id] || {page: 1, query: ''};
       tableState[id].query = event.target.value;
       tableState[id].page = 1;
@@ -896,46 +1087,47 @@ INDEX_HTML = r"""<!doctype html>
       const input = document.querySelector(`[data-table-search="${id}"]`);
       if (input) input.focus();
     });
-    document.getElementById('preset-select').addEventListener('change', event => {
-      const index = Number(event.target.value);
-      applyPreset(state.data.provider_presets[index]);
-      document.querySelectorAll('[data-preset-index]').forEach(item => {
-        item.classList.toggle('active', Number(item.dataset.presetIndex) === index);
-      });
+    document.addEventListener('dragstart', event => {
+      const row = event.target.closest('[data-account-row]');
+      if (!row) return;
+      state.dragAccount = row.dataset.accountRow;
+      row.classList.add('dragging');
+      event.dataTransfer.effectAllowed = 'move';
+    });
+    document.addEventListener('dragend', event => {
+      const row = event.target.closest('[data-account-row]');
+      if (row) row.classList.remove('dragging');
+      state.dragAccount = null;
+    });
+    document.addEventListener('dragover', event => {
+      if (event.target.closest('[data-account-row]')) event.preventDefault();
+    });
+    document.addEventListener('drop', event => {
+      const row = event.target.closest('[data-account-row]');
+      if (!row || !state.dragAccount) return;
+      event.preventDefault();
+      reorderAccounts(state.dragAccount, row.dataset.accountRow).catch(err => showToast(err.message, 'bad'));
     });
 
-    document.getElementById('channel-form').addEventListener('submit', async event => {
+    document.getElementById('official-form').addEventListener('submit', async event => {
       event.preventDefault();
-      const payload = formPayload(event.currentTarget);
       try {
-        await api('/api/providers', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)});
-        await refresh();
-        showToast('渠道已保存');
+        await saveOfficialConfig(true);
       } catch (err) {
         showToast(err.message, 'bad');
       }
     });
-    document.getElementById('model-form').addEventListener('submit', async event => {
-      event.preventDefault();
-      const payload = formPayload(event.currentTarget);
+    document.getElementById('test-official-draft').addEventListener('click', async () => {
       try {
-        await api('/api/channel-model', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)});
-        await refresh();
-        showToast('模型配置已保存');
+        const data = await saveOfficialConfig(false);
+        await checkAccount(data.account.account_id);
       } catch (err) {
         showToast(err.message, 'bad');
       }
     });
-    document.getElementById('check-channel').addEventListener('click', async () => {
+    document.getElementById('copy-script').addEventListener('click', async () => {
       try {
-        await checkAccount(document.getElementById('account-id').value);
-      } catch (err) {
-        showToast(err.message, 'bad');
-      }
-    });
-    document.getElementById('check-model-config').addEventListener('click', async () => {
-      try {
-        await checkAccount(document.getElementById('model-account').value);
+        await copyText(updateScriptPreview(), '默认脚本已复制');
       } catch (err) {
         showToast(err.message, 'bad');
       }

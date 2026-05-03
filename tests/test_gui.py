@@ -1,9 +1,11 @@
 from pathlib import Path
 import json
+import os
 import sys
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
@@ -18,11 +20,18 @@ class GuiServerTests(unittest.TestCase):
         self.assertIn("项目编组", INDEX_HTML)
         self.assertIn("使用选择", INDEX_HTML)
         self.assertIn("监控检测", INDEX_HTML)
-        self.assertIn("按模型配置", INDEX_HTML)
-        self.assertIn("按中转站批量配置", INDEX_HTML)
-        self.assertIn("设为首选", INDEX_HTML)
+        self.assertIn("官方厂商", INDEX_HTML)
+        self.assertIn("OpenAI", INDEX_HTML)
+        self.assertIn("Claude", INDEX_HTML)
+        self.assertIn("Qwen", INDEX_HTML)
+        self.assertIn("DeepSeek", INDEX_HTML)
+        self.assertIn("GLM", INDEX_HTML)
+        self.assertIn("MiniMax", INDEX_HTML)
+        self.assertIn("API Key", INDEX_HTML)
+        self.assertIn("默认脚本", INDEX_HTML)
+        self.assertIn("拖拽", INDEX_HTML)
+        self.assertIn("自动切换队列", INDEX_HTML)
         self.assertIn("实时延迟", INDEX_HTML)
-        self.assertIn("模型 ID 手写", INDEX_HTML)
         self.assertIn("Skills", INDEX_HTML)
         self.assertIn('id="toast"', INDEX_HTML)
         self.assertNotIn("Base URL", INDEX_HTML)
@@ -119,6 +128,42 @@ class GuiServerTests(unittest.TestCase):
                 server.shutdown()
                 thread.join(timeout=2)
                 server.server_close()
+
+    def test_gui_official_provider_config_stores_keychain_ref_routes(self) -> None:
+        with patch.dict(os.environ, {"OMNI_HUB_SECRET_BACKEND": "memory"}):
+            with tempfile.TemporaryDirectory() as tmpdir:
+                server = create_gui_server(tmpdir, port=0)
+                thread = threading.Thread(target=server.serve_forever, daemon=True)
+                thread.start()
+                base_url = f"http://{server.server_address[0]}:{server.server_address[1]}"
+                try:
+                    configured = _post_json(
+                        f"{base_url}/api/official-provider-config",
+                        {
+                            "provider": "openai",
+                            "account_id": "openai-main",
+                            "name": "OpenAI Main",
+                            "api_key": "sk-test-raw-secret",
+                            "model_ids": "gpt-5.4\ngpt-5.4-mini",
+                            "priority": 90,
+                        },
+                    )
+
+                    self.assertEqual(
+                        configured["account"]["secret_ref"],
+                        "keychain:omni-hub/openai-main",
+                    )
+                    self.assertEqual(configured["secret_mode"], "keychain")
+                    self.assertNotIn("sk-test", json.dumps(configured))
+                    state = _get_json(f"{base_url}/api/state")
+                    self.assertNotIn("sk-test", json.dumps(state))
+                    self.assertEqual(len(configured["abilities"]), 2)
+                    self.assertEqual(configured["abilities"][0]["priority"], 90)
+                    self.assertEqual(configured["abilities"][1]["priority"], 85)
+                finally:
+                    server.shutdown()
+                    thread.join(timeout=2)
+                    server.server_close()
 
     def test_gui_adds_model_to_channel_with_manual_model_id(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

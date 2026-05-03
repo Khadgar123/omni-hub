@@ -125,7 +125,7 @@ RouteRequest
 
 ## Secret 规则
 
-- 数据库只保存 `secret_ref`，例如 `env:OPENAI_API_KEY`、`keychain:omni/openai/main`、`runtime:session-id`。
+- 数据库只保存 `secret_ref`，例如 `env:OPENAI_API_KEY`、`keychain:omni-hub/openai-main`、`runtime:session-id`。
 - dashboard 不展示 raw key，只展示来源、末四位哈希、最后验证时间。
 - health check 和错误日志必须清理 prompt、messages、api key、云厂商 secret。
 - 导出配置时默认不包含 secret；需要显式授权才导出 secret ref。

@@ -25,9 +25,92 @@ from .provider_router import (
     ProjectRouteProfile,
     RouteAbility,
 )
+from .secrets import SecretStoreError, has_secret, store_api_key
 
 
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+
+
+OFFICIAL_PROVIDER_PRESETS: list[dict[str, Any]] = [
+    {
+        "name": "OpenAI",
+        "slug": "openai",
+        "provider": "openai",
+        "base_url": "https://api.openai.com/v1",
+        "secret_ref": "env:OPENAI_API_KEY",
+        "env_var": "OPENAI_API_KEY",
+        "base_env_var": "OPENAI_BASE_URL",
+        "quota_ref": "dashboard:https://platform.openai.com/usage",
+        "models": ["gpt-5.4", "gpt-5.4-mini"],
+        "capabilities": ["text", "tools", "vision"],
+        "rank": 100,
+    },
+    {
+        "name": "Claude",
+        "slug": "claude",
+        "provider": "claude",
+        "base_url": "https://api.anthropic.com/v1",
+        "secret_ref": "env:ANTHROPIC_API_KEY",
+        "env_var": "ANTHROPIC_API_KEY",
+        "base_env_var": "ANTHROPIC_BASE_URL",
+        "quota_ref": "dashboard:https://console.anthropic.com/settings/billing",
+        "models": ["claude-opus-4-20250514", "claude-sonnet-4-5"],
+        "capabilities": ["text", "tools", "vision"],
+        "rank": 96,
+    },
+    {
+        "name": "Qwen",
+        "slug": "qwen",
+        "provider": "qwen",
+        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "secret_ref": "env:DASHSCOPE_API_KEY",
+        "env_var": "DASHSCOPE_API_KEY",
+        "base_env_var": "DASHSCOPE_BASE_URL",
+        "quota_ref": "dashboard:阿里云百炼控制台",
+        "models": ["qwen-plus", "qwen-max", "qwen-turbo"],
+        "capabilities": ["text", "tools", "vision"],
+        "rank": 92,
+    },
+    {
+        "name": "DeepSeek",
+        "slug": "deepseek",
+        "provider": "deepseek",
+        "base_url": "https://api.deepseek.com",
+        "secret_ref": "env:DEEPSEEK_API_KEY",
+        "env_var": "DEEPSEEK_API_KEY",
+        "base_env_var": "DEEPSEEK_BASE_URL",
+        "quota_ref": "dashboard:DeepSeek 开放平台余额",
+        "models": ["deepseek-v4-flash", "deepseek-v4-pro"],
+        "capabilities": ["text", "tools"],
+        "rank": 88,
+    },
+    {
+        "name": "GLM",
+        "slug": "glm",
+        "provider": "glm",
+        "base_url": "https://open.bigmodel.cn/api/paas/v4",
+        "secret_ref": "env:ZAI_API_KEY",
+        "env_var": "ZAI_API_KEY",
+        "base_env_var": "ZAI_BASE_URL",
+        "quota_ref": "dashboard:智谱 AI 开放平台",
+        "models": ["glm-5", "glm-4.7"],
+        "capabilities": ["text", "tools", "vision"],
+        "rank": 84,
+    },
+    {
+        "name": "MiniMax",
+        "slug": "minimax",
+        "provider": "minimax",
+        "base_url": "https://api.minimax.io/v1",
+        "secret_ref": "env:MINIMAX_API_KEY",
+        "env_var": "MINIMAX_API_KEY",
+        "base_env_var": "MINIMAX_BASE_URL",
+        "quota_ref": "dashboard:MiniMax Token Plan",
+        "models": ["MiniMax-M2.7", "MiniMax-M2.7-highspeed"],
+        "capabilities": ["text", "tools", "vision"],
+        "rank": 80,
+    },
+]
 
 
 PROVIDER_PRESETS: list[dict[str, Any]] = [
@@ -222,6 +305,10 @@ def build_state(workspace: Path | str) -> dict[str, Any]:
     store = ProviderRouterStore(workspace, create=False)
     return {
         "stats": store.stats(),
+        "official_providers": sorted(
+            OFFICIAL_PROVIDER_PRESETS,
+            key=lambda item: (-int(item.get("rank", 0)), str(item.get("name", ""))),
+        ),
         "provider_presets": sorted(
             PROVIDER_PRESETS,
             key=lambda item: (-int(item.get("rank", 0)), str(item.get("name", ""))),
@@ -247,6 +334,87 @@ def handle_post(
     payload: dict[str, Any],
 ) -> dict[str, Any]:
     store = ProviderRouterStore(workspace)
+    if path == "/api/official-provider-config":
+        preset = _official_provider_preset(_required(payload, "provider"))
+        account_id = str(payload.get("account_id", "")).strip() or (
+            f"{preset['slug']}-main"
+        )
+        api_key = str(payload.get("api_key", "")).strip()
+        secret_ref = str(payload.get("secret_ref", "")).strip() or str(
+            preset["secret_ref"]
+        )
+        secret_mode = "ref"
+        if api_key:
+            if api_key.startswith(("env:", "keychain:", "runtime:")):
+                secret_ref = api_key
+            else:
+                secret_ref = store_api_key(account_id, api_key)
+                secret_mode = "keychain"
+        elif secret_ref and not secret_ref.startswith(("env:", "keychain:", "runtime:")):
+            secret_ref = store_api_key(account_id, secret_ref)
+            secret_mode = "keychain"
+
+        quota_ref = str(payload.get("quota_ref", "")).strip() or str(
+            preset.get("quota_ref", "")
+        )
+        notes = "\n".join(
+            item
+            for item in [
+                f"official_provider={preset['slug']}",
+                f"quota_ref={quota_ref}" if quota_ref else "",
+                "api_key_storage=keychain" if secret_mode == "keychain" else "",
+                str(payload.get("notes", "")).strip(),
+            ]
+            if item
+        )
+        account = ProviderAccount(
+            account_id=account_id,
+            provider=str(preset["provider"]),
+            name=str(payload.get("name", "")).strip() or str(preset["name"]),
+            base_url=str(payload.get("base_url", "")).strip()
+            or str(preset["base_url"]),
+            secret_ref=secret_ref,
+            proxy_url=str(payload.get("proxy_url", "")).strip(),
+            status=ProviderAccountStatus(str(payload.get("status", "active"))),
+            account_group="official",
+            notes=notes,
+        )
+        stored_account = store.upsert_account(account)
+        priority = _int_value(payload.get("priority"), default=90)
+        capabilities = _list_value(payload.get("capabilities")) or _list_value(
+            preset.get("capabilities")
+        )
+        model_ids = _list_value(payload.get("model_ids")) or _list_value(
+            preset.get("models")
+        )
+        stored_models = []
+        stored_abilities = []
+        for index, model_id in enumerate(model_ids):
+            model = ModelSpec(
+                model_id=model_id,
+                display_name=model_id,
+                capabilities=capabilities,
+                notes=f"official_provider={preset['slug']}",
+            )
+            stored_model = store.upsert_model(model)
+            ability = RouteAbility(
+                account_id=stored_account.account_id,
+                model_id=stored_model.model_id,
+                enabled=True,
+                priority=max(priority - index * 5, 0),
+                weight=1.0,
+                model_mapping=model_id,
+                notes=f"official_provider={preset['slug']}",
+            )
+            stored_models.append(stored_model.to_dict())
+            stored_abilities.append(store.upsert_ability(ability).to_dict())
+        return {
+            "account": stored_account.to_dict(),
+            "models": stored_models,
+            "abilities": stored_abilities,
+            "secret_mode": secret_mode,
+        }
+
     if path == "/api/providers":
         account = ProviderAccount(
             account_id=_required(payload, "account_id"),
@@ -464,6 +632,14 @@ def _route_note(item: dict[str, Any]) -> str:
     return role
 
 
+def _official_provider_preset(slug: str) -> dict[str, Any]:
+    normalized = slug.strip().lower()
+    for preset in OFFICIAL_PROVIDER_PRESETS:
+        if normalized in {str(preset["slug"]).lower(), str(preset["provider"]).lower()}:
+            return preset
+    raise ValueError(f"unknown official provider: {slug}")
+
+
 def _check_provider(
     account: ProviderAccount,
     store: ProviderRouterStore,
@@ -480,6 +656,19 @@ def _check_provider(
             account_id=account.account_id,
             status=HealthStatus.LIMITED,
             last_error="secret_ref is not configured",
+        )
+    try:
+        if not has_secret(account.secret_ref):
+            return ProviderHealth(
+                account_id=account.account_id,
+                status=HealthStatus.LIMITED,
+                last_error=f"secret is not available for {account.secret_ref}",
+            )
+    except SecretStoreError as exc:
+        return ProviderHealth(
+            account_id=account.account_id,
+            status=HealthStatus.LIMITED,
+            last_error=str(exc),
         )
     if model_count == 0:
         return ProviderHealth(
@@ -539,7 +728,8 @@ def _list_value(value: Any) -> list[str]:
         return []
     if isinstance(value, list):
         return [str(item).strip() for item in value if str(item).strip()]
-    return [item.strip() for item in str(value).split(",") if item.strip()]
+    text = str(value).replace("\n", ",")
+    return [item.strip() for item in text.split(",") if item.strip()]
 
 
 def _int_value(value: Any, *, default: int = 0) -> int:
