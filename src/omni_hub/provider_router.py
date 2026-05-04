@@ -259,6 +259,46 @@ class ProjectRouteOverride:
 
 
 @dataclass(slots=True)
+class ProjectModelOrder:
+    project_id: str
+    slot: str
+    model_ids: list[str] = field(default_factory=list)
+    notes: str = ""
+    created_at: str = field(default_factory=_now)
+    updated_at: str = field(default_factory=_now)
+
+    def __post_init__(self) -> None:
+        validate_project_id(self.project_id)
+        validate_project_slot(self.slot)
+        model_ids: list[str] = []
+        seen: set[str] = set()
+        for item in self.model_ids:
+            model_id = str(item).strip()
+            if not model_id or model_id in seen:
+                continue
+            validate_model_id(model_id)
+            seen.add(model_id)
+            model_ids.append(model_id)
+        if not model_ids:
+            raise ValueError("project model order requires at least one model")
+        self.model_ids = model_ids
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_row(cls, row: sqlite3.Row) -> "ProjectModelOrder":
+        return cls(
+            project_id=row["project_id"],
+            slot=row["slot"],
+            model_ids=json.loads(row["model_ids"]),
+            notes=row["notes"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
+
+@dataclass(slots=True)
 class ProviderHealth:
     account_id: str
     model_id: str = ""
@@ -721,6 +761,93 @@ class ProviderRouterStore:
             raise KeyError(f"project route profile does not exist: {project_id}")
         return profile
 
+    def upsert_project_model_order(
+        self,
+        order: ProjectModelOrder,
+    ) -> ProjectModelOrder:
+        now = _now()
+        with self._connect() as conn:
+            existing = self._get_project_model_order(
+                conn,
+                order.project_id,
+                order.slot,
+            )
+            if existing is not None:
+                order.created_at = existing.created_at
+            order.updated_at = now
+            conn.execute(
+                """
+                INSERT INTO project_model_orders (
+                    project_id, slot, model_ids, notes, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(project_id, slot) DO UPDATE SET
+                    model_ids = excluded.model_ids,
+                    notes = excluded.notes,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    order.project_id,
+                    order.slot,
+                    json.dumps(order.model_ids, ensure_ascii=False),
+                    order.notes,
+                    order.created_at,
+                    order.updated_at,
+                ),
+            )
+            conn.commit()
+        return order
+
+    def list_project_model_orders(
+        self,
+        *,
+        project_id: str | None = None,
+    ) -> list[ProjectModelOrder]:
+        if not self.db_path.exists():
+            return []
+        clauses: list[str] = []
+        params: list[str] = []
+        if project_id:
+            validate_project_id(project_id)
+            clauses.append("project_id = ?")
+            params.append(project_id)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        with self._connect() as conn:
+            if not self._table_exists(conn, "project_model_orders"):
+                return []
+            rows = conn.execute(
+                f"""
+                SELECT * FROM project_model_orders
+                {where}
+                ORDER BY project_id, slot
+                """,
+                params,
+            ).fetchall()
+        return [ProjectModelOrder.from_row(row) for row in rows]
+
+    def delete_project_model_order(
+        self,
+        project_id: str,
+        slot: str | None = None,
+    ) -> None:
+        validate_project_id(project_id)
+        if slot is not None:
+            validate_project_slot(slot)
+        with self._connect() as conn:
+            if not self._table_exists(conn, "project_model_orders"):
+                return
+            if slot is None:
+                conn.execute(
+                    "DELETE FROM project_model_orders WHERE project_id = ?",
+                    (project_id,),
+                )
+            else:
+                conn.execute(
+                    "DELETE FROM project_model_orders WHERE project_id = ? AND slot = ?",
+                    (project_id, slot),
+                )
+            conn.commit()
+
     def upsert_project_override(
         self,
         override: ProjectRouteOverride,
@@ -997,6 +1124,7 @@ class ProviderRouterStore:
                 "model_catalog": 0,
                 "route_abilities": 0,
                 "project_route_profiles": 0,
+                "project_model_orders": 0,
                 "project_route_overrides": 0,
                 "provider_health": 0,
                 "usage_request_logs": 0,
@@ -1010,6 +1138,7 @@ class ProviderRouterStore:
                     "model_catalog",
                     "route_abilities",
                     "project_route_profiles",
+                    "project_model_orders",
                     "project_route_overrides",
                     "provider_health",
                     "usage_request_logs",
@@ -1089,6 +1218,16 @@ class ProviderRouterStore:
                     updated_at TEXT NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS project_model_orders (
+                    project_id TEXT NOT NULL,
+                    slot TEXT NOT NULL,
+                    model_ids TEXT NOT NULL,
+                    notes TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY(project_id, slot)
+                );
+
                 CREATE TABLE IF NOT EXISTS project_route_overrides (
                     project_id TEXT NOT NULL,
                     account_id TEXT NOT NULL REFERENCES provider_accounts(account_id) ON DELETE CASCADE,
@@ -1136,6 +1275,8 @@ class ProviderRouterStore:
                     ON provider_health(status);
                 CREATE INDEX IF NOT EXISTS idx_project_route_overrides_project
                     ON project_route_overrides(project_id);
+                CREATE INDEX IF NOT EXISTS idx_project_model_orders_project
+                    ON project_model_orders(project_id);
                 CREATE INDEX IF NOT EXISTS idx_usage_request_logs_created
                     ON usage_request_logs(created_at);
                 """
@@ -1226,6 +1367,23 @@ class ProviderRouterStore:
             (project_id,),
         ).fetchone()
         return ProjectRouteProfile.from_row(row) if row is not None else None
+
+    def _get_project_model_order(
+        self,
+        conn: sqlite3.Connection,
+        project_id: str,
+        slot: str,
+    ) -> ProjectModelOrder | None:
+        if not self._table_exists(conn, "project_model_orders"):
+            return None
+        row = conn.execute(
+            """
+            SELECT * FROM project_model_orders
+            WHERE project_id = ? AND slot = ?
+            """,
+            (project_id, slot),
+        ).fetchone()
+        return ProjectModelOrder.from_row(row) if row is not None else None
 
     def _get_project_override(
         self,
@@ -1365,6 +1523,13 @@ def validate_project_id(project_id: str) -> None:
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:/+-]{0,127}", project_id):
         raise ValueError(
             "project id must be 1-128 letters, numbers, dots, colons, slashes, pluses, or dashes"
+        )
+
+
+def validate_project_slot(slot: str) -> None:
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:/+-]{0,63}", slot):
+        raise ValueError(
+            "project slot must be 1-64 letters, numbers, dots, colons, slashes, pluses, or dashes"
         )
 
 

@@ -97,6 +97,35 @@ Batch probing is non-mutating: OpenAI-compatible channels check `/v1/batches?lim
 
 8. Re-read `/api/state` and report the created `account_id`, model list, secret ref type, health status, latency, balance result, concurrency result, and batch support.
 
+## Project Model Orders
+
+When the user asks to distribute model configuration to a project, do not copy raw channel credentials into that project. Save model names by ability slot and let 万象中枢 resolve the concrete channel from the global model configuration order.
+
+Example:
+
+```bash
+curl -sS -X POST http://127.0.0.1:8765/api/project-model-orders \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "project_id": "auto-driving-research",
+    "orders": [
+      {"slot": "default", "model_ids": ["deepseek-chat", "gpt-5.5-mini"]},
+      {"slot": "reasoning", "model_ids": ["gpt-5.5-xhigh", "claude-opus"]},
+      {"slot": "code", "model_ids": ["gpt-5.5", "deepseek-chat"]}
+    ]
+  }'
+```
+
+Resolve one slot before handing the bundle to a runtime:
+
+```bash
+curl -sS -X POST http://127.0.0.1:8765/api/project-resolve \
+  -H 'Content-Type: application/json' \
+  -d '{"project_id":"auto-driving-research","slot":"reasoning"}'
+```
+
+Resolution order is project model order first, then global channel priority for the same model name. Channels marked down, limited, disabled, or quota-exhausted are skipped. The response may include `base_url`, `secret_ref`, and proxy/rate-limit metadata, but never raw API keys.
+
 ## CursorLink Notes
 
 CursorLink should be configured as direct pending entries under OpenAI and Claude, not as a separate template list.

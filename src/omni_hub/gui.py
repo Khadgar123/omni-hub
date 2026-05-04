@@ -25,6 +25,7 @@ from .provider_router import (
     ProviderHealth,
     ProviderAccountStatus,
     ProviderRouterStore,
+    ProjectModelOrder,
     ProjectRouteOverride,
     ProjectRouteProfile,
     RouteAbility,
@@ -430,6 +431,9 @@ def build_state(workspace: Path | str) -> dict[str, Any]:
         "abilities": [ability.to_dict() for ability in store.list_abilities()],
         "health": [health.to_dict() for health in store.list_health()],
         "profiles": [profile.to_dict() for profile in store.list_project_profiles()],
+        "model_orders": [
+            order.to_dict() for order in store.list_project_model_orders()
+        ],
         "overrides": [
             override.to_dict() for override in store.list_project_overrides()
         ],
@@ -662,6 +666,12 @@ def handle_post(
 
     if path == "/api/project-import-routes":
         return _project_import_routes(store, payload)
+
+    if path == "/api/project-model-orders":
+        return _project_model_orders_response(store, payload)
+
+    if path == "/api/project-resolve":
+        return _project_resolve_response(store, payload)
 
     if path == "/api/project-bundle":
         return _project_bundle_response(store, _required(payload, "project_id"))
@@ -2876,6 +2886,67 @@ def _project_import_routes(
     }
 
 
+def _project_model_orders_response(
+    store: ProviderRouterStore,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    project_id = _required(payload, "project_id")
+    raw_orders = payload.get("orders")
+    if raw_orders is None and payload.get("slot"):
+        raw_orders = [payload]
+    if not isinstance(raw_orders, list):
+        raise ValueError("orders must be a list")
+
+    try:
+        profile = store.get_project_profile(project_id)
+    except KeyError:
+        profile = store.upsert_project_profile(
+            ProjectRouteProfile(
+                project_id=project_id,
+                default_capabilities=["text"],
+                notes="project_model_order_mode=true",
+            )
+        )
+
+    touched_slots: list[str] = []
+    for item in raw_orders:
+        if not isinstance(item, dict):
+            continue
+        slot = str(item.get("slot", "")).strip()
+        if not slot:
+            continue
+        touched_slots.append(slot)
+        model_ids = _list_value(item.get("model_ids"))
+        if model_ids:
+            store.upsert_project_model_order(
+                ProjectModelOrder(
+                    project_id=project_id,
+                    slot=slot,
+                    model_ids=model_ids,
+                    notes="source=project_model_order",
+                )
+            )
+        else:
+            store.delete_project_model_order(project_id, slot)
+
+    orders = store.list_project_model_orders(project_id=project_id)
+    return {
+        "profile": profile.to_dict(),
+        "orders": [order.to_dict() for order in orders],
+        "touched_slots": touched_slots,
+        "bundle": _project_model_bundle(store, project_id),
+    }
+
+
+def _project_resolve_response(
+    store: ProviderRouterStore,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    project_id = _required(payload, "project_id")
+    slot = _required(payload, "slot")
+    return _resolve_project_slot(store, project_id, slot)
+
+
 def _project_bundle_response(
     store: ProviderRouterStore,
     project_id: str,
@@ -2888,6 +2959,7 @@ def _project_model_bundle(
     project_id: str,
 ) -> dict[str, Any]:
     overrides = store.list_project_overrides(project_id=project_id)
+    model_orders = store.list_project_model_orders(project_id=project_id)
     routes = []
     for override in overrides:
         account = store.get_account(override.account_id)
@@ -2940,7 +3012,12 @@ def _project_model_bundle(
     return {
         "project_id": project_id,
         "slots": MODEL_SLOT_PRESETS,
-        "slot_routes": _project_slot_routes(sorted_routes),
+        "model_orders": [order.to_dict() for order in model_orders],
+        "slot_routes": (
+            _project_slot_routes_from_orders(store, model_orders)
+            if model_orders
+            else _project_slot_routes(sorted_routes)
+        ),
         "routes": sorted_routes,
         "security": {
             "api_key": "not_exported",
@@ -2981,6 +3058,145 @@ def _project_slot_routes(routes: list[dict[str, Any]]) -> list[dict[str, Any]]:
             }
         )
     return slot_routes
+
+
+def _project_slot_routes_from_orders(
+    store: ProviderRouterStore,
+    orders: list[ProjectModelOrder],
+) -> list[dict[str, Any]]:
+    order_by_slot = {order.slot: order for order in orders}
+    preset_by_slot = {slot["slot"]: slot for slot in MODEL_SLOT_PRESETS}
+    slot_ids = [slot["slot"] for slot in MODEL_SLOT_PRESETS]
+    slot_ids.extend(order.slot for order in orders if order.slot not in preset_by_slot)
+    slot_routes: list[dict[str, Any]] = []
+    for slot_id in slot_ids:
+        preset = preset_by_slot.get(
+            slot_id,
+            {
+                "slot": slot_id,
+                "label": slot_id,
+                "capabilities": [],
+                "description": "项目自定义能力槽。",
+            },
+        )
+        order = order_by_slot.get(slot_id)
+        candidates = _project_order_candidates(store, order) if order else []
+        slot_routes.append(
+            {
+                "slot": slot_id,
+                "label": preset["label"],
+                "description": preset.get("description", ""),
+                "capabilities": preset.get("capabilities", []),
+                "model_order": order.model_ids if order else [],
+                "selected": next(
+                    (candidate for candidate in candidates if candidate["usable"]),
+                    None,
+                ),
+                "candidates": candidates,
+            }
+        )
+    return slot_routes
+
+
+def _resolve_project_slot(
+    store: ProviderRouterStore,
+    project_id: str,
+    slot: str,
+) -> dict[str, Any]:
+    orders = [
+        order
+        for order in store.list_project_model_orders(project_id=project_id)
+        if order.slot == slot
+    ]
+    if not orders:
+        raise ValueError(f"project slot has no model order: {project_id}/{slot}")
+    resolved = _project_slot_routes_from_orders(store, orders)
+    route = next((item for item in resolved if item["slot"] == slot), resolved[0])
+    return {
+        "project_id": project_id,
+        **route,
+    }
+
+
+def _project_order_candidates(
+    store: ProviderRouterStore,
+    order: ProjectModelOrder,
+) -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
+    for model_rank, model_id in enumerate(order.model_ids, start=1):
+        abilities = sorted(
+            store.list_abilities(model_id=model_id, enabled=True),
+            key=lambda item: (-item.priority, -item.weight, item.account_id),
+        )
+        if not abilities:
+            candidates.append(
+                {
+                    "model_id": model_id,
+                    "model_rank": model_rank,
+                    "usable": False,
+                    "reject_reason": "no enabled channel for this model",
+                }
+            )
+            continue
+        for ability in abilities:
+            candidates.append(
+                _project_candidate_from_ability(store, ability, model_rank)
+            )
+    return candidates
+
+
+def _project_candidate_from_ability(
+    store: ProviderRouterStore,
+    ability: RouteAbility,
+    model_rank: int,
+) -> dict[str, Any]:
+    account = store.get_account(ability.account_id)
+    model = store.get_model(ability.model_id)
+    health = store.get_health(account.account_id, model.model_id)
+    usable = True
+    reject_reason = ""
+    if account.status != ProviderAccountStatus.ACTIVE:
+        usable = False
+        reject_reason = f"account is {account.status.value}"
+    elif model.status != ModelStatus.ACTIVE:
+        usable = False
+        reject_reason = f"model is {model.status.value}"
+    elif not ability.enabled:
+        usable = False
+        reject_reason = "route ability is disabled"
+    elif health.status in {HealthStatus.DOWN, HealthStatus.LIMITED}:
+        usable = False
+        reject_reason = f"health is {health.status.value}"
+    elif _note_value(account.notes, "quota_status") in {"exhausted", "limited"}:
+        usable = False
+        reject_reason = f"quota_status={_note_value(account.notes, 'quota_status')}"
+
+    return {
+        "account_id": account.account_id,
+        "provider": account.provider,
+        "channel_name": account.name,
+        "base_url": account.base_url,
+        "secret_ref": account.secret_ref,
+        "proxy_url": account.proxy_url,
+        "model_id": model.model_id,
+        "provider_model_id": ability.model_mapping or model.model_id,
+        "model_rank": model_rank,
+        "channel_priority": ability.priority,
+        "weight": ability.weight,
+        "api_format": _account_api_format(account),
+        "health_status": health.status.value,
+        "latency_ms": health.latency_ms,
+        "last_error": health.last_error,
+        "max_concurrency": _note_value(account.notes, "max_concurrency"),
+        "rpm_limit": _note_value(account.notes, "rpm_limit"),
+        "rps_limit": _note_value(account.notes, "rps_limit"),
+        "tpm_limit": _note_value(account.notes, "tpm_limit"),
+        "quota_ref": _note_value(account.notes, "quota_ref"),
+        "quota_status": _note_value(account.notes, "quota_status") or "unknown",
+        "quota_reset_at": _note_value(account.notes, "quota_reset_at"),
+        "usable": usable,
+        "reject_reason": reject_reason,
+    }
 
 
 def _project_route_notes(

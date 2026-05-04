@@ -370,8 +370,8 @@ INDEX_HTML = r"""<!doctype html>
     [data-config-mode].active { display: block; }
     .slot-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-      gap: 8px;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 10px;
     }
     .slot-card {
       padding: 10px;
@@ -381,6 +381,8 @@ INDEX_HTML = r"""<!doctype html>
     }
     .slot-card strong { display: block; font-size: 13px; }
     .slot-card span { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
+    .slot-card textarea { margin-top: 8px; min-height: 76px; }
+    .slot-card .slot-meta { min-height: 18px; margin-top: 6px; }
     .chart {
       min-height: 160px;
       display: grid;
@@ -590,13 +592,12 @@ INDEX_HTML = r"""<!doctype html>
               <div class="panel-body">
                 <form id="project-import-form">
                   <label>项目 ID<input name="project_id" id="project-id" placeholder="auto-driving-research" required></label>
-                  <label>导入范围<select name="scope" id="project-import-scope">
-                    <option value="selected_provider">当前模型厂商</option>
-                    <option value="all">全部已启用渠道</option>
+                  <label>模型选择方式<select name="order_mode" id="project-order-mode">
+                    <option value="model_order">按模型名顺序解析渠道</option>
                   </select></label>
                   <div class="slot-grid" id="model-slot-grid"></div>
                   <div class="buttons">
-                    <button class="primary">一键导入项目</button>
+                    <button class="primary">保存模型顺序</button>
                     <button type="button" class="secondary" id="copy-project-bundle">复制项目模型包</button>
                   </div>
                 </form>
@@ -607,7 +608,7 @@ INDEX_HTML = r"""<!doctype html>
               <pre class="result" id="project-bundle-preview">{}</pre>
             </div>
             <div class="panel table-box">
-              <div class="panel-head"><h3>已导入项目</h3><span class="subtle">偏好渠道与专属优先级</span></div>
+              <div class="panel-head"><h3>已保存项目</h3><span class="subtle">能力槽模型顺序</span></div>
               <div id="profilesTable"></div>
               <div id="overridesTable"></div>
             </div>
@@ -1116,9 +1117,22 @@ INDEX_HTML = r"""<!doctype html>
     function renderProjectSlots() {
       const target = document.getElementById('model-slot-grid');
       if (!target) return;
-      target.innerHTML = modelSlots.map(([id, title, desc]) => (
-        `<div class="slot-card" data-slot="${escapeAttr(id)}"><strong>${escapeHtml(title)}</strong><span>${escapeHtml(desc)}</span></div>`
-      )).join('');
+      const projectId = document.getElementById('project-id')?.value.trim() || '';
+      const saved = {};
+      (state.data?.model_orders || [])
+        .filter(order => !projectId || order.project_id === projectId)
+        .forEach(order => { saved[order.slot] = order.model_ids || []; });
+      const availableModels = [...new Set((state.data?.models || []).map(model => model.model_id))].sort();
+      const suggestions = availableModels.slice(0, 10).join(', ');
+      target.innerHTML = modelSlots.map(([id, title, desc]) => {
+        const value = saved[id]?.join('\n') || '';
+        return `<div class="slot-card" data-slot="${escapeAttr(id)}">
+          <strong>${escapeHtml(title)}</strong>
+          <span>${escapeHtml(desc)}</span>
+          <textarea data-slot-models="${escapeAttr(id)}" placeholder="每行一个模型名；按顺序重试，例如：\ndeepseek-chat\ngpt-5.5-mini\nclaude-sonnet-4.6">${escapeHtml(value)}</textarea>
+          <span class="slot-meta">已发现模型：${escapeHtml(suggestions || '先在模型配置页发现模型')}</span>
+        </div>`;
+      }).join('');
     }
 
     function renderMetrics() {
@@ -1128,7 +1142,7 @@ INDEX_HTML = r"""<!doctype html>
         model_catalog: '模型',
         route_abilities: '模型配置',
         project_route_profiles: '项目',
-        project_route_overrides: '项目配置',
+        project_model_orders: '模型顺序',
         provider_health: '检测记录',
         usage_request_logs: '调用日志'
       };
@@ -1141,7 +1155,7 @@ INDEX_HTML = r"""<!doctype html>
       const data = state.data || {};
       const overview = [
         ...(data.accounts || []).map(item => ({type: '渠道', id: item.account_id, detail: `${item.name} · 代理 ${proxyText(item)}`, status: item.status})),
-        ...(data.profiles || []).map(item => ({type: '项目', id: item.project_id, detail: `偏好渠道 ${(item.preferred_accounts || []).join(', ') || '未设置'}`, status: item.max_cost_usd ? `预算 ${item.max_cost_usd}` : 'active'}))
+        ...(data.profiles || []).map(item => ({type: '项目', id: item.project_id, detail: `能力槽 ${(data.model_orders || []).filter(order => order.project_id === item.project_id).length} 个`, status: item.max_cost_usd ? `预算 ${item.max_cost_usd}` : 'active'}))
       ];
       renderDataTable('overviewTable', '当前状态', [
         {label: '类型', render: row => `<span class="pill info">${escapeHtml(row.type)}</span>`},
@@ -1155,16 +1169,15 @@ INDEX_HTML = r"""<!doctype html>
       renderDataTable('profilesTable', '项目偏好', [
         {key: 'project_id', label: '项目'},
         {label: '能力', render: row => escapeHtml((row.default_capabilities || []).join(', '))},
-        {key: 'max_cost_usd', label: '预算'},
-        {label: '偏好渠道', render: row => escapeHtml((row.preferred_accounts || []).join(', '))}
+        {label: '能力槽', render: row => String((data.model_orders || []).filter(order => order.project_id === row.project_id).length)},
+        {key: 'notes', label: '说明'}
       ], data.profiles || []);
-      renderDataTable('overridesTable', '项目模型配置', [
+      renderDataTable('overridesTable', '项目模型顺序', [
         {key: 'project_id', label: '项目'},
-        {key: 'account_id', label: '渠道'},
-        {key: 'model_id', label: '模型'},
-        {key: 'priority', label: '优先级'},
-        {key: 'notes', label: '运行参数'}
-      ], data.overrides || []);
+        {key: 'slot', label: '能力槽'},
+        {label: '模型顺序', render: row => escapeHtml((row.model_ids || []).join(' -> '))},
+        {key: 'updated_at', label: '更新时间'}
+      ], data.model_orders || []);
       renderDataTable('monitorTable', '监控', [
         {key: 'account_id', label: '渠道'},
         {label: '状态', render: row => pill(row.health.status || 'unknown')},
@@ -1262,6 +1275,8 @@ INDEX_HTML = r"""<!doctype html>
       target.textContent = JSON.stringify(state.projectBundle || {
         project_id: document.getElementById('project-id')?.value || '',
         slots: modelSlots.map(([slot, label, description]) => ({slot, label, description})),
+        model_orders: projectOrderPayload().orders,
+        rule: '同名模型按模型配置页渠道优先级解析；不可用时切到下一渠道或下一模型',
         routes: []
       }, null, 2);
     }
@@ -1553,10 +1568,19 @@ INDEX_HTML = r"""<!doctype html>
       return data;
     }
 
+    function projectOrderPayload() {
+      const form = document.getElementById('project-import-form');
+      const payload = formPayload(form);
+      payload.orders = Array.from(document.querySelectorAll('[data-slot-models]')).map(input => ({
+        slot: input.dataset.slotModels,
+        model_ids: input.value.split(/[\n,]+/).map(item => item.trim()).filter(Boolean)
+      }));
+      return payload;
+    }
+
     async function importProjectRoutes() {
-      const payload = formPayload(document.getElementById('project-import-form'));
-      payload.provider = selectedProvider();
-      const data = await api('/api/project-import-routes', {
+      const payload = projectOrderPayload();
+      const data = await api('/api/project-model-orders', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(payload)
@@ -1564,7 +1588,7 @@ INDEX_HTML = r"""<!doctype html>
       state.projectBundle = data.bundle;
       await refresh();
       renderProjectBundlePreview();
-      showToast(`已导入 ${data.routes.length} 条项目模型配置`);
+      showToast(`已保存 ${data.orders.length} 个能力槽模型顺序`);
       return data;
     }
 
@@ -1635,7 +1659,7 @@ INDEX_HTML = r"""<!doctype html>
       const id = event.target.dataset.tableSearch;
       if (!id) {
         if (event.target.closest('#official-form')) updateScriptPreview();
-        if (event.target.id === 'project-id') renderProjectBundlePreview();
+        if (event.target.id === 'project-id' || event.target.matches('[data-slot-models]')) renderProjectBundlePreview();
         return;
       }
       tableState[id] = tableState[id] || {page: 1, query: ''};
@@ -1721,7 +1745,7 @@ INDEX_HTML = r"""<!doctype html>
     document.getElementById('project-import-form').addEventListener('submit', async event => {
       event.preventDefault();
       const button = event.submitter || event.currentTarget.querySelector('button');
-      await withButtonLoading(button, '导入中', async () => {
+      await withButtonLoading(button, '保存中', async () => {
         await importProjectRoutes();
       });
     });

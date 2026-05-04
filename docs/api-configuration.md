@@ -39,7 +39,7 @@ http://127.0.0.1:8765
 3. 点击 `添加渠道`。
 4. 填 API Key、接口地址、模型列表、默认模型、代理和并发/限流。
 5. 保存后点击 `刷新` 查看余额或错误。
-6. 在 `项目编组` 一键导入项目模型包。
+6. 在 `项目编组` 为每个能力槽填写模型名顺序并保存。
 
 代码 agent 也可以直接写入本地控制面：
 
@@ -151,20 +151,18 @@ raw key 只允许进入本地 GUI API 的 request body 或本地 secret backend�
 
 ## 项目如何使用
 
-项目页导出的模型包包含：
+项目页现在只要求项目选择多个模型名并决定顺序，不要求项目逐个选择 API 渠道。推荐流程：
 
-- `provider`
-- `account_id`
-- `model_id`
-- `base_url`
-- `secret_ref`
-- `proxy_url`
-- `max_concurrency`
-- `rpm_limit`
-- `tpm_limit`
-- `wire_api`
-- `requires_openai_auth`
-- `pricing`
-- `health`
+1. 在 `模型配置` 页发现或手动录入所有可用模型名。
+2. 拖拽渠道排序，决定同名模型优先使用哪个官方或中转渠道。
+3. 在 `项目编组` 填项目 ID。
+4. 在默认文本、复杂推理、代码与工具、多模态、批处理、检索向量等能力槽里填写模型名，一行一个，顺序就是重试顺序。
+5. 点击 `保存模型顺序`。
+6. 点击 `复制项目模型包` 给项目 runtime 或 agent 使用。
 
-项目 runtime 或 agent 只需要读取这些字段，再用 secret ref 在本机解析 key。不要把 raw key 写进项目模型包。
+项目模型包会包含两部分：
+
+- `model_orders`：项目自己保存的能力槽模型名顺序。
+- `slot_routes`：按当前全局渠道优先级、健康状态、额度状态解析出来的候选渠道。
+
+候选渠道包含 `provider`、`account_id`、`model_id`、`provider_model_id`、`base_url`、`secret_ref`、`proxy_url`、`max_concurrency`、`rps_limit`、`rpm_limit`、`tpm_limit`、`quota_ref`、`health_status`、`latency_ms` 和 `usable/reject_reason`。项目 runtime 或 agent 只需要读取 `selected`；调用失败时再按 `candidates` 的顺序重试。换中转站、换 API Key、调整代理或修正并发限制时，只改模型配置页，项目的模型顺序不用变。不要把 raw key 写进项目模型包。

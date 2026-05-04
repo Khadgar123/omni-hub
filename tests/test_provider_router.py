@@ -14,6 +14,7 @@ from omni_hub.provider_router import (
     ProviderAccount,
     ProviderHealth,
     ProviderRouterStore,
+    ProjectModelOrder,
     ProjectRouteOverride,
     ProjectRouteProfile,
     RouteAbility,
@@ -35,6 +36,7 @@ class ProviderRouterTests(unittest.TestCase):
                     "model_catalog": 0,
                     "route_abilities": 0,
                     "project_route_profiles": 0,
+                    "project_model_orders": 0,
                     "project_route_overrides": 0,
                     "provider_health": 0,
                     "usage_request_logs": 0,
@@ -307,6 +309,28 @@ class ProviderRouterTests(unittest.TestCase):
                     for item in decision.rejected
                 )
             )
+
+    def test_project_model_orders_store_model_names_by_slot(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = ProviderRouterStore(tmpdir)
+
+            order = store.upsert_project_model_order(
+                ProjectModelOrder(
+                    project_id="omni-hub",
+                    slot="reasoning",
+                    model_ids=["deepseek-chat", "gpt-5.5", "deepseek-chat"],
+                )
+            )
+
+            self.assertEqual(order.model_ids, ["deepseek-chat", "gpt-5.5"])
+            listed = store.list_project_model_orders(project_id="omni-hub")
+            self.assertEqual(len(listed), 1)
+            self.assertEqual(listed[0].slot, "reasoning")
+            self.assertEqual(listed[0].model_ids, ["deepseek-chat", "gpt-5.5"])
+            self.assertEqual(store.stats()["project_model_orders"], 1)
+
+            store.delete_project_model_order("omni-hub", "reasoning")
+            self.assertEqual(store.list_project_model_orders(project_id="omni-hub"), [])
 
     def test_operations_register_and_simulate_route(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

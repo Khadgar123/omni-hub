@@ -47,6 +47,11 @@ class GuiServerTests(unittest.TestCase):
         self.assertIn("用量重试次数", INDEX_HTML)
         self.assertIn("并发上限", INDEX_HTML)
         self.assertIn("项目模型包", INDEX_HTML)
+        self.assertIn("保存模型顺序", INDEX_HTML)
+        self.assertIn("按模型名顺序解析渠道", INDEX_HTML)
+        self.assertIn("data-slot-models", INDEX_HTML)
+        self.assertIn("/api/project-model-orders", INDEX_HTML)
+        self.assertIn("已保存项目", INDEX_HTML)
         self.assertIn("实时延迟", INDEX_HTML)
         self.assertIn("复制条目", INDEX_HTML)
         self.assertIn("删除", INDEX_HTML)
@@ -495,6 +500,76 @@ class GuiServerTests(unittest.TestCase):
                     server.shutdown()
                     thread.join(timeout=2)
                     server.server_close()
+
+    def test_gui_project_model_orders_resolve_by_global_channel_priority(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            server = create_gui_server(tmpdir, port=0)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            base_url = f"http://{server.server_address[0]}:{server.server_address[1]}"
+            try:
+                for account_id, name in [
+                    ("openai-low", "OpenAI Low"),
+                    ("openai-high", "OpenAI High"),
+                ]:
+                    _post_json(
+                        f"{base_url}/api/providers",
+                        {
+                            "account_id": account_id,
+                            "provider": "openai",
+                            "name": name,
+                            "base_url": "https://api.openai.com/v1",
+                            "secret_ref": f"env:{account_id.upper().replace('-', '_')}_KEY",
+                        },
+                    )
+                _post_json(
+                    f"{base_url}/api/channel-model",
+                    {
+                        "account_id": "openai-low",
+                        "model_id": "gpt-5.5-mini",
+                        "capabilities": ["text"],
+                        "priority": 40,
+                    },
+                )
+                _post_json(
+                    f"{base_url}/api/channel-model",
+                    {
+                        "account_id": "openai-high",
+                        "model_id": "gpt-5.5-mini",
+                        "capabilities": ["text"],
+                        "priority": 90,
+                    },
+                )
+
+                saved = _post_json(
+                    f"{base_url}/api/project-model-orders",
+                    {
+                        "project_id": "omni-hub",
+                        "orders": [
+                            {
+                                "slot": "default",
+                                "model_ids": ["gpt-5.5-mini"],
+                            }
+                        ],
+                    },
+                )
+                resolved = _post_json(
+                    f"{base_url}/api/project-resolve",
+                    {"project_id": "omni-hub", "slot": "default"},
+                )
+
+                self.assertEqual(saved["orders"][0]["model_ids"], ["gpt-5.5-mini"])
+                self.assertEqual(
+                    saved["bundle"]["slot_routes"][0]["selected"]["account_id"],
+                    "openai-high",
+                )
+                self.assertEqual(resolved["selected"]["account_id"], "openai-high")
+                self.assertEqual(resolved["selected"]["secret_ref"], "env:OPENAI_HIGH_KEY")
+                self.assertNotIn("sk-", json.dumps(saved))
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
 
     def test_gui_model_fetch_candidates_match_cc_switch_shape(self) -> None:
         from omni_hub.gui import _build_models_url_candidates

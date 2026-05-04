@@ -118,10 +118,11 @@ RouteRequest
 当前实现已经支持项目级配置，但只作用于万象中枢自己的 Router 和未来自己的 agent，不改写 Codex、Claude、Gemini、Cursor 等外部客户端配置：
 
 - `project_route_profiles`：项目默认能力、预算上限、batch 要求、provider/account 偏好。
+- `project_model_orders`：项目按能力槽保存模型名顺序，例如 `default -> deepseek-chat, gpt-5.5-mini`。项目不绑定具体渠道；同名模型由全局模型配置页的渠道优先级、健康状态和额度状态解析。
 - `project_route_overrides`：某个项目内对指定 account/model 的 priority、weight、禁用状态覆盖。
 - `route-simulate --project <project_id>`：按项目 profile 和 override 得出路由结果。
 
-项目级配置只能影响候选排序和更严格的限制，不能绕过全局 account/model 的禁用、健康状态、预算和 secret 规则。
+推荐的新项目配置方式是 `project_model_orders`。项目只表达“这个能力槽优先尝试哪些模型名”，例如复杂推理可以是 `gpt-5.5-xhigh -> claude-opus -> kimi-k2`，代码工具可以是 `gpt-5.5 -> deepseek-chat`。解析时先按项目模型顺序，再按全局同名模型渠道优先级选择具体 account；如果首个渠道健康状态为 `down/limited` 或额度标记为 `exhausted/limited`，则自动尝试下一渠道或下一模型。项目级配置只能影响候选排序和更严格的限制，不能绕过全局 account/model 的禁用、健康状态、预算和 secret 规则。
 
 ## Secret 规则
 
