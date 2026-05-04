@@ -759,17 +759,21 @@ INDEX_HTML = r"""<!doctype html>
         <section class="view" data-view-panel="monitor">
           <div class="grid">
             <div class="panel">
-              <div class="panel-head"><h3>实时延迟</h3><button class="secondary" id="realtime-toggle">开始实时刷新</button></div>
+              <div class="panel-head"><h3>最近模型探测延迟</h3><button class="secondary" id="realtime-toggle">开始定期查额度</button></div>
               <div class="panel-body"><div class="chart" id="latency-chart"></div></div>
             </div>
             <div class="panel">
-              <div class="panel-head"><h3>额度与代理</h3><span class="subtle">刷新后回写当前表格</span></div>
-              <div class="panel-body subtle">刷新会读取余额接口并更新本页显示；代理配置跟随渠道调用，留空就是 unset。连接测试仍使用最小请求，可能产生极小 token 成本。</div>
+              <div class="panel-head"><h3>额度监控</h3><span class="subtle">余额可定期查，延迟需手动探测</span></div>
+              <div class="panel-body subtle">查额度只调用供应商余额接口，不做模型请求。模型探测会发送最小真实请求，可能产生极小 token 成本，所以不会自动实时刷新。</div>
             </div>
           </div>
             <div class="panel table-box">
-            <div class="panel-head"><h3>模型配置健康与用量</h3><button class="secondary" id="check-all">刷新全部</button></div>
+            <div class="panel-head"><h3>渠道额度</h3><button class="secondary" id="check-all">全部查额度</button></div>
             <div id="monitorTable"></div>
+          </div>
+          <div class="panel table-box">
+            <div class="panel-head"><h3>模型级健康</h3><span class="subtle">同一渠道下不同模型分别探测</span></div>
+            <div id="modelMonitorTable"></div>
           </div>
         </section>
 
@@ -902,10 +906,10 @@ INDEX_HTML = r"""<!doctype html>
       overview: ['总览', '模型厂商、渠道队列、代理、用量和项目模型包。'],
       channels: ['模型配置', '按模型厂商管理官方和中转渠道。'],
       projects: ['项目编组', '为项目导入模型包和运行参数。'],
-      monitor: ['监控检测', '检测模型配置、实时延迟、额度、代理和失败。'],
+      monitor: ['监控检测', '定期查额度，按需探测模型延迟和模型级健康。'],
       skills: ['Skills', '技能安装、同步、质量评分和项目推荐的控制面。']
     };
-    const state = {data: null, view: 'overview', officialProvider: null, providerModalMode: 'add', realtime: false, realtimeTimer: null, dragAccount: null, projectBundle: null, balances: {}, selectedProjectId: '', selectedSlot: 'default', projectDrafts: {}, projectModelSearch: ''};
+    const state = {data: null, view: 'overview', officialProvider: null, providerModalMode: 'add', realtime: false, realtimeTimer: null, dragAccount: null, projectBundle: null, balances: {}, selectedProjectId: '', selectedSlot: 'default', projectDrafts: {}, projectModelSearch: '', creatingProject: false};
     const tableState = {};
 
     const api = async (url, options = {}) => {
@@ -1010,6 +1014,30 @@ INDEX_HTML = r"""<!doctype html>
         ].filter(Boolean).join(' · ');
         return suffix ? `${pieces.join(' ')} · ${suffix}` : pieces.join(' ');
       }).join('；') || '余额接口无数据';
+    };
+    const balanceStatus = account => {
+      const cached = state.balances[account.account_id];
+      if (!cached) return {text: '未查询', cls: 'warn'};
+      if (!cached.success) {
+        return missingSecretText(cached)
+          ? {text: '待填 Key', cls: 'warn'}
+          : {text: '查询失败', cls: 'bad'};
+      }
+      const rows = cached.data || [];
+      if (rows.some(row => row.is_valid === false)) return {text: '额度无效', cls: 'bad'};
+      if (rows.some(row => row.remaining != null && Number(row.remaining) <= 0)) return {text: '额度耗尽', cls: 'bad'};
+      return {text: rows.length ? '可用' : '已查询', cls: 'ok'};
+    };
+    const balancePill = account => {
+      const status = balanceStatus(account);
+      return `<span class="pill ${status.cls}">${escapeHtml(status.text)}</span>`;
+    };
+    const balanceResultText = account => {
+      const cached = state.balances[account.account_id];
+      if (!cached) return '';
+      if (!cached.success) return missingSecretText(cached) ? '等待本机密钥' : (cached.error || '余额查询失败');
+      const invalid = (cached.data || []).find(row => row.is_valid === false);
+      return invalid ? (invalid.invalid_message || '套餐不可用') : '';
     };
     const sameBaseUrl = (left, right) => String(left || '').trim().replace(/\/+$/, '').toLowerCase() === String(right || '').trim().replace(/\/+$/, '').toLowerCase();
     const channelGroup = (preset, baseUrl) => sameBaseUrl(baseUrl, preset?.base_url || '') ? 'official' : 'relay';
@@ -1151,7 +1179,10 @@ INDEX_HTML = r"""<!doctype html>
     function accountById(id) {
       return (state.data?.accounts || []).find(account => account.account_id === id) || {};
     }
-    function healthFor(accountId) {
+    function healthFor(accountId, modelId = '') {
+      if (modelId) {
+        return (state.data?.health || []).find(item => item.account_id === accountId && item.model_id === modelId) || {};
+      }
       return (state.data?.health || []).find(item => item.account_id === accountId && !item.model_id) || {};
     }
     function poolRows() {
@@ -1334,7 +1365,7 @@ INDEX_HTML = r"""<!doctype html>
       const target = document.getElementById('project-list');
       if (!target) return;
       const rows = projectRows();
-      if (!state.selectedProjectId && rows[0]) state.selectedProjectId = rows[0].project_id;
+      if (!state.creatingProject && !state.selectedProjectId && rows[0]) state.selectedProjectId = rows[0].project_id;
       if (state.selectedProjectId) {
         const input = document.getElementById('project-id');
         if (input && input.value !== state.selectedProjectId) input.value = state.selectedProjectId;
@@ -1401,14 +1432,20 @@ INDEX_HTML = r"""<!doctype html>
       renderProjectBundlePreview();
       renderDataTable('monitorTable', '监控', [
         {key: 'account_id', label: '渠道'},
-        {label: '状态', render: row => pill(row.health.status || 'unknown')},
-        {label: '延迟', render: row => row.health.latency_ms == null ? '待探测' : `${row.health.latency_ms} ms`},
+        {label: '额度状态', render: row => balancePill(row)},
         {label: '模型数', render: row => String(poolRows().filter(item => item.account_id === row.account_id).length)},
         {label: '余额', render: row => escapeHtml(balanceText(row))},
-        {label: '代理', render: row => escapeHtml(proxyText(row))},
-        {label: '结果', render: row => escapeHtml(row.health.last_error || '')},
-        {label: '操作', render: row => `<button class="secondary" data-account-action="refresh" data-account-id="${escapeAttr(row.account_id)}">刷新</button>`}
+        {label: '结果', render: row => escapeHtml(balanceResultText(row))},
+        {label: '操作', render: row => `<div class="buttons"><button class="secondary" data-account-action="quota" data-account-id="${escapeAttr(row.account_id)}">查额度</button><button class="secondary" data-account-action="test" data-account-id="${escapeAttr(row.account_id)}">模型探测</button></div>`}
       ], (data.accounts || []).map(account => ({...account, health: healthFor(account.account_id)})));
+      renderDataTable('modelMonitorTable', '模型级健康', [
+        {label: '渠道', render: row => escapeHtml(row.account.name || row.account_id)},
+        {key: 'model_id', label: '模型'},
+        {label: '状态', render: row => pill(row.model_health.status || 'unknown')},
+        {label: '延迟', render: row => row.model_health.latency_ms == null ? '待探测' : `${row.model_health.latency_ms} ms`},
+        {label: '结果', render: row => escapeHtml(row.model_health.last_error || '')},
+        {label: '操作', render: row => `<button class="secondary" data-model-action="probe" data-account-id="${escapeAttr(row.account_id)}" data-model-id="${escapeAttr(row.model_id)}">探测模型</button>`}
+      ], poolRows().map(row => ({...row, model_health: healthFor(row.account_id, row.model_id)})));
       renderLatencyChart(data.accounts || []);
     }
 
@@ -1530,12 +1567,14 @@ INDEX_HTML = r"""<!doctype html>
       if (showMessage) showToast('数据已刷新');
     }
 
-    async function checkAccount(accountId) {
+    async function checkAccount(accountId, modelId = '') {
       if (!accountId) throw new Error('请先选择配置');
+      const payload = {account_id: accountId};
+      if (modelId) payload.model_id = modelId;
       const data = await api('/api/model-probe', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({account_id: accountId})
+        body: JSON.stringify(payload)
       });
       await refresh();
       const model = data.stream_check?.model_id || '';
@@ -1662,7 +1701,7 @@ INDEX_HTML = r"""<!doctype html>
       await copyText(data.script, 'Codex config.toml 片段已导出');
     }
 
-    async function showQuota(accountId) {
+    async function checkBalance(accountId, notify = true) {
       const account = accountById(accountId);
       if (!account.account_id) throw new Error('配置不存在');
       const data = await api('/api/balance-check', {
@@ -1672,14 +1711,33 @@ INDEX_HTML = r"""<!doctype html>
       });
       state.balances[accountId] = data;
       renderTables();
+      if (!notify) return data;
       if (!data.success) {
         const fallback = quotaText(account);
         showToast(data.error === 'unsupported balance provider' && fallback !== '未配置' ? `该厂商未接入余额接口；可去 ${fallback}` : `额度查询失败：${data.error || '未支持'}`, 'warn');
-        return;
+        return data;
       }
       const rows = data.data || [];
       const text = rows.map(row => `${row.plan_name || '余额'} ${row.remaining ?? '-'} ${row.unit || ''}`).join('；') || '余额接口无数据';
       showToast(`额度查询完成：${text}`);
+      return data;
+    }
+
+    async function showQuota(accountId) {
+      return checkBalance(accountId, true);
+    }
+
+    async function refreshAllBalances(notify = true) {
+      const accounts = state.data?.accounts || [];
+      for (const account of accounts) {
+        try {
+          await checkBalance(account.account_id, false);
+        } catch (err) {
+          state.balances[account.account_id] = {success: false, data: null, error: err.message || '余额查询失败'};
+        }
+      }
+      renderTables();
+      if (notify) showToast(`已查询 ${accounts.length} 个渠道额度`);
     }
 
     async function refreshAccount(accountId) {
@@ -1814,6 +1872,7 @@ INDEX_HTML = r"""<!doctype html>
       });
       state.projectBundle = data.bundle;
       state.selectedProjectId = payload.project_id;
+      state.creatingProject = false;
       await refresh();
       renderProjectBundlePreview();
       showToast(`已保存 ${data.orders.length} 个能力槽模型顺序`);
@@ -1871,6 +1930,7 @@ INDEX_HTML = r"""<!doctype html>
       state.selectedProjectId = '';
       state.selectedSlot = 'default';
       state.projectBundle = null;
+      state.creatingProject = true;
       state.projectDrafts.__draft__ = {};
       document.getElementById('project-id').value = '';
       document.getElementById('project-model-search').value = '';
@@ -1915,6 +1975,7 @@ INDEX_HTML = r"""<!doctype html>
       const projectButton = event.target.closest('[data-project-id]');
       if (projectButton) {
         state.selectedProjectId = projectButton.dataset.projectId;
+        state.creatingProject = false;
         state.projectBundle = null;
         document.getElementById('project-id').value = state.selectedProjectId;
         ensureProjectDraft(state.selectedProjectId);
@@ -1964,6 +2025,13 @@ INDEX_HTML = r"""<!doctype html>
       if (projectCopySection) {
         withButtonLoading(projectCopySection, '复制中', () => copyProjectSection(projectCopySection.dataset.projectCopySection));
       }
+      const modelAction = event.target.closest('[data-model-action]');
+      if (modelAction) {
+        const action = modelAction.dataset.modelAction;
+        if (action === 'probe') {
+          withButtonLoading(modelAction, '探测中', () => checkAccount(modelAction.dataset.accountId, modelAction.dataset.modelId));
+        }
+      }
       const pageButton = event.target.closest('[data-page]');
       if (pageButton) {
         const id = pageButton.dataset.page;
@@ -1978,6 +2046,7 @@ INDEX_HTML = r"""<!doctype html>
         if (event.target.closest('#official-form')) updateScriptPreview();
         if (event.target.id === 'project-id') {
           state.selectedProjectId = event.target.value.trim();
+          state.creatingProject = !projectRows().some(row => row.project_id === state.selectedProjectId);
           state.projectBundle = null;
           ensureProjectDraft(state.selectedProjectId || '__draft__');
           renderProjectList();
@@ -2055,20 +2124,19 @@ INDEX_HTML = r"""<!doctype html>
     document.getElementById('model-ids').addEventListener('input', () => syncDefaultModelOptions());
     document.getElementById('realtime-toggle').addEventListener('click', event => {
       state.realtime = !state.realtime;
-      event.target.textContent = state.realtime ? '停止实时刷新' : '开始实时刷新';
+      event.target.textContent = state.realtime ? '停止定期查额度' : '开始定期查额度';
       if (state.realtime) {
-        state.realtimeTimer = setInterval(() => refresh(false), 10000);
-        showToast('实时刷新已开启');
+        refreshAllBalances(false);
+        state.realtimeTimer = setInterval(() => refreshAllBalances(false), 5 * 60 * 1000);
+        showToast('定期查额度已开启；不会自动做模型探测');
       } else {
         clearInterval(state.realtimeTimer);
-        showToast('实时刷新已停止');
+        showToast('定期查额度已停止');
       }
     });
     document.getElementById('check-all').addEventListener('click', async event => {
       await withButtonLoading(event.currentTarget, '刷新中', async () => {
-        for (const account of state.data.accounts || []) {
-          await refreshAccount(account.account_id);
-        }
+        await refreshAllBalances(true);
       });
     });
     document.getElementById('project-import-form').addEventListener('submit', async event => {
