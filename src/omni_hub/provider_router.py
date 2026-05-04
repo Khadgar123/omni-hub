@@ -761,6 +761,23 @@ class ProviderRouterStore:
             raise KeyError(f"project route profile does not exist: {project_id}")
         return profile
 
+    def delete_project(self, project_id: str) -> None:
+        validate_project_id(project_id)
+        if not self.db_path.exists():
+            raise KeyError(f"project route profile does not exist: {project_id}")
+        with self._connect() as conn:
+            existing = self._get_project_profile(conn, project_id)
+            if existing is None:
+                raise KeyError(f"project route profile does not exist: {project_id}")
+            for table in (
+                "project_model_orders",
+                "project_route_overrides",
+                "project_route_profiles",
+            ):
+                if self._table_exists(conn, table):
+                    conn.execute(f"DELETE FROM {table} WHERE project_id = ?", (project_id,))
+            conn.commit()
+
     def upsert_project_model_order(
         self,
         order: ProjectModelOrder,

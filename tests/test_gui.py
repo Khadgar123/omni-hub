@@ -48,11 +48,13 @@ class GuiServerTests(unittest.TestCase):
         self.assertIn("并发上限", INDEX_HTML)
         self.assertIn("项目模型包", INDEX_HTML)
         self.assertIn("保存模型顺序", INDEX_HTML)
+        self.assertIn("删除项目", INDEX_HTML)
         self.assertIn("项目模型配置", INDEX_HTML)
         self.assertIn("可选模型", INDEX_HTML)
         self.assertIn("project-list", INDEX_HTML)
         self.assertIn("data-model-add", INDEX_HTML)
         self.assertIn("/api/project-model-orders", INDEX_HTML)
+        self.assertIn("/api/project-delete", INDEX_HTML)
         self.assertIn("项目接入文件", INDEX_HTML)
         self.assertIn("最近模型探测延迟", INDEX_HTML)
         self.assertIn("开始定期查额度", INDEX_HTML)
@@ -583,6 +585,37 @@ class GuiServerTests(unittest.TestCase):
                 self.assertEqual(resolved["selected"]["account_id"], "openai-high")
                 self.assertEqual(resolved["selected"]["secret_ref"], "env:OPENAI_HIGH_KEY")
                 self.assertNotIn("sk-", json.dumps(saved))
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
+    def test_gui_project_delete_removes_profile_and_orders(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            server = create_gui_server(tmpdir, port=0)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            base_url = f"http://{server.server_address[0]}:{server.server_address[1]}"
+            try:
+                _post_json(
+                    f"{base_url}/api/project-model-orders",
+                    {
+                        "project_id": "omni-hub",
+                        "orders": [
+                            {"slot": "default", "model_ids": ["gpt-5.5-mini"]},
+                            {"slot": "reasoning", "model_ids": ["gpt-5.5"]},
+                        ],
+                    },
+                )
+                deleted = _post_json(
+                    f"{base_url}/api/project-delete",
+                    {"project_id": "omni-hub"},
+                )
+                state = _get_json(f"{base_url}/api/state")
+
+                self.assertEqual(deleted["deleted"], "omni-hub")
+                self.assertEqual(state["profiles"], [])
+                self.assertEqual(state["model_orders"], [])
             finally:
                 server.shutdown()
                 thread.join(timeout=2)

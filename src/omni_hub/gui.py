@@ -673,6 +673,11 @@ def handle_post(
     if path == "/api/project-resolve":
         return _project_resolve_response(store, payload)
 
+    if path == "/api/project-delete":
+        project_id = _required(payload, "project_id")
+        store.delete_project(project_id)
+        return {"deleted": project_id}
+
     if path == "/api/project-bundle":
         return _project_bundle_response(store, _required(payload, "project_id"))
 

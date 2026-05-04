@@ -332,6 +332,42 @@ class ProviderRouterTests(unittest.TestCase):
             store.delete_project_model_order("omni-hub", "reasoning")
             self.assertEqual(store.list_project_model_orders(project_id="omni-hub"), [])
 
+    def test_delete_project_removes_profile_orders_and_overrides(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = ProviderRouterStore(tmpdir)
+            store.upsert_account(
+                ProviderAccount(
+                    account_id="openai-main",
+                    provider="openai",
+                    name="OpenAI Main",
+                    base_url="https://api.openai.com/v1",
+                    secret_ref="env:OPENAI_API_KEY",
+                )
+            )
+            store.upsert_model(ModelSpec(model_id="gpt-5.5", capabilities=["text"]))
+            store.upsert_project_profile(ProjectRouteProfile(project_id="omni-hub"))
+            store.upsert_project_model_order(
+                ProjectModelOrder(
+                    project_id="omni-hub",
+                    slot="reasoning",
+                    model_ids=["gpt-5.5"],
+                )
+            )
+            store.upsert_project_override(
+                ProjectRouteOverride(
+                    project_id="omni-hub",
+                    account_id="openai-main",
+                    model_id="gpt-5.5",
+                    priority=90,
+                )
+            )
+
+            store.delete_project("omni-hub")
+
+            self.assertEqual(store.list_project_profiles(), [])
+            self.assertEqual(store.list_project_model_orders(project_id="omni-hub"), [])
+            self.assertEqual(store.list_project_overrides(project_id="omni-hub"), [])
+
     def test_operations_register_and_simulate_route(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             runner = OperationRunner(

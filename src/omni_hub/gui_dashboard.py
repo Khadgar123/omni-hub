@@ -729,6 +729,7 @@ INDEX_HTML = r"""<!doctype html>
                     <div class="buttons">
                       <button class="primary">保存模型顺序</button>
                       <button type="button" class="secondary" id="copy-project-bundle">复制项目接入文件</button>
+                      <button type="button" class="secondary danger" id="project-delete">删除项目</button>
                     </div>
                   </div>
                   <div class="project-model-layout">
@@ -1894,6 +1895,40 @@ INDEX_HTML = r"""<!doctype html>
       await copyText(JSON.stringify(state.projectBundle, null, 2), '项目模型包已复制');
     }
 
+    async function deleteProject() {
+      const projectId = document.getElementById('project-id').value.trim();
+      if (!projectId) throw new Error('请先选择项目');
+      if (state.creatingProject || !projectRows().some(row => row.project_id === projectId)) {
+        state.selectedProjectId = '';
+        state.selectedSlot = 'default';
+        state.projectBundle = null;
+        state.creatingProject = true;
+        state.projectDrafts.__draft__ = {};
+        document.getElementById('project-id').value = '';
+        document.getElementById('project-model-search').value = '';
+        renderProjectSlots();
+        renderProjectList();
+        renderProjectBundlePreview();
+        showToast('已清空新建项目草稿');
+        return;
+      }
+      if (!confirm(`删除项目 ${projectId}？项目模型顺序和覆盖规则会一起删除。`)) return;
+      await api('/api/project-delete', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({project_id: projectId})
+      });
+      delete state.projectDrafts[projectId];
+      state.selectedProjectId = '';
+      state.selectedSlot = 'default';
+      state.projectBundle = null;
+      state.creatingProject = false;
+      document.getElementById('project-id').value = '';
+      document.getElementById('project-model-search').value = '';
+      await refresh(false);
+      showToast(`项目已删除：${projectId}`);
+    }
+
     async function copyProjectSection(section) {
       const projectId = document.getElementById('project-id').value.trim();
       if (!projectId) throw new Error('请先填写项目 ID');
@@ -2149,6 +2184,11 @@ INDEX_HTML = r"""<!doctype html>
     document.getElementById('copy-project-bundle').addEventListener('click', async event => {
       await withButtonLoading(event.currentTarget, '复制中', async () => {
         await copyProjectBundle();
+      });
+    });
+    document.getElementById('project-delete').addEventListener('click', async event => {
+      await withButtonLoading(event.currentTarget, '删除中', async () => {
+        await deleteProject();
       });
     });
 
