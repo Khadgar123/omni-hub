@@ -729,6 +729,8 @@ INDEX_HTML = r"""<!doctype html>
               </select></label>
               <label>用量 Base URL<input name="usage_base_url" id="usage-base-url" placeholder="留空使用接口地址"></label>
               <label>自定义用量路径<input name="usage_endpoint" id="usage-endpoint" placeholder="/v1/usage"></label>
+              <label>用量超时秒数<input name="usage_timeout_secs" id="usage-timeout-secs" type="number" min="1" placeholder="20"></label>
+              <label>用量重试次数<input name="usage_max_retries" id="usage-max-retries" type="number" min="0" max="3" placeholder="1"></label>
               <label>New API User ID<input name="usage_user_id" id="usage-user-id" placeholder="New API 用户 ID"></label>
               <label>New API Access Token<input name="usage_access_token" id="usage-access-token" type="password" autocomplete="off" placeholder="保存到本地 secret；查额度时使用"></label>
               <input name="usage_access_token_ref" id="usage-access-token-ref" type="hidden">
@@ -1012,6 +1014,8 @@ INDEX_HTML = r"""<!doctype html>
       document.getElementById('usage-template').value = 'auto';
       document.getElementById('usage-base-url').value = '';
       document.getElementById('usage-endpoint').value = '';
+      document.getElementById('usage-timeout-secs').value = '';
+      document.getElementById('usage-max-retries').value = '';
       document.getElementById('usage-user-id').value = '';
       document.getElementById('usage-access-token').value = '';
       document.getElementById('usage-access-token-ref').value = '';
@@ -1057,6 +1061,8 @@ INDEX_HTML = r"""<!doctype html>
       document.getElementById('usage-template').value = channel.usage_template || 'auto';
       document.getElementById('usage-base-url').value = channel.usage_base_url || '';
       document.getElementById('usage-endpoint').value = channel.usage_endpoint || '';
+      document.getElementById('usage-timeout-secs').value = channel.usage_timeout_secs || '';
+      document.getElementById('usage-max-retries').value = channel.usage_max_retries || '';
       document.getElementById('usage-user-id').value = '';
       document.getElementById('usage-access-token').value = '';
       document.getElementById('usage-access-token-ref').value = '';
@@ -1370,6 +1376,8 @@ INDEX_HTML = r"""<!doctype html>
       document.getElementById('usage-template').value = noteValue(account.notes, 'usage_template') || 'auto';
       document.getElementById('usage-base-url').value = noteValue(account.notes, 'usage_base_url');
       document.getElementById('usage-endpoint').value = noteValue(account.notes, 'usage_endpoint');
+      document.getElementById('usage-timeout-secs').value = noteValue(account.notes, 'usage_timeout_secs');
+      document.getElementById('usage-max-retries').value = noteValue(account.notes, 'usage_max_retries');
       document.getElementById('usage-user-id').value = noteValue(account.notes, 'usage_user_id');
       document.getElementById('usage-access-token').value = '';
       document.getElementById('usage-access-token-ref').value = noteValue(account.notes, 'usage_access_token_ref');

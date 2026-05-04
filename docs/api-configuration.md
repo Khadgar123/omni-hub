@@ -127,6 +127,7 @@ GUI 已把这次爬到的 CursorLink 结果做成 OpenAI 和 Claude 厂商下的
 ## GUI 操作语义
 
 - `刷新`：同时做最小模型连接探测和余额查询，并把健康状态、延迟、余额或错误直接回写到当前行。没有 key 时显示 `待填写 API Key`，不会再暴露底层 secret 异常。
+- 余额查询和模型调用一样跟随该渠道的 `代理连接`。留空表示真正 unset，不继承系统代理；如果 CursorLink 这类用量域名 TLS 握手超时，给该渠道填 `http://127.0.0.1:7890` 或 `env:HTTPS_PROXY`，也可以在高级配置里调高 `用量超时秒数` 和 `用量重试次数`。
 - `测0-10并发/RPS`：用当前渠道的首个启用模型做 0-10 阶梯并发探测和 0-10 RPS 探测，并尝试访问批处理接口；结果会覆盖手填的 `max_concurrency`、`rps_limit`、`rpm_limit`，并回写 `probed_concurrency_range`、`probed_rps_range`、`batch_support` 和 `batch_probe`。并发探测会依次测试 1、2、...、10 个同时请求；RPS 探测会依次测试 1、2、...、10 个请求在 1 秒窗口内发出。每一级必须全部成功且没有 429 才算通过，因此一次完整探测最多会发起 110 个最小模型请求。
 - 批处理探测不会创建批处理任务。OpenAI 兼容渠道默认检查 `/v1/batches?limit=1`，Anthropic 原生渠道检查 `/v1/messages/batches`；2xx 表示支持，404/405/501 表示不支持，401/403/429 只表示鉴权或限流导致未确认。
 - `复制条目`：复制为第二条渠道，复用 secret ref 和模型绑定，便于改 base URL、代理或优先级。

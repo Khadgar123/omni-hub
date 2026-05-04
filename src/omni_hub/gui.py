@@ -44,7 +44,7 @@ STREAM_CHECK_DEFAULTS: dict[str, Any] = {
 
 
 MODEL_FETCH_TIMEOUT_SECS = 15
-BALANCE_CHECK_TIMEOUT_SECS = 10
+BALANCE_CHECK_TIMEOUT_SECS = 20
 
 CURSORLINK_DEFAULT_API_BASE_URL = "https://apicursor.com/v1"
 CURSORLINK_USAGE_BASE_URL = "https://cursorlink.net"
@@ -505,6 +505,8 @@ def handle_post(
                 _payload_note(payload, "usage_template"),
                 _payload_note(payload, "usage_base_url"),
                 _payload_note(payload, "usage_endpoint"),
+                _payload_note(payload, "usage_timeout_secs"),
+                _payload_note(payload, "usage_max_retries"),
                 _payload_note(payload, "usage_user_id"),
                 f"usage_access_token_ref={usage_access_token_ref}"
                 if usage_access_token_ref
@@ -2508,27 +2510,45 @@ def _query_balance_json(
         method="GET",
     )
     opener = _opener_for_account(account)
-    try:
-        with opener.open(request, timeout=BALANCE_CHECK_TIMEOUT_SECS) as response:
-            body = json.loads(response.read(1_000_000).decode("utf-8"))
-    except HTTPError as exc:
-        body_text = _safe_body_preview(exc.read(4096), api_key)
-        return {
-            "success": False,
-            "data": [
-                {
-                    "is_valid": False,
-                    "invalid_message": f"Authentication failed (HTTP {exc.code})"
-                    if exc.code in {401, 403}
-                    else f"API error (HTTP {exc.code})",
-                }
-            ],
-            "error": f"{url}: HTTP {exc.code}: {body_text}",
-        }
-    except URLError as exc:
-        return {"success": False, "data": None, "error": f"{url}: Network error: {exc.reason}"}
-    except json.JSONDecodeError as exc:
-        return {"success": False, "data": None, "error": f"{url}: Failed to parse response: {exc}"}
+    attempts = _balance_attempts(account)
+    timeout_secs = _balance_timeout_secs(account)
+    last_error: dict[str, Any] | None = None
+    for attempt in range(attempts):
+        try:
+            with opener.open(request, timeout=timeout_secs) as response:
+                body = json.loads(response.read(1_000_000).decode("utf-8"))
+            break
+        except HTTPError as exc:
+            body_text = _safe_body_preview(exc.read(4096), api_key)
+            return {
+                "success": False,
+                "data": [
+                    {
+                        "is_valid": False,
+                        "invalid_message": f"Authentication failed (HTTP {exc.code})"
+                        if exc.code in {401, 403}
+                        else f"API error (HTTP {exc.code})",
+                    }
+                ],
+                "error": f"{url}: HTTP {exc.code}: {body_text}",
+            }
+        except URLError as exc:
+            last_error = _balance_network_error(
+                account,
+                url,
+                exc,
+                attempt=attempt,
+                attempts=attempts,
+                timeout_secs=timeout_secs,
+            )
+            if attempt + 1 < attempts:
+                sleep(0.4 * (attempt + 1))
+                continue
+            return last_error
+        except json.JSONDecodeError as exc:
+            return {"success": False, "data": None, "error": f"{url}: Failed to parse response: {exc}"}
+    else:
+        return last_error or {"success": False, "data": None, "error": f"{url}: Network error"}
 
     try:
         data = parser(body)
@@ -2556,27 +2576,45 @@ def _query_balance_form(
     )
     opener = _opener_for_account(account)
     secret = fields.get("apiKey") or fields.get("secretKey") or ""
-    try:
-        with opener.open(request, timeout=BALANCE_CHECK_TIMEOUT_SECS) as response:
-            response_body = json.loads(response.read(1_000_000).decode("utf-8"))
-    except HTTPError as exc:
-        body_text = _safe_body_preview(exc.read(4096), secret)
-        return {
-            "success": False,
-            "data": [
-                {
-                    "is_valid": False,
-                    "invalid_message": f"Authentication failed (HTTP {exc.code})"
-                    if exc.code in {401, 403}
-                    else f"API error (HTTP {exc.code})",
-                }
-            ],
-            "error": f"{url}: HTTP {exc.code}: {body_text}",
-        }
-    except URLError as exc:
-        return {"success": False, "data": None, "error": f"{url}: Network error: {exc.reason}"}
-    except json.JSONDecodeError as exc:
-        return {"success": False, "data": None, "error": f"{url}: Failed to parse response: {exc}"}
+    attempts = _balance_attempts(account)
+    timeout_secs = _balance_timeout_secs(account)
+    last_error: dict[str, Any] | None = None
+    for attempt in range(attempts):
+        try:
+            with opener.open(request, timeout=timeout_secs) as response:
+                response_body = json.loads(response.read(1_000_000).decode("utf-8"))
+            break
+        except HTTPError as exc:
+            body_text = _safe_body_preview(exc.read(4096), secret)
+            return {
+                "success": False,
+                "data": [
+                    {
+                        "is_valid": False,
+                        "invalid_message": f"Authentication failed (HTTP {exc.code})"
+                        if exc.code in {401, 403}
+                        else f"API error (HTTP {exc.code})",
+                    }
+                ],
+                "error": f"{url}: HTTP {exc.code}: {body_text}",
+            }
+        except URLError as exc:
+            last_error = _balance_network_error(
+                account,
+                url,
+                exc,
+                attempt=attempt,
+                attempts=attempts,
+                timeout_secs=timeout_secs,
+            )
+            if attempt + 1 < attempts:
+                sleep(0.4 * (attempt + 1))
+                continue
+            return last_error
+        except json.JSONDecodeError as exc:
+            return {"success": False, "data": None, "error": f"{url}: Failed to parse response: {exc}"}
+    else:
+        return last_error or {"success": False, "data": None, "error": f"{url}: Network error"}
 
     try:
         data = parser(response_body)
@@ -2679,6 +2717,62 @@ def _redact_url(url: str) -> str:
 def _safe_text(text: str, limit: int = 240) -> str:
     clean = " ".join(str(text).split())
     return clean[:limit]
+
+
+def _balance_timeout_secs(account: ProviderAccount) -> int:
+    return min(
+        max(
+            _int_value(
+                _note_value(account.notes, "usage_timeout_secs"),
+                default=BALANCE_CHECK_TIMEOUT_SECS,
+            ),
+            1,
+        ),
+        120,
+    )
+
+
+def _balance_attempts(account: ProviderAccount) -> int:
+    retries = min(
+        max(_int_value(_note_value(account.notes, "usage_max_retries"), default=1), 0),
+        3,
+    )
+    return retries + 1
+
+
+def _balance_network_error(
+    account: ProviderAccount,
+    url: str,
+    exc: URLError,
+    *,
+    attempt: int,
+    attempts: int,
+    timeout_secs: int,
+) -> dict[str, Any]:
+    reason = str(getattr(exc, "reason", exc))
+    lower = reason.lower()
+    timed_out = "timed out" in lower or "timeout" in lower
+    proxy_hint = (
+        f"当前渠道代理：{account.proxy_url}"
+        if account.proxy_url
+        else "当前渠道未配置代理；如该用量域名需要代理，请在渠道里填写 proxy_url"
+    )
+    if timed_out:
+        return {
+            "success": False,
+            "data": None,
+            "error_code": "balance_timeout",
+            "error": (
+                f"{url}: 余额接口网络超时；TLS/连接在 {timeout_secs}s 内未完成；"
+                f"{proxy_hint}；已尝试 {attempt + 1}/{attempts}"
+            ),
+        }
+    return {
+        "success": False,
+        "data": None,
+        "error_code": "balance_network_error",
+        "error": f"{url}: 余额接口网络错误：{_safe_text(reason)}；{proxy_hint}；已尝试 {attempt + 1}/{attempts}",
+    }
 
 
 MODEL_SLOT_PRESETS: list[dict[str, Any]] = [
@@ -2918,14 +3012,13 @@ def _project_route_notes(
 
 
 def _opener_for_account(account: ProviderAccount):
-    handler = None
     if account.proxy_url:
         proxy_url = account.proxy_url
         if proxy_url.startswith("env:"):
             proxy_url = os.environ.get(proxy_url.split(":", 1)[1], "")
         if proxy_url:
-            handler = ProxyHandler({"http": proxy_url, "https": proxy_url})
-    return build_opener(handler) if handler else build_opener()
+            return build_opener(ProxyHandler({"http": proxy_url, "https": proxy_url}))
+    return build_opener(ProxyHandler({}))
 
 
 def _quota_signals(headers: Any) -> dict[str, str]:

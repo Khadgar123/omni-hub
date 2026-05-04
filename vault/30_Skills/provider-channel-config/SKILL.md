@@ -28,6 +28,7 @@ Collect these fields before writing a channel. If a field is unknown, leave it e
 - `wire_api`: Codex-facing protocol such as `responses` or `chat`.
 - `requires_openai_auth`, `disable_response_storage`, `model_reasoning_effort`: Codex export fields.
 - `usage_template`, `usage_base_url`, `usage_endpoint`, `usage_access_token_ref`: balance and quota query configuration.
+- `usage_timeout_secs`, `usage_max_retries`: balance query timeout and retry knobs. Use these when the usage domain is slower than the model call domain.
 - `max_concurrency`, `rpm_limit`, `tpm_limit`, `batch_support`: measured or vendor-published runtime limits.
 - `cost_multiplier`, `pricing_model_source`: pricing source and correction factor.
 
@@ -106,6 +107,7 @@ CursorLink should be configured as direct pending entries under OpenAI and Claud
 - Usage template: `cursorlink`
 - Usage base URL: `https://cursorlink.net`
 - The short query secret from a URL is not necessarily the model API key. Exchange or verify it only through the local control plane and never store it in git.
+- CursorLink model calls use `https://apicursor.com/v1`, but quota calls use `https://cursorlink.net`. If quota lookup times out during TLS handshake, configure the channel `proxy_url` and optionally increase `usage_timeout_secs`.
 
 ## Output Contract
 

@@ -43,6 +43,8 @@ class GuiServerTests(unittest.TestCase):
         self.assertIn("发现模型", INDEX_HTML)
         self.assertIn("接口地址", INDEX_HTML)
         self.assertIn("API 格式", INDEX_HTML)
+        self.assertIn("用量超时秒数", INDEX_HTML)
+        self.assertIn("用量重试次数", INDEX_HTML)
         self.assertIn("并发上限", INDEX_HTML)
         self.assertIn("项目模型包", INDEX_HTML)
         self.assertIn("实时延迟", INDEX_HTML)

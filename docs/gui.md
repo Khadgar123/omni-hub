@@ -23,7 +23,7 @@ http://127.0.0.1:8765
 - OpenAI 和 Claude 厂商下内置 CursorLink 待配置条目；它们直接出现在对应厂商渠道列表里，点击 `配置` 会预填爬到的 `https://apicursor.com/v1`、模型别名和 CursorLink 余额查询方式。
 - 配置列表支持刷新余额、复制条目、导出 export 脚本、导出 Codex 配置、修改、删除，以及拖拽调整调用优先级。
 - 网页端提供 API Key 输入框；raw key 不写入 SQLite。所有平台默认写入本地 `.omni/secrets.json`，数据库只保存 `local:` 引用，并生成默认环境脚本。
-- 每个厂商配置都可以设置代理连接；留空表示该渠道调用时 `unset` 代理。
+- 每个厂商配置都可以设置代理连接；留空表示该渠道调用和余额查询都 `unset` 代理，不继承系统代理。可填写 `http://127.0.0.1:7890` 或 `env:HTTPS_PROXY`。
 - Base URL、API Key、密钥引用、代理、并发上限、RPM/TPM 和模型列表是主配置；高级配置只放 API 格式、认证字段、完整端点模式、模型发现 URL、测试参数和计费参数。
 - 一个渠道可以挂多个模型，同一模型厂商下的不同渠道按优先级启用；某个渠道健康状态为 down 时自动切到下一级候选。
 - 后续由厂商 `/models`、价格表和调用日志自动补全模型、价格和可用性。
@@ -32,7 +32,7 @@ http://127.0.0.1:8765
 - 监控检测用于记录模型配置健康状态、代理、实时延迟、余额、失败信息和连接测试结果。刷新会同时做最小模型探测和余额查询，并直接回写当前表格；连接测试走 `/api/model-probe`，会按渠道协议发起最小流式请求，收到首个 chunk 即判定连通，可能产生极小 API 费用。
 - 配置列表里的 `测0-10并发/RPS` 会发起 0-10 阶梯并发探测、0-10 RPS 探测和批处理端点探测，并用实测值覆盖 `max_concurrency`、`rps_limit`、`rpm_limit`、`batch_support`，供项目模型包和 agent runtime 使用。并发和 RPS 各测试 1 到 10 级，每级必须全部成功且没有 429 才通过；一次完整探测最多会发起 110 个最小模型请求，可能产生小额 token 成本。
 - 模型发现使用 OpenAI 兼容 `/v1/models` 候选接口；遇到 Anthropic 兼容子路径时会额外尝试剥离子路径后的 `/v1/models` 和 `/models`。
-- 余额查询独立于连接测试，当前接入 DeepSeek、Kimi、StepFun、SiliconFlow、OpenRouter、Novita AI、NewAPI、通用 `/v1/usage` 和 CursorLink；未支持厂商会回退展示配置里的额度入口。
+- 余额查询独立于连接测试，当前接入 DeepSeek、Kimi、StepFun、SiliconFlow、OpenRouter、Novita AI、NewAPI、通用 `/v1/usage` 和 CursorLink；未支持厂商会回退展示配置里的额度入口。余额接口支持单独的 `用量超时秒数` 和 `用量重试次数`，TLS/网络超时会显示可操作的代理提示。
 - Skills 页面参考 CC Switch 的设计方向：GitHub/ZIP/本地安装、跨客户端同步、symlink/file copy、卸载前备份、冲突检测和项目推荐。
 - 各个表格支持搜索和每页 8 条分页浏览。
 - 异步按钮点击后会显示转圈和等待文案，并在请求期间禁用，完成后恢复并给出成功或失败反馈。
