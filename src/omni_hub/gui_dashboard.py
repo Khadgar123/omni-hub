@@ -245,18 +245,6 @@ INDEX_HTML = r"""<!doctype html>
     }
     .vendor-card strong { font-size: 15px; }
     .vendor-card span { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
-    .template-block {
-      display: none;
-      margin-top: 12px;
-      padding-top: 12px;
-      border-top: 1px solid var(--line);
-    }
-    .template-block.active { display: grid; gap: 8px; }
-    .template-title {
-      color: var(--muted);
-      font-size: 12px;
-      font-weight: 600;
-    }
     .config-list {
       display: grid;
       gap: 10px;
@@ -559,10 +547,6 @@ INDEX_HTML = r"""<!doctype html>
               </div>
               <div class="panel-body compact-body">
                 <div class="vendor-grid" id="official-provider-list"></div>
-                <div class="template-block" id="relay-template-block">
-                  <div class="template-title">渠道模板</div>
-                  <div class="vendor-grid" id="relay-template-list"></div>
-                </div>
               </div>
             </div>
 
@@ -799,13 +783,19 @@ INDEX_HTML = r"""<!doctype html>
     }
     const quotaText = account => {
       const notes = account.notes || '';
-      const found = notes.split('\n').find(line => /quota|额度|balance|dashboard/i.test(line));
+      const quotaRef = noteValue(notes, 'quota_ref');
+      if (quotaRef.startsWith('dashboard:')) return `官网用量页 ${quotaRef.slice('dashboard:'.length)}`;
+      if (quotaRef.startsWith('api:')) return `余额接口 ${quotaRef.slice('api:'.length)}`;
+      if (quotaRef.startsWith('cursorlink:')) return `CursorLink ${quotaRef.slice('cursorlink:'.length)}`;
+      if (quotaRef) return quotaRef;
+      const found = notes.split('\n').find(line => /额度|balance/i.test(line));
       return found || '未配置';
     };
+    const missingSecretText = data => data?.error_code === 'missing_secret' || /secret is not available|secret.*not.*found|api key is empty/i.test(String(data?.error || ''));
     const balanceText = account => {
       const cached = state.balances[account.account_id];
       if (!cached) return quotaText(account);
-      if (!cached.success) return cached.error ? `失败：${cached.error}` : '余额查询失败';
+      if (!cached.success) return missingSecretText(cached) ? `待填写 API Key · ${quotaText(account)}` : (cached.error ? `失败：${cached.error}` : '余额查询失败');
       const rows = cached.data || [];
       return rows.map(row => {
         const pieces = [
@@ -855,6 +845,8 @@ INDEX_HTML = r"""<!doctype html>
     const providerPreset = slug => officialProviders().find(item => item.slug === slug || item.provider === slug);
     const providerName = slug => providerPreset(slug)?.name || slug;
     const selectedProvider = () => state.officialProvider?.provider || state.officialProvider?.slug || officialProviders()[0]?.provider || '';
+    const starterChannels = () => (state.officialProvider?.starter_channels || []).slice().sort((a, b) => Number(b.rank || 0) - Number(a.rank || 0));
+    const starterChannelById = id => starterChannels().find(channel => channel.account_id === id);
     const accountModelIds = accountId => poolRows().filter(row => row.account_id === accountId).map(row => row.model_id);
     const accountPriority = accountId => {
       const rows = poolRows().filter(row => row.account_id === accountId);
@@ -946,21 +938,6 @@ INDEX_HTML = r"""<!doctype html>
         </button>`
       )).join('');
       if (!state.officialProvider && presets[0]) applyOfficialProvider(presets[0], false);
-      renderRelayTemplates();
-    }
-
-    function renderRelayTemplates() {
-      const block = document.getElementById('relay-template-block');
-      const list = document.getElementById('relay-template-list');
-      if (!block || !list) return;
-      const templates = (state.officialProvider?.relay_templates || []).slice().sort((a, b) => Number(b.rank || 0) - Number(a.rank || 0));
-      block.classList.toggle('active', templates.length > 0);
-      list.innerHTML = templates.map((template, index) => (
-        `<button type="button" class="vendor-card" data-relay-template-index="${index}">
-          <strong>${escapeHtml(template.name)}</strong>
-          <span>${escapeHtml(template.base_url || '')} · ${(template.models || []).length} 个模型别名</span>
-        </button>`
-      )).join('');
     }
 
     function applyOfficialProvider(preset, notify = true) {
@@ -996,36 +973,35 @@ INDEX_HTML = r"""<!doctype html>
       document.getElementById('save-provider-button').textContent = '添加渠道';
       document.getElementById('provider-list-title').textContent = `${preset.name} 渠道列表`;
       renderOfficialProviders();
-      renderRelayTemplates();
       renderTables();
       updateScriptPreview();
       if (notify) showToast(`已选择 ${preset.name}`);
     }
 
-    function applyRelayTemplate(template, notify = true) {
+    function applyStarterChannel(channel, notify = true) {
       const preset = state.officialProvider;
-      if (!preset) return;
+      if (!preset || !channel) return;
       state.providerModalMode = 'add';
       document.getElementById('official-provider').value = preset.slug;
-      document.getElementById('account-id').value = template.account_id || idFromBaseUrl(preset, template.base_url);
-      document.getElementById('provider-name').value = template.name || `${preset.name} 中转`;
-      document.getElementById('base-url').value = template.base_url || preset.base_url || '';
+      document.getElementById('account-id').value = channel.account_id || idFromBaseUrl(preset, channel.base_url);
+      document.getElementById('provider-name').value = channel.name || `${preset.name} 中转`;
+      document.getElementById('base-url').value = channel.base_url || preset.base_url || '';
       document.getElementById('secret-ref').value = '';
       document.getElementById('proxy-url').value = '';
-      document.getElementById('quota-ref').value = template.quota_ref || preset.quota_ref || '';
-      document.getElementById('model-ids').value = (template.models || []).join('\n');
-      syncDefaultModelOptions(template.default_model || '');
-      document.getElementById('default-model').value = template.default_model || '';
-      document.getElementById('provider-capabilities').value = (template.capabilities || preset.capabilities || []).join(', ');
-      document.getElementById('provider-priority').value = String(template.rank || preset.rank || 90);
+      document.getElementById('quota-ref').value = channel.quota_ref || preset.quota_ref || '';
+      document.getElementById('model-ids').value = (channel.models || []).join('\n');
+      syncDefaultModelOptions(channel.default_model || '');
+      document.getElementById('default-model').value = channel.default_model || '';
+      document.getElementById('provider-capabilities').value = (channel.capabilities || preset.capabilities || []).join(', ');
+      document.getElementById('provider-priority').value = String(channel.rank || preset.rank || 90);
       document.getElementById('api-key').value = '';
-      document.getElementById('api-format').value = template.api_format || '';
-      document.getElementById('wire-api').value = template.wire_api || 'chat';
-      document.getElementById('requires-openai-auth').value = template.requires_openai_auth || 'true';
-      document.getElementById('disable-response-storage').value = template.disable_response_storage || 'true';
-      document.getElementById('usage-template').value = template.usage_template || 'auto';
-      document.getElementById('usage-base-url').value = template.usage_base_url || '';
-      document.getElementById('usage-endpoint').value = template.usage_endpoint || '';
+      document.getElementById('api-format').value = channel.api_format || '';
+      document.getElementById('wire-api').value = channel.wire_api || 'chat';
+      document.getElementById('requires-openai-auth').value = channel.requires_openai_auth || 'true';
+      document.getElementById('disable-response-storage').value = channel.disable_response_storage || 'true';
+      document.getElementById('usage-template').value = channel.usage_template || 'auto';
+      document.getElementById('usage-base-url').value = channel.usage_base_url || '';
+      document.getElementById('usage-endpoint').value = channel.usage_endpoint || '';
       document.getElementById('usage-user-id').value = '';
       document.getElementById('usage-access-token').value = '';
       document.getElementById('usage-access-token-ref').value = '';
@@ -1033,13 +1009,13 @@ INDEX_HTML = r"""<!doctype html>
        'models-url', 'test-model', 'test-prompt', 'timeout-secs', 'max-retries',
        'degraded-threshold-ms', 'cost-multiplier', 'pricing-model-source'].forEach(id => {
         const element = document.getElementById(id);
-        if (element) element.value = template[id.replaceAll('-', '_')] || '';
+        if (element) element.value = channel[id.replaceAll('-', '_')] || '';
       });
-      document.getElementById('channel-form-title').textContent = `添加 ${template.name || preset.name}`;
+      document.getElementById('channel-form-title').textContent = `添加 ${channel.name || preset.name}`;
       document.getElementById('save-provider-button').textContent = '添加渠道';
       updateScriptPreview();
       openProviderModal('add');
-      if (notify) showToast(`已套用 ${template.name}`);
+      if (notify) showToast(`已填入 ${channel.name}`);
     }
 
     function openProviderModal(mode = 'add') {
@@ -1145,15 +1121,47 @@ INDEX_HTML = r"""<!doctype html>
       const container = document.getElementById('providerConfigList');
       if (!container) return;
       const provider = selectedProvider();
-      const rows = accountRows(provider);
+      const configured = accountRows(provider);
+      const configuredIds = new Set(configured.map(row => row.account.account_id));
+      const pending = starterChannels()
+        .filter(channel => !configuredIds.has(channel.account_id))
+        .map(channel => ({pending: true, channel, priority: Number(channel.rank || 0)}));
+      const rows = [...configured, ...pending].sort((a, b) => Number(b.priority || 0) - Number(a.priority || 0));
       container.innerHTML = rows.length ? `<div class="config-list">${rows.map(row => {
+        if (row.pending) {
+          const channel = row.channel;
+          const modelText = (channel.models || []).join(', ') || '未配置模型';
+          const quota = channel.quota_ref?.startsWith('cursorlink:') ? `CursorLink ${channel.quota_ref.slice('cursorlink:'.length)}` : (channel.quota_ref || '待配置');
+          return `<div class="config-row pending">
+            <div class="drag-handle" title="保存后可拖拽排序">待配</div>
+            <div class="config-main">
+              <div class="config-title">
+                <span class="provider-avatar">${escapeHtml(providerName(provider).slice(0, 1))}</span>
+                <strong>${escapeHtml(providerName(provider))} · ${escapeHtml(channel.name || channel.account_id)}</strong>
+              </div>
+              <div class="tag-row">
+                <span class="pill warn">待填写 Key</span>
+                <span class="pill info">中转</span>
+                <span class="pill info">优先级 ${escapeHtml(channel.rank || 0)}</span>
+                <span class="pill info">批处理 待测</span>
+                <span class="pill info">并发 待测</span>
+              </div>
+              <span class="subtle">配置 ID：${escapeHtml(channel.account_id)} · 默认：${escapeHtml(channel.default_model || '未设置')} · 模型：${escapeHtml(modelText)} · 额度：${escapeHtml(quota)}</span>
+            </div>
+            <div class="config-actions">
+              <button class="primary" data-channel-action="configure" data-channel-id="${escapeAttr(channel.account_id)}">配置</button>
+            </div>
+          </div>`;
+        }
         const account = row.account;
         const quota = balanceText(account);
         const modelText = row.models.join(', ') || '未配置模型';
         const defaultModel = noteValue(account.notes, 'default_model') || row.models[0] || '未设置';
         const group = account.account_group === 'official' ? '官方' : '中转';
-        const concurrency = noteValue(account.notes, 'max_concurrency') || '未知';
+        const concurrency = noteValue(account.notes, 'max_concurrency') || noteValue(account.notes, 'probed_concurrency') || '未知';
+        const rps = noteValue(account.notes, 'rps_limit') || '未知';
         const rpm = noteValue(account.notes, 'rpm_limit') || '未知';
+        const batch = noteValue(account.notes, 'batch_support') || '未知';
         return `<div class="config-row" draggable="true" data-account-row="${escapeAttr(account.account_id)}">
           <div class="drag-handle" title="拖拽调整优先级">拖拽</div>
           <div class="config-main">
@@ -1168,12 +1176,15 @@ INDEX_HTML = r"""<!doctype html>
               <span class="pill info">优先级 ${escapeHtml(row.priority)}</span>
               <span class="pill info">代理 ${escapeHtml(proxyText(account))}</span>
               <span class="pill info">并发 ${escapeHtml(concurrency)}</span>
+              <span class="pill info">批处理 ${escapeHtml(batch)}</span>
+              <span class="pill info">RPS ${escapeHtml(rps)}</span>
               <span class="pill info">RPM ${escapeHtml(rpm)}</span>
             </div>
             <span class="subtle">配置 ID：${escapeHtml(account.account_id)} · 默认：${escapeHtml(defaultModel)} · 模型：${escapeHtml(modelText)} · 额度：${escapeHtml(quota)}</span>
           </div>
           <div class="config-actions">
             <button class="primary" data-account-action="refresh" data-account-id="${escapeAttr(account.account_id)}">刷新</button>
+            <button class="secondary" data-account-action="capability" data-account-id="${escapeAttr(account.account_id)}">测0-10并发/RPS</button>
             <button class="secondary" data-account-action="duplicate" data-account-id="${escapeAttr(account.account_id)}">复制条目</button>
             <button class="secondary" data-account-action="export-shell" data-account-id="${escapeAttr(account.account_id)}">导出脚本</button>
             <button class="secondary" data-account-action="export-codex" data-account-id="${escapeAttr(account.account_id)}">导出 Codex</button>
@@ -1388,14 +1399,31 @@ INDEX_HTML = r"""<!doctype html>
         state.balances[accountId] = {success: false, data: null, error: balanceResult.reason?.message || '余额查询失败'};
       }
       await refresh(false);
-      const health = healthResult.status === 'fulfilled'
-        ? (healthResult.value.stream_check?.status || healthResult.value.health?.status || '完成')
+      const healthData = healthResult.status === 'fulfilled' ? healthResult.value : null;
+      const health = healthData
+        ? (healthData.stream_check?.stage === 'secret' ? '待填写 API Key' : (healthData.stream_check?.status || healthData.health?.status || '完成'))
         : `失败：${healthResult.reason?.message || '连接测试失败'}`;
       const balance = state.balances[accountId];
       const balanceMessage = balance.success
         ? (balance.data || []).map(row => `${row.plan_name || '余额'} ${row.remaining ?? '-'} ${row.unit || ''}`).join('；')
-        : `余额失败：${balance.error || '未支持'}`;
+        : (missingSecretText(balance) ? '余额待填写 API Key' : `余额失败：${balance.error || '未支持'}`);
       showToast(`刷新完成：${health}${balanceMessage ? ` · ${balanceMessage}` : ''}`);
+    }
+
+    async function capabilityProbe(accountId) {
+      const account = accountById(accountId);
+      if (!account.account_id) throw new Error('配置不存在');
+      const data = await api('/api/channel-capability-probe', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({account_id: accountId, max_concurrency: 10, max_rps: 10})
+      });
+      if (!data.success) {
+        showToast(data.error_code === 'missing_secret' ? '请先填写 API Key，再测试并发和批处理' : `能力测试失败：${data.error || '未知错误'}`, 'warn');
+        return;
+      }
+      await refresh(false);
+      showToast(`能力测试完成：并发 ${data.concurrency.max_passed}/10 · RPS ${data.rate.max_passed}/10 · RPM ${data.rate.max_passed * 60} · 批处理 ${data.batch.supported ? '支持' : '未确认'}`);
     }
 
     async function duplicateAccount(accountId) {
@@ -1511,10 +1539,9 @@ INDEX_HTML = r"""<!doctype html>
       if (jump) setView(jump.dataset.jump);
       const officialButton = event.target.closest('[data-official-index]');
       if (officialButton) applyOfficialProvider(officialProviders()[Number(officialButton.dataset.officialIndex)]);
-      const templateButton = event.target.closest('[data-relay-template-index]');
-      if (templateButton) {
-        const templates = (state.officialProvider?.relay_templates || []).slice().sort((a, b) => Number(b.rank || 0) - Number(a.rank || 0));
-        applyRelayTemplate(templates[Number(templateButton.dataset.relayTemplateIndex)]);
+      const channelButton = event.target.closest('[data-channel-action]');
+      if (channelButton) {
+        applyStarterChannel(starterChannelById(channelButton.dataset.channelId));
       }
       const accountAction = event.target.closest('[data-account-action]');
       if (accountAction) {
@@ -1523,6 +1550,7 @@ INDEX_HTML = r"""<!doctype html>
         if (action === 'edit') editAccount(accountId);
         if (action === 'test') checkAccount(accountId).catch(err => showToast(err.message, 'bad'));
         if (action === 'refresh') refreshAccount(accountId).catch(err => showToast(err.message, 'bad'));
+        if (action === 'capability') capabilityProbe(accountId).catch(err => showToast(err.message, 'bad'));
         if (action === 'duplicate') duplicateAccount(accountId).catch(err => showToast(err.message, 'bad'));
         if (action === 'delete') deleteAccount(accountId).catch(err => showToast(err.message, 'bad'));
         if (action === 'export-shell') copyAccountScript(accountId).catch(err => showToast(err.message, 'bad'));

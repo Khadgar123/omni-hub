@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import os
 import re
@@ -8,7 +9,7 @@ import webbrowser
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from time import monotonic, time
+from time import monotonic, sleep, time
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import ProxyHandler, Request, build_opener
@@ -83,7 +84,7 @@ OFFICIAL_PROVIDER_PRESETS: list[dict[str, Any]] = [
         "quota_ref": "dashboard:https://platform.openai.com/usage",
         "models": ["gpt-5.4", "gpt-5.4-mini"],
         "capabilities": ["text", "tools", "vision"],
-        "relay_templates": [
+        "starter_channels": [
             {
                 "name": "CursorLink Codex/OpenAI 中转",
                 "account_id": "openai-cursorlink",
@@ -113,7 +114,7 @@ OFFICIAL_PROVIDER_PRESETS: list[dict[str, Any]] = [
         "quota_ref": "dashboard:https://console.anthropic.com/settings/billing",
         "models": ["claude-opus-4-20250514", "claude-sonnet-4-5"],
         "capabilities": ["text", "tools", "vision"],
-        "relay_templates": [
+        "starter_channels": [
             {
                 "name": "CursorLink Claude 中转",
                 "account_id": "claude-cursorlink",
@@ -633,6 +634,10 @@ def handle_post(
             output["probe"] = stream_check
         return output
 
+    if path == "/api/channel-capability-probe":
+        account = store.get_account(_required(payload, "account_id"))
+        return _channel_capability_probe(account, store, payload)
+
     if path == "/api/model-fetch":
         fetched = _fetch_models_from_payload(payload, store)
         return {"models": fetched["models"], "candidates": fetched["candidates"]}
@@ -1091,6 +1096,285 @@ def _stream_check_provider(
         ),
     }
     return _account_health_from_model(model_health), model_health, stream_check
+
+
+def _channel_capability_probe(
+    account: ProviderAccount,
+    store: ProviderRouterStore,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    abilities = store.list_abilities(account_id=account.account_id, enabled=True)
+    if not abilities:
+        return {
+            "account_id": account.account_id,
+            "success": False,
+            "error_code": "no_model",
+            "error": "no enabled model route for capability probe",
+        }
+    try:
+        api_key = resolve_secret_ref(account.secret_ref)
+    except SecretStoreError as exc:
+        return {
+            "account_id": account.account_id,
+            "success": False,
+            "error_code": "missing_secret",
+            "error": str(exc),
+        }
+    if not api_key:
+        return {
+            "account_id": account.account_id,
+            "success": False,
+            "error_code": "missing_secret",
+            "error": f"secret is not available for {account.secret_ref}",
+        }
+
+    ability = abilities[0]
+    provider_model_id = str(payload.get("model_id", "")).strip() or (
+        ability.model_mapping or ability.model_id
+    )
+    max_concurrency_to_probe = min(
+        max(
+            _int_value(
+                payload.get("max_concurrency", payload.get("concurrency")),
+                default=10,
+            ),
+            0,
+        ),
+        10,
+    )
+    max_rps_to_probe = min(
+        max(_int_value(payload.get("max_rps"), default=max_concurrency_to_probe), 0),
+        10,
+    )
+    timeout_secs = min(max(_int_value(payload.get("timeout_secs"), default=20), 1), 60)
+    rate_window_secs = min(
+        max(_float_value(payload.get("rate_window_secs"), default=1.0), 0.01),
+        10.0,
+    )
+    test_prompt = str(payload.get("test_prompt", "ok")).strip() or "ok"
+    concurrency = _probe_stream_level_range(
+        account,
+        provider_model_id,
+        api_key,
+        max_level=max_concurrency_to_probe,
+        timeout_secs=timeout_secs,
+        test_prompt=test_prompt,
+    )
+    rate = _probe_stream_level_range(
+        account,
+        provider_model_id,
+        api_key,
+        max_level=max_rps_to_probe,
+        timeout_secs=timeout_secs,
+        test_prompt=test_prompt,
+        paced_window_secs=rate_window_secs,
+    )
+    batch = _probe_batch_support(account, api_key)
+    previous_batch_support = _note_value(account.notes, "batch_support")
+    batch_support = previous_batch_support
+    if batch["supported"]:
+        batch_support = "true"
+    elif batch["status"] in {"not_supported", "unsupported_format"}:
+        batch_support = "false"
+    measured_rpm = int(rate["max_passed"]) * 60
+    account.notes = _replace_note_values(
+        account.notes,
+        {
+            "probed_concurrency_range": f"0-{max_concurrency_to_probe}",
+            "probed_concurrency": str(concurrency["max_passed"]),
+            "max_concurrency": str(concurrency["max_passed"]),
+            "probed_rps_range": f"0-{max_rps_to_probe}",
+            "rps_limit": str(rate["max_passed"]),
+            "probed_rpm": str(measured_rpm),
+            "rpm_limit": str(measured_rpm),
+            "batch_support": batch_support,
+            "batch_probe": str(batch["status"]),
+        },
+    )
+    stored_account = store.upsert_account(account)
+    return {
+        "account": stored_account.to_dict(),
+        "success": True,
+        "model_id": provider_model_id,
+        "concurrency": concurrency,
+        "rate": rate,
+        "batch": batch,
+    }
+
+
+def _probe_stream_level_range(
+    account: ProviderAccount,
+    provider_model_id: str,
+    api_key: str,
+    *,
+    max_level: int,
+    timeout_secs: int,
+    test_prompt: str,
+    paced_window_secs: float = 0.0,
+) -> dict[str, Any]:
+    levels: list[dict[str, Any]] = []
+    max_passed = 0
+    contiguous = True
+    for level in range(1, max_level + 1):
+        results, duration_ms = _send_stream_check_batch(
+            account,
+            provider_model_id,
+            api_key,
+            count=level,
+            timeout_secs=timeout_secs,
+            test_prompt=test_prompt,
+            paced_window_secs=paced_window_secs,
+        )
+        summary = _summarize_stream_batch(level, results, duration_ms)
+        levels.append(summary)
+        if contiguous and _stream_level_passed(summary):
+            max_passed = level
+        else:
+            contiguous = False
+    return {
+        "range": f"0-{max_level}",
+        "max_passed": max_passed,
+        "levels": levels,
+    }
+
+
+def _send_stream_check_batch(
+    account: ProviderAccount,
+    provider_model_id: str,
+    api_key: str,
+    *,
+    count: int,
+    timeout_secs: int,
+    test_prompt: str,
+    paced_window_secs: float = 0.0,
+) -> tuple[list[dict[str, Any]], int]:
+    if count <= 0:
+        return [], 0
+
+    def run_one(index: int) -> dict[str, Any]:
+        if paced_window_secs > 0 and count > 1:
+            sleep(paced_window_secs * index / count)
+        return _send_stream_check_once(
+            account,
+            provider_model_id,
+            api_key,
+            timeout_secs=timeout_secs,
+            test_prompt=test_prompt,
+        )
+
+    results: list[dict[str, Any]] = []
+    started = monotonic()
+    with ThreadPoolExecutor(max_workers=count) as executor:
+        futures = [executor.submit(run_one, index) for index in range(count)]
+        for future in as_completed(futures):
+            try:
+                results.append(future.result())
+            except Exception as exc:
+                results.append(
+                    {
+                        "ok": False,
+                        "http_status": None,
+                        "latency_ms": None,
+                        "error": str(exc),
+                    }
+                )
+    duration_ms = int((monotonic() - started) * 1000)
+    return results, duration_ms
+
+
+def _summarize_stream_batch(
+    requested: int,
+    results: list[dict[str, Any]],
+    duration_ms: int,
+) -> dict[str, Any]:
+    ok_results = [item for item in results if item.get("ok")]
+    latencies = [
+        int(item["latency_ms"])
+        for item in ok_results
+        if isinstance(item.get("latency_ms"), int)
+    ]
+    rate_limited = any(item.get("http_status") == 429 for item in results)
+    throughput_rpm = (
+        int(len(ok_results) * 60_000 / duration_ms)
+        if duration_ms > 0
+        else None
+    )
+    return {
+        "requested": requested,
+        "ok": len(ok_results),
+        "failed": max(requested - len(ok_results), 0),
+        "passed": len(ok_results) == requested and not rate_limited,
+        "rate_limited": rate_limited,
+        "duration_ms": duration_ms,
+        "avg_latency_ms": int(sum(latencies) / len(latencies)) if latencies else None,
+        "max_latency_ms": max(latencies) if latencies else None,
+        "throughput_rpm": throughput_rpm,
+        "results": [
+            {
+                "ok": bool(item.get("ok")),
+                "http_status": item.get("http_status"),
+                "latency_ms": item.get("latency_ms"),
+                "error": _safe_text(str(item.get("error", ""))),
+            }
+            for item in results
+        ],
+    }
+
+
+def _stream_level_passed(summary: dict[str, Any]) -> bool:
+    return bool(summary.get("passed"))
+
+
+def _probe_batch_support(account: ProviderAccount, api_key: str) -> dict[str, Any]:
+    api_format = _account_api_format(account)
+    if api_format == "gemini_native":
+        return {
+            "supported": False,
+            "status": "unsupported_format",
+            "endpoint": "",
+            "http_status": None,
+        }
+    if api_format == "anthropic":
+        url = _api_endpoint(account.base_url, "messages/batches")
+        headers = {
+            "Accept": "application/json",
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+        }
+    else:
+        url = _api_endpoint(account.base_url, "batches?limit=1")
+        headers = {
+            "Accept": "application/json",
+            "Authorization": f"Bearer {api_key}",
+        }
+    request = Request(url, headers=headers, method="GET")
+    opener = _opener_for_account(account)
+    try:
+        with opener.open(request, timeout=BALANCE_CHECK_TIMEOUT_SECS) as response:
+            status = int(getattr(response, "status", response.getcode()))
+            response.read(4096)
+            return {
+                "supported": 200 <= status < 300,
+                "status": "ok" if 200 <= status < 300 else "unexpected_status",
+                "endpoint": _redact_url(url),
+                "http_status": status,
+            }
+    except HTTPError as exc:
+        return {
+            "supported": False,
+            "status": "auth_or_limited" if exc.code in {401, 403, 429} else "not_supported",
+            "endpoint": _redact_url(url),
+            "http_status": exc.code,
+            "error": _safe_body_preview(exc.read(4096), api_key),
+        }
+    except URLError as exc:
+        return {
+            "supported": False,
+            "status": "network_error",
+            "endpoint": _redact_url(url),
+            "http_status": None,
+            "error": str(exc.reason),
+        }
 
 
 def _stream_check_config(
@@ -1807,6 +2091,7 @@ def _balance_check(account: ProviderAccount) -> dict[str, Any]:
             "account_id": account.account_id,
             "success": False,
             "data": None,
+            "error_code": "missing_secret",
             "error": str(exc),
             "checked_at": int(time()),
         }
@@ -1815,6 +2100,7 @@ def _balance_check(account: ProviderAccount) -> dict[str, Any]:
             "account_id": account.account_id,
             "success": False,
             "data": None,
+            "error_code": "missing_secret",
             "error": f"secret is not available for {account.secret_ref}",
             "checked_at": int(time()),
         }
@@ -2342,6 +2628,27 @@ def _note_value(notes: str, key: str) -> str:
     return ""
 
 
+def _replace_note_values(notes: str, updates: dict[str, str]) -> str:
+    output: list[str] = []
+    seen: set[str] = set()
+    for line in notes.splitlines():
+        key = line.split("=", 1)[0].strip() if "=" in line else ""
+        if key in updates:
+            value = str(updates[key]).strip()
+            if value:
+                output.append(f"{key}={value}")
+            seen.add(key)
+        else:
+            output.append(line)
+    for key, value in updates.items():
+        if key in seen:
+            continue
+        text = str(value).strip()
+        if text:
+            output.append(f"{key}={text}")
+    return "\n".join(item for item in output if item.strip())
+
+
 def _payload_note(payload: dict[str, Any], key: str) -> str:
     value = payload.get(key)
     if value is None:
@@ -2367,6 +2674,11 @@ def _redact_url(url: str) -> str:
     )
     base = url.split("?", 1)[0]
     return f"{base}?{query}" if query else base
+
+
+def _safe_text(text: str, limit: int = 240) -> str:
+    clean = " ".join(str(text).split())
+    return clean[:limit]
 
 
 MODEL_SLOT_PRESETS: list[dict[str, Any]] = [

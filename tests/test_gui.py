@@ -49,7 +49,10 @@ class GuiServerTests(unittest.TestCase):
         self.assertIn("复制条目", INDEX_HTML)
         self.assertIn("删除", INDEX_HTML)
         self.assertIn("CursorLink", INDEX_HTML)
-        self.assertIn("渠道模板", INDEX_HTML)
+        self.assertIn("待填写 Key", INDEX_HTML)
+        self.assertIn("测0-10并发/RPS", INDEX_HTML)
+        self.assertIn('data-channel-action="configure"', INDEX_HTML)
+        self.assertNotIn("渠道模板", INDEX_HTML)
         self.assertNotIn("当前厂商自动切换队列", INDEX_HTML)
         self.assertIn("Skills", INDEX_HTML)
         self.assertIn('id="toast"', INDEX_HTML)
@@ -64,16 +67,16 @@ class GuiServerTests(unittest.TestCase):
             {"OpenAI", "Claude", "Qwen", "DeepSeek", "Kimi", "GLM", "MiniMax"},
         )
 
-    def test_gui_official_presets_include_cursorlink_channel_templates(self) -> None:
+    def test_gui_official_presets_include_cursorlink_starter_channels(self) -> None:
         presets = {item["name"]: item for item in OFFICIAL_PROVIDER_PRESETS}
-        openai_templates = presets["OpenAI"].get("relay_templates", [])
-        claude_templates = presets["Claude"].get("relay_templates", [])
+        openai_channels = presets["OpenAI"].get("starter_channels", [])
+        claude_channels = presets["Claude"].get("starter_channels", [])
 
-        self.assertEqual(openai_templates[0]["base_url"], "https://apicursor.com/v1")
-        self.assertIn("cx-5.5", openai_templates[0]["models"])
-        self.assertEqual(openai_templates[0]["usage_template"], "cursorlink")
-        self.assertEqual(claude_templates[0]["api_format"], "openai_chat")
-        self.assertIn("so-4.6", claude_templates[0]["models"])
+        self.assertEqual(openai_channels[0]["base_url"], "https://apicursor.com/v1")
+        self.assertIn("cx-5.5", openai_channels[0]["models"])
+        self.assertEqual(openai_channels[0]["usage_template"], "cursorlink")
+        self.assertEqual(claude_channels[0]["api_format"], "openai_chat")
+        self.assertIn("so-4.6", claude_channels[0]["models"])
 
     def test_gui_api_state_and_agent_plan(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -322,6 +325,71 @@ class GuiServerTests(unittest.TestCase):
                     state = _get_json(f"{base_url}/api/state")
                     account_ids = {account["account_id"] for account in state["accounts"]}
                     self.assertNotIn("openai-main-copy", account_ids)
+                finally:
+                    server.shutdown()
+                    thread.join(timeout=2)
+                    server.server_close()
+
+    def test_gui_channel_capability_probe_records_concurrency_and_batch(self) -> None:
+        with patch.dict(os.environ, {"OMNI_HUB_SECRET_BACKEND": "memory"}):
+            with tempfile.TemporaryDirectory() as tmpdir:
+                server = create_gui_server(tmpdir, port=0)
+                thread = threading.Thread(target=server.serve_forever, daemon=True)
+                thread.start()
+                base_url = f"http://{server.server_address[0]}:{server.server_address[1]}"
+                try:
+                    configured = _post_json(
+                        f"{base_url}/api/official-provider-config",
+                        {
+                            "provider": "openai",
+                            "account_id": "openai-main",
+                            "name": "OpenAI Main",
+                            "base_url": "https://api.openai.com/v1",
+                            "api_key": "sk-test",
+                            "model_ids": "gpt-a",
+                            "priority": 90,
+                            "max_concurrency": "9",
+                            "rpm_limit": "999",
+                        },
+                    )
+                    with patch(
+                        "omni_hub.gui._send_stream_check_once",
+                        return_value={
+                            "ok": True,
+                            "http_status": 200,
+                            "latency_ms": 12,
+                            "api_format": "openai_chat",
+                            "endpoint": "https://api.openai.com/v1/chat/completions",
+                        },
+                    ), patch(
+                        "omni_hub.gui._probe_batch_support",
+                        return_value={
+                            "supported": True,
+                            "status": "ok",
+                            "endpoint": "https://api.openai.com/v1/batches",
+                            "http_status": 200,
+                        },
+                    ):
+                        result = _post_json(
+                            f"{base_url}/api/channel-capability-probe",
+                            {
+                                "account_id": configured["account"]["account_id"],
+                                "max_concurrency": 3,
+                                "max_rps": 3,
+                                "rate_window_secs": 0.01,
+                            },
+                        )
+
+                    self.assertTrue(result["success"])
+                    self.assertEqual(result["concurrency"]["max_passed"], 3)
+                    self.assertEqual(result["rate"]["max_passed"], 3)
+                    self.assertTrue(result["batch"]["supported"])
+                    self.assertIn("max_concurrency=3", result["account"]["notes"])
+                    self.assertIn("rps_limit=3", result["account"]["notes"])
+                    self.assertIn("rpm_limit=180", result["account"]["notes"])
+                    self.assertNotIn("max_concurrency=9", result["account"]["notes"])
+                    self.assertNotIn("rpm_limit=999", result["account"]["notes"])
+                    self.assertIn("batch_support=true", result["account"]["notes"])
                 finally:
                     server.shutdown()
                     thread.join(timeout=2)

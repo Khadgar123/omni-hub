@@ -103,7 +103,7 @@ CursorLink 的当前结构是：
 - 复制调用地址：`POST /api/cursor/getCopyUrl`
 - 充值/封禁/推广记录接口存在，但属于高风险或财务动作，不应自动执行
 
-GUI 已把这次爬到的 CursorLink 结果做成两个渠道模板：
+GUI 已把这次爬到的 CursorLink 结果做成 OpenAI 和 Claude 厂商下的待配置条目，不再放在独立模板区。进入对应厂商列表后，点击 `配置` 会打开同一个添加渠道弹窗，并预填 base URL、模型别名、默认模型和余额查询方式：
 
 - OpenAI/Codex：`cx-5.5`、`cx-5.5-high`、`cx-5.5-xhigh`、`cx-5.4`、`cx-5.4-high`、`cx-5.4-xhigh`
 - Claude：`op-4.6`、`so-4.6`
@@ -126,12 +126,25 @@ GUI 已把这次爬到的 CursorLink 结果做成两个渠道模板：
 
 ## GUI 操作语义
 
-- `刷新`：查询余额并回写到当前行；失败时显示错误。
+- `刷新`：同时做最小模型连接探测和余额查询，并把健康状态、延迟、余额或错误直接回写到当前行。没有 key 时显示 `待填写 API Key`，不会再暴露底层 secret 异常。
+- `测0-10并发/RPS`：用当前渠道的首个启用模型做 0-10 阶梯并发探测和 0-10 RPS 探测，并尝试访问批处理接口；结果会覆盖手填的 `max_concurrency`、`rps_limit`、`rpm_limit`，并回写 `probed_concurrency_range`、`probed_rps_range`、`batch_support` 和 `batch_probe`。
 - `复制条目`：复制为第二条渠道，复用 secret ref 和模型绑定，便于改 base URL、代理或优先级。
 - `导出 export 脚本`：复制 shell 环境变量，包含本地解析出的 key，适合临时终端使用。
 - `导出 Codex`：复制 `config.toml` 片段，不包含 raw key。
 - `删除`：删除渠道，并级联移除相关 route ability、健康记录和项目覆盖。
 - 拖拽左侧排序块：调整同一模型厂商下的启用优先级。
+
+## Agent/Skill 写入方式
+
+人可以点 GUI，Codex/CC 这类 agent 应优先按 `vault/30_Skills/provider-channel-config/SKILL.md` 直接操作本地控制面：
+
+1. 读取 `GET /api/state`，确认厂商、已有渠道、模型绑定和 secret ref。
+2. 如果页面或文档可爬取，先抽取 base URL、模型别名、余额接口、计费口径、代理要求和限制信息。
+3. POST `/api/official-provider-config` 创建或更新具体条目。不要新增抽象模板，也不要直接修改外部客户端配置。
+4. 保存后调用 `/api/model-fetch`、`/api/model-probe`、`/api/balance-check` 和 `/api/channel-capability-probe` 回填可用模型、健康状态、余额、并发和批处理能力。
+5. 最后让用户刷新 GUI 或直接打开 `http://127.0.0.1:8765` 查看结果。
+
+raw key 只允许进入本地 GUI API 的 request body 或本地 secret backend，不允许写入仓库、文档、测试、项目模型包和聊天总结。
 
 ## 项目如何使用
 
