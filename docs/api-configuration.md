@@ -127,12 +127,14 @@ GUI 已把这次爬到的 CursorLink 结果做成 OpenAI 和 Claude 厂商下的
 ## GUI 操作语义
 
 - `刷新`：同时做最小模型连接探测和余额查询，并把健康状态、延迟、余额或错误直接回写到当前行。没有 key 时显示 `待填写 API Key`，不会再暴露底层 secret 异常。
-- `测0-10并发/RPS`：用当前渠道的首个启用模型做 0-10 阶梯并发探测和 0-10 RPS 探测，并尝试访问批处理接口；结果会覆盖手填的 `max_concurrency`、`rps_limit`、`rpm_limit`，并回写 `probed_concurrency_range`、`probed_rps_range`、`batch_support` 和 `batch_probe`。
+- `测0-10并发/RPS`：用当前渠道的首个启用模型做 0-10 阶梯并发探测和 0-10 RPS 探测，并尝试访问批处理接口；结果会覆盖手填的 `max_concurrency`、`rps_limit`、`rpm_limit`，并回写 `probed_concurrency_range`、`probed_rps_range`、`batch_support` 和 `batch_probe`。并发探测会依次测试 1、2、...、10 个同时请求；RPS 探测会依次测试 1、2、...、10 个请求在 1 秒窗口内发出。每一级必须全部成功且没有 429 才算通过，因此一次完整探测最多会发起 110 个最小模型请求。
+- 批处理探测不会创建批处理任务。OpenAI 兼容渠道默认检查 `/v1/batches?limit=1`，Anthropic 原生渠道检查 `/v1/messages/batches`；2xx 表示支持，404/405/501 表示不支持，401/403/429 只表示鉴权或限流导致未确认。
 - `复制条目`：复制为第二条渠道，复用 secret ref 和模型绑定，便于改 base URL、代理或优先级。
 - `导出 export 脚本`：复制 shell 环境变量，包含本地解析出的 key，适合临时终端使用。
 - `导出 Codex`：复制 `config.toml` 片段，不包含 raw key。
 - `删除`：删除渠道，并级联移除相关 route ability、健康记录和项目覆盖。
 - 拖拽左侧排序块：调整同一模型厂商下的启用优先级。
+- 异步按钮会进入等待态：按钮禁用、显示转圈和“刷新中/探测中/导出中”等文案，完成或失败后恢复。
 
 ## Agent/Skill 写入方式
 

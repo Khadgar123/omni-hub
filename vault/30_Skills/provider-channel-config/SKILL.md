@@ -84,13 +84,15 @@ curl -sS -X POST http://127.0.0.1:8765/api/balance-check \
   -d '{"account_id":"openai-example"}'
 ```
 
-7. Probe concurrency, request speed, and batch support. This overwrites user-entered guesses for `max_concurrency`, `rps_limit`, and `rpm_limit` with measured values in the 0-10 range:
+7. Probe concurrency, request speed, and batch support. This overwrites user-entered guesses for `max_concurrency`, `rps_limit`, and `rpm_limit` with measured values in the 0-10 range. A full probe tests 1..10 concurrent requests plus 1..10 paced RPS levels, so it can send up to 110 minimal model requests:
 
 ```bash
 curl -sS -X POST http://127.0.0.1:8765/api/channel-capability-probe \
   -H 'Content-Type: application/json' \
   -d '{"account_id":"openai-example","max_concurrency":10,"max_rps":10}'
 ```
+
+Batch probing is non-mutating: OpenAI-compatible channels check `/v1/batches?limit=1`, Anthropic-native channels check `/v1/messages/batches`. Treat 2xx as supported, 404/405/501 as unsupported, and 401/403/429 as not confirmed.
 
 8. Re-read `/api/state` and report the created `account_id`, model list, secret ref type, health status, latency, balance result, concurrency result, and batch support.
 

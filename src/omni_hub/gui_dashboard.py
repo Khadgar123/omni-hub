@@ -37,7 +37,12 @@ INDEX_HTML = r"""<!doctype html>
       color: var(--ink);
     }
     button, input, select, textarea { font: inherit; letter-spacing: 0; }
-    button { cursor: pointer; }
+    button {
+      cursor: pointer;
+      transition: transform .12s ease, opacity .12s ease, box-shadow .12s ease, background-color .12s ease;
+    }
+    button:active:not(:disabled) { transform: translateY(1px) scale(.99); }
+    button:disabled { cursor: not-allowed; opacity: .68; }
     .shell {
       min-height: 100vh;
       display: grid;
@@ -169,6 +174,27 @@ INDEX_HTML = r"""<!doctype html>
       color: var(--ink);
       padding: 0 12px;
     }
+    .primary, .secondary {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      white-space: nowrap;
+    }
+    .primary[data-loading="true"], .secondary[data-loading="true"] {
+      box-shadow: inset 0 0 0 999px rgba(255,255,255,.12);
+    }
+    .primary[data-loading="true"]::before, .secondary[data-loading="true"]::before {
+      content: "";
+      width: 12px;
+      height: 12px;
+      flex: 0 0 auto;
+      border-radius: 999px;
+      border: 2px solid currentColor;
+      border-right-color: transparent;
+      animation: button-spin .75s linear infinite;
+    }
+    @keyframes button-spin { to { transform: rotate(360deg); } }
     .primary {
       border-color: #1f4fc4;
       background: var(--blue);
@@ -756,6 +782,35 @@ INDEX_HTML = r"""<!doctype html>
       clearTimeout(showToast.timer);
       showToast.timer = setTimeout(() => toast.className = 'toast', 2400);
     };
+    function setButtonLoading(button, loading, text = '处理中') {
+      if (!button) return;
+      if (loading) {
+        if (button.dataset.loading === 'true') return;
+        button.dataset.originalText = button.textContent.trim();
+        button.dataset.loading = 'true';
+        button.disabled = true;
+        button.setAttribute('aria-busy', 'true');
+        button.textContent = text || button.dataset.originalText || '处理中';
+        return;
+      }
+      if (button.dataset.originalText) button.textContent = button.dataset.originalText;
+      delete button.dataset.originalText;
+      delete button.dataset.loading;
+      button.disabled = false;
+      button.removeAttribute('aria-busy');
+    }
+    async function withButtonLoading(button, text, task) {
+      if (button?.dataset.loading === 'true') return null;
+      setButtonLoading(button, true, text);
+      try {
+        return await task();
+      } catch (err) {
+        showToast(err.message || '操作失败', 'bad');
+        return null;
+      } finally {
+        setButtonLoading(button, false);
+      }
+    }
     const pill = value => {
       const text = String(value || 'unknown');
       const cls = ['active', 'healthy'].includes(text) ? 'ok' : (['down', 'disabled'].includes(text) ? 'bad' : 'warn');
@@ -1413,6 +1468,7 @@ INDEX_HTML = r"""<!doctype html>
     async function capabilityProbe(accountId) {
       const account = accountById(accountId);
       if (!account.account_id) throw new Error('配置不存在');
+      showToast('正在做 0-10 并发/RPS 探测，可能需要几十秒', 'warn');
       const data = await api('/api/channel-capability-probe', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -1520,7 +1576,9 @@ INDEX_HTML = r"""<!doctype html>
     }
 
     document.querySelectorAll('[data-view]').forEach(button => button.addEventListener('click', () => setView(button.dataset.view)));
-    document.getElementById('refresh').addEventListener('click', () => refresh(true));
+    document.getElementById('refresh').addEventListener('click', event => {
+      withButtonLoading(event.currentTarget, '刷新中', () => refresh(true));
+    });
     document.getElementById('add-channel').addEventListener('click', () => {
       const preset = state.officialProvider || officialProviders()[0];
       if (preset) applyOfficialProvider(preset, false);
@@ -1548,14 +1606,14 @@ INDEX_HTML = r"""<!doctype html>
         const accountId = accountAction.dataset.accountId;
         const action = accountAction.dataset.accountAction;
         if (action === 'edit') editAccount(accountId);
-        if (action === 'test') checkAccount(accountId).catch(err => showToast(err.message, 'bad'));
-        if (action === 'refresh') refreshAccount(accountId).catch(err => showToast(err.message, 'bad'));
-        if (action === 'capability') capabilityProbe(accountId).catch(err => showToast(err.message, 'bad'));
-        if (action === 'duplicate') duplicateAccount(accountId).catch(err => showToast(err.message, 'bad'));
-        if (action === 'delete') deleteAccount(accountId).catch(err => showToast(err.message, 'bad'));
-        if (action === 'export-shell') copyAccountScript(accountId).catch(err => showToast(err.message, 'bad'));
-        if (action === 'export-codex') copyAccountCodexConfig(accountId).catch(err => showToast(err.message, 'bad'));
-        if (action === 'quota') showQuota(accountId).catch(err => showToast(err.message, 'bad'));
+        if (action === 'test') withButtonLoading(accountAction, '测试中', () => checkAccount(accountId));
+        if (action === 'refresh') withButtonLoading(accountAction, '刷新中', () => refreshAccount(accountId));
+        if (action === 'capability') withButtonLoading(accountAction, '探测中', () => capabilityProbe(accountId));
+        if (action === 'duplicate') withButtonLoading(accountAction, '复制中', () => duplicateAccount(accountId));
+        if (action === 'delete') withButtonLoading(accountAction, '删除中', () => deleteAccount(accountId));
+        if (action === 'export-shell') withButtonLoading(accountAction, '导出中', () => copyAccountScript(accountId));
+        if (action === 'export-codex') withButtonLoading(accountAction, '导出中', () => copyAccountCodexConfig(accountId));
+        if (action === 'quota') withButtonLoading(accountAction, '查询中', () => showQuota(accountId));
       }
       const pageButton = event.target.closest('[data-page]');
       if (pageButton) {
@@ -1603,44 +1661,35 @@ INDEX_HTML = r"""<!doctype html>
 
     document.getElementById('official-form').addEventListener('submit', async event => {
       event.preventDefault();
-      try {
+      const button = event.submitter || document.getElementById('save-provider-button');
+      await withButtonLoading(button, '保存中', async () => {
         await saveOfficialConfig(true);
         closeProviderModal();
-      } catch (err) {
-        showToast(err.message, 'bad');
-      }
+      });
     });
-    document.getElementById('test-official-draft').addEventListener('click', async () => {
-      try {
+    document.getElementById('test-official-draft').addEventListener('click', async event => {
+      await withButtonLoading(event.currentTarget, '测试中', async () => {
         const data = await saveOfficialConfig(false);
         await checkAccount(data.account.account_id);
-      } catch (err) {
-        showToast(err.message, 'bad');
-      }
+      });
     });
-    document.getElementById('fetch-models').addEventListener('click', async () => {
-      try {
+    document.getElementById('fetch-models').addEventListener('click', async event => {
+      await withButtonLoading(event.currentTarget, '发现中', async () => {
         await fetchModelsForDraft();
-      } catch (err) {
-        showToast(err.message, 'bad');
-      }
+      });
     });
-    document.getElementById('copy-script').addEventListener('click', async () => {
-      try {
+    document.getElementById('copy-script').addEventListener('click', async event => {
+      await withButtonLoading(event.currentTarget, '复制中', async () => {
         const accountId = document.getElementById('account-id').value;
         if (!accountById(accountId).account_id) throw new Error('请先保存渠道再复制带 Key 脚本');
         await copyAccountScript(accountId);
-      } catch (err) {
-        showToast(err.message, 'bad');
-      }
+      });
     });
-    document.getElementById('copy-codex-config').addEventListener('click', async () => {
-      try {
+    document.getElementById('copy-codex-config').addEventListener('click', async event => {
+      await withButtonLoading(event.currentTarget, '导出中', async () => {
         const accountId = document.getElementById('account-id').value;
         await copyAccountCodexConfig(accountId);
-      } catch (err) {
-        showToast(err.message, 'bad');
-      }
+      });
     });
     document.getElementById('model-ids').addEventListener('input', () => syncDefaultModelOptions());
     document.getElementById('realtime-toggle').addEventListener('click', event => {
@@ -1654,25 +1703,24 @@ INDEX_HTML = r"""<!doctype html>
         showToast('实时刷新已停止');
       }
     });
-    document.getElementById('check-all').addEventListener('click', async () => {
-      for (const account of state.data.accounts || []) {
-        await refreshAccount(account.account_id);
-      }
+    document.getElementById('check-all').addEventListener('click', async event => {
+      await withButtonLoading(event.currentTarget, '刷新中', async () => {
+        for (const account of state.data.accounts || []) {
+          await refreshAccount(account.account_id);
+        }
+      });
     });
     document.getElementById('project-import-form').addEventListener('submit', async event => {
       event.preventDefault();
-      try {
+      const button = event.submitter || event.currentTarget.querySelector('button');
+      await withButtonLoading(button, '导入中', async () => {
         await importProjectRoutes();
-      } catch (err) {
-        showToast(err.message, 'bad');
-      }
+      });
     });
-    document.getElementById('copy-project-bundle').addEventListener('click', async () => {
-      try {
+    document.getElementById('copy-project-bundle').addEventListener('click', async event => {
+      await withButtonLoading(event.currentTarget, '复制中', async () => {
         await copyProjectBundle();
-      } catch (err) {
-        showToast(err.message, 'bad');
-      }
+      });
     });
 
     setView(location.hash.replace('#', '') || 'overview');
