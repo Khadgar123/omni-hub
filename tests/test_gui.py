@@ -48,10 +48,12 @@ class GuiServerTests(unittest.TestCase):
         self.assertIn("并发上限", INDEX_HTML)
         self.assertIn("项目模型包", INDEX_HTML)
         self.assertIn("保存模型顺序", INDEX_HTML)
-        self.assertIn("按模型名顺序解析渠道", INDEX_HTML)
-        self.assertIn("data-slot-models", INDEX_HTML)
+        self.assertIn("项目模型配置", INDEX_HTML)
+        self.assertIn("可选模型", INDEX_HTML)
+        self.assertIn("project-list", INDEX_HTML)
+        self.assertIn("data-model-add", INDEX_HTML)
         self.assertIn("/api/project-model-orders", INDEX_HTML)
-        self.assertIn("已保存项目", INDEX_HTML)
+        self.assertIn("项目接入文件", INDEX_HTML)
         self.assertIn("实时延迟", INDEX_HTML)
         self.assertIn("复制条目", INDEX_HTML)
         self.assertIn("删除", INDEX_HTML)
@@ -561,6 +563,16 @@ class GuiServerTests(unittest.TestCase):
                 self.assertEqual(saved["orders"][0]["model_ids"], ["gpt-5.5-mini"])
                 self.assertEqual(
                     saved["bundle"]["slot_routes"][0]["selected"]["account_id"],
+                    "openai-high",
+                )
+                self.assertEqual(
+                    saved["bundle"]["integration"]["manifest_path"],
+                    ".omni/omni-hub.project.json",
+                )
+                self.assertEqual(
+                    saved["bundle"]["integration"]["manifest"]["slots"]["default"][
+                        "selected"
+                    ]["account_id"],
                     "openai-high",
                 )
                 self.assertEqual(resolved["selected"]["account_id"], "openai-high")

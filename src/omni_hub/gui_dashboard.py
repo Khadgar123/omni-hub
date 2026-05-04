@@ -368,9 +368,48 @@ INDEX_HTML = r"""<!doctype html>
     }
     [data-config-mode] { display: none; }
     [data-config-mode].active { display: block; }
+    .project-console {
+      display: grid;
+      grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+      gap: 14px;
+      align-items: start;
+    }
+    .project-list {
+      display: grid;
+      gap: 8px;
+      padding: 12px;
+    }
+    .project-card {
+      width: 100%;
+      min-height: 54px;
+      padding: 9px 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      text-align: left;
+      color: var(--ink);
+    }
+    .project-card.active {
+      border-color: #7da2ee;
+      background: var(--soft-blue);
+    }
+    .project-card strong, .project-card span { display: block; }
+    .project-card span { margin-top: 3px; color: var(--muted); font-size: 12px; }
+    .project-toolbar {
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) auto;
+      gap: 10px;
+      align-items: end;
+    }
+    .project-model-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1.2fr) minmax(280px, .8fr);
+      gap: 12px;
+      align-items: start;
+    }
     .slot-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      grid-template-columns: 1fr;
       gap: 10px;
     }
     .slot-card {
@@ -379,10 +418,100 @@ INDEX_HTML = r"""<!doctype html>
       border-radius: 8px;
       background: #fbfcfd;
     }
+    .slot-card.active {
+      border-color: #7da2ee;
+      background: #f3f7ff;
+    }
     .slot-card strong { display: block; font-size: 13px; }
     .slot-card span { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
-    .slot-card textarea { margin-top: 8px; min-height: 76px; }
     .slot-card .slot-meta { min-height: 18px; margin-top: 6px; }
+    .model-chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 9px;
+      min-height: 31px;
+    }
+    .model-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      min-height: 28px;
+      padding: 0 7px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #fff;
+      color: var(--ink);
+      font-size: 12px;
+    }
+    .model-chip button {
+      width: 20px;
+      height: 20px;
+      border: 0;
+      border-radius: 999px;
+      background: #edf1f5;
+      color: var(--muted);
+      padding: 0;
+    }
+    .model-palette {
+      position: sticky;
+      top: 10px;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfcfd;
+    }
+    .model-palette-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .model-palette-head strong { font-size: 13px; }
+    .model-palette-list {
+      display: grid;
+      gap: 6px;
+      max-height: 460px;
+      overflow: auto;
+      margin-top: 8px;
+    }
+    .model-option {
+      min-height: 44px;
+      padding: 8px 9px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      color: var(--ink);
+      text-align: left;
+    }
+    .model-option.active {
+      border-color: #7da2ee;
+      background: var(--soft-blue);
+    }
+    .model-option:disabled {
+      opacity: .68;
+      cursor: default;
+    }
+    .model-option strong, .model-option span { display: block; }
+    .model-option span { margin-top: 2px; color: var(--muted); font-size: 12px; }
+    .project-bundle {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfcfd;
+      overflow: hidden;
+    }
+    .project-bundle summary {
+      cursor: pointer;
+      padding: 10px 12px;
+      font-weight: 600;
+    }
+    @media (max-width: 980px) {
+      .project-console, .project-model-layout, .project-toolbar {
+        grid-template-columns: 1fr;
+      }
+      .model-palette { position: static; }
+    }
     .chart {
       min-height: 160px;
       display: grid;
@@ -586,31 +715,43 @@ INDEX_HTML = r"""<!doctype html>
         </section>
 
         <section class="view" data-view-panel="projects">
-          <div class="workspace">
+          <div class="project-console">
             <div class="panel">
-              <div class="panel-head"><h3>项目模型包</h3><span class="subtle">项目拿到的是模型、渠道和运行参数，不拿 raw key</span></div>
+              <div class="panel-head"><h3>项目</h3><button class="secondary" id="project-new" type="button">新建项目</button></div>
+              <div id="project-list" class="project-list"></div>
+            </div>
+            <div class="panel">
+              <div class="panel-head"><h3>项目模型配置</h3><span class="subtle">选择模型并设置顺位，项目接入文件在详情里生成</span></div>
               <div class="panel-body">
                 <form id="project-import-form">
-                  <label>项目 ID<input name="project_id" id="project-id" placeholder="auto-driving-research" required></label>
-                  <label>模型选择方式<select name="order_mode" id="project-order-mode">
-                    <option value="model_order">按模型名顺序解析渠道</option>
-                  </select></label>
-                  <div class="slot-grid" id="model-slot-grid"></div>
+                  <div class="project-toolbar">
+                    <label>项目 ID<input name="project_id" id="project-id" placeholder="auto-driving-research" required></label>
+                    <div class="buttons">
+                      <button class="primary">保存模型顺序</button>
+                      <button type="button" class="secondary" id="copy-project-bundle">复制项目接入文件</button>
+                    </div>
+                  </div>
+                  <div class="project-model-layout">
+                    <div class="slot-grid" id="model-slot-grid"></div>
+                    <div class="model-palette">
+                      <div class="model-palette-head">
+                        <strong>可选模型</strong>
+                        <span class="subtle" id="project-active-slot">默认文本</span>
+                      </div>
+                      <input id="project-model-search" placeholder="搜索模型、厂商或渠道">
+                      <div id="project-model-palette" class="model-palette-list"></div>
+                    </div>
+                  </div>
+                  <details class="project-bundle">
+                    <summary>项目接入文件</summary>
+                    <pre class="result" id="project-bundle-preview">{}</pre>
+                  </details>
                   <div class="buttons">
-                    <button class="primary">保存模型顺序</button>
-                    <button type="button" class="secondary" id="copy-project-bundle">复制项目模型包</button>
+                    <button type="button" class="secondary" data-project-copy-section="manifest">复制 omni-hub.project.json</button>
+                    <button type="button" class="secondary" data-project-copy-section="resolver">复制 resolver 请求</button>
                   </div>
                 </form>
               </div>
-            </div>
-            <div class="panel">
-              <div class="panel-head"><h3>项目可读配置</h3><span class="subtle">给项目开发和 agent runtime 使用</span></div>
-              <pre class="result" id="project-bundle-preview">{}</pre>
-            </div>
-            <div class="panel table-box">
-              <div class="panel-head"><h3>已保存项目</h3><span class="subtle">能力槽模型顺序</span></div>
-              <div id="profilesTable"></div>
-              <div id="overridesTable"></div>
             </div>
           </div>
         </section>
@@ -764,7 +905,7 @@ INDEX_HTML = r"""<!doctype html>
       monitor: ['监控检测', '检测模型配置、实时延迟、额度、代理和失败。'],
       skills: ['Skills', '技能安装、同步、质量评分和项目推荐的控制面。']
     };
-    const state = {data: null, view: 'overview', officialProvider: null, providerModalMode: 'add', realtime: false, realtimeTimer: null, dragAccount: null, projectBundle: null, balances: {}};
+    const state = {data: null, view: 'overview', officialProvider: null, providerModalMode: 'add', realtime: false, realtimeTimer: null, dragAccount: null, projectBundle: null, balances: {}, selectedProjectId: '', selectedSlot: 'default', projectDrafts: {}, projectModelSearch: ''};
     const tableState = {};
 
     const api = async (url, options = {}) => {
@@ -927,6 +1068,38 @@ INDEX_HTML = r"""<!doctype html>
       ['batch', '批处理/低价', '异步批量和成本敏感任务'],
       ['embedding', '检索向量', '索引、召回、重排链路']
     ];
+    const slotTitle = slotId => modelSlots.find(([id]) => id === slotId)?.[1] || slotId;
+    const projectDraftKey = () => (document.getElementById('project-id')?.value.trim() || state.selectedProjectId || '__draft__');
+    function ensureProjectDraft(projectId = projectDraftKey()) {
+      const key = projectId || '__draft__';
+      if (!state.projectDrafts[key]) {
+        const draft = {};
+        (state.data?.model_orders || [])
+          .filter(order => order.project_id === key)
+          .forEach(order => { draft[order.slot] = [...(order.model_ids || [])]; });
+        state.projectDrafts[key] = draft;
+      }
+      return state.projectDrafts[key];
+    }
+    function slotModels(slotId) {
+      return ensureProjectDraft()[slotId] || [];
+    }
+    function setSlotModels(slotId, models) {
+      const draft = ensureProjectDraft();
+      draft[slotId] = [...new Set(models.filter(Boolean))];
+      state.projectBundle = null;
+      renderProjectSlots();
+      renderProjectModelPalette();
+      renderProjectBundlePreview();
+    }
+    function projectRows() {
+      const ids = new Set((state.data?.profiles || []).map(item => item.project_id));
+      (state.data?.model_orders || []).forEach(item => ids.add(item.project_id));
+      return [...ids].sort().map(project_id => ({
+        project_id,
+        orders: (state.data?.model_orders || []).filter(order => order.project_id === project_id)
+      }));
+    }
     const searchText = row => JSON.stringify(row).toLowerCase();
 
     function setView(view) {
@@ -943,6 +1116,8 @@ INDEX_HTML = r"""<!doctype html>
     }
 
     function renderDataTable(id, title, columns, rows) {
+      const element = document.getElementById(id);
+      if (!element) return;
       const table = tableState[id] || {page: 1, query: ''};
       tableState[id] = table;
       const query = table.query.trim().toLowerCase();
@@ -953,7 +1128,7 @@ INDEX_HTML = r"""<!doctype html>
       const body = visible.length
         ? visible.map(row => '<tr>' + columns.map(col => `<td>${col.render ? col.render(row) : escapeHtml(row[col.key])}</td>`).join('') + '</tr>').join('')
         : `<tr><td colspan="${columns.length}" class="subtle">暂无数据</td></tr>`;
-      document.getElementById(id).innerHTML = `
+      element.innerHTML = `
         <div class="table-tools">
           <div><strong>${escapeHtml(title)}</strong> <span class="subtle">${filtered.length} 条</span></div>
           <input data-table-search="${id}" value="${escapeAttr(table.query)}" placeholder="搜索">
@@ -986,6 +1161,21 @@ INDEX_HTML = r"""<!doctype html>
         model: modelById(ability.model_id),
         health: healthFor(ability.account_id)
       }));
+    }
+    function availableModelRows() {
+      return (state.data?.models || []).map(model => {
+        const rows = poolRows().filter(row => row.model_id === model.model_id && row.enabled);
+        const accounts = rows.map(row => row.account).filter(account => account.account_id);
+        const priority = rows.length ? Math.max(...rows.map(row => Number(row.priority || 0))) : 0;
+        return {
+          model,
+          rows,
+          priority,
+          providers: [...new Set(accounts.map(account => providerName(account.provider)))],
+          channels: accounts.map(account => account.name || account.account_id),
+          healthy: rows.some(row => ['healthy', 'unknown', undefined].includes(row.health?.status))
+        };
+      }).sort((a, b) => Number(b.priority || 0) - Number(a.priority || 0) || a.model.model_id.localeCompare(b.model.model_id));
     }
     function renderOfficialProviders() {
       const presets = officialProviders();
@@ -1117,22 +1307,63 @@ INDEX_HTML = r"""<!doctype html>
     function renderProjectSlots() {
       const target = document.getElementById('model-slot-grid');
       if (!target) return;
-      const projectId = document.getElementById('project-id')?.value.trim() || '';
-      const saved = {};
-      (state.data?.model_orders || [])
-        .filter(order => !projectId || order.project_id === projectId)
-        .forEach(order => { saved[order.slot] = order.model_ids || []; });
-      const availableModels = [...new Set((state.data?.models || []).map(model => model.model_id))].sort();
-      const suggestions = availableModels.slice(0, 10).join(', ');
+      ensureProjectDraft();
       target.innerHTML = modelSlots.map(([id, title, desc]) => {
-        const value = saved[id]?.join('\n') || '';
+        const selected = slotModels(id);
         return `<div class="slot-card" data-slot="${escapeAttr(id)}">
-          <strong>${escapeHtml(title)}</strong>
-          <span>${escapeHtml(desc)}</span>
-          <textarea data-slot-models="${escapeAttr(id)}" placeholder="每行一个模型名；按顺序重试，例如：\ndeepseek-chat\ngpt-5.5-mini\nclaude-sonnet-4.6">${escapeHtml(value)}</textarea>
-          <span class="slot-meta">已发现模型：${escapeHtml(suggestions || '先在模型配置页发现模型')}</span>
+          <button type="button" class="model-option ${state.selectedSlot === id ? 'active' : ''}" data-project-slot-select="${escapeAttr(id)}">
+            <strong>${escapeHtml(title)}</strong>
+            <span>${escapeHtml(desc)}</span>
+          </button>
+          <div class="model-chip-row">
+            ${selected.length ? selected.map((modelId, index) => `<span class="model-chip">
+              ${escapeHtml(index + 1)}. ${escapeHtml(modelId)}
+              <button type="button" title="上移" data-model-up="${escapeAttr(modelId)}" data-slot="${escapeAttr(id)}">↑</button>
+              <button type="button" title="下移" data-model-down="${escapeAttr(modelId)}" data-slot="${escapeAttr(id)}">↓</button>
+              <button type="button" title="移除" data-model-remove="${escapeAttr(modelId)}" data-slot="${escapeAttr(id)}">×</button>
+            </span>`).join('') : '<span class="subtle">未选择模型。点击右侧模型库添加。</span>'}
+          </div>
+          <span class="slot-meta">顺位越靠前越先用；同名模型按模型配置页渠道排序解析。</span>
         </div>`;
       }).join('');
+      const activeSlot = document.getElementById('project-active-slot');
+      if (activeSlot) activeSlot.textContent = slotTitle(state.selectedSlot);
+    }
+
+    function renderProjectList() {
+      const target = document.getElementById('project-list');
+      if (!target) return;
+      const rows = projectRows();
+      if (!state.selectedProjectId && rows[0]) state.selectedProjectId = rows[0].project_id;
+      if (state.selectedProjectId) {
+        const input = document.getElementById('project-id');
+        if (input && input.value !== state.selectedProjectId) input.value = state.selectedProjectId;
+      }
+      target.innerHTML = rows.length ? rows.map(row => `<button type="button" class="project-card ${row.project_id === state.selectedProjectId ? 'active' : ''}" data-project-id="${escapeAttr(row.project_id)}">
+        <strong>${escapeHtml(row.project_id)}</strong>
+        <span>${escapeHtml(row.orders.length)} 个能力槽 · ${escapeHtml((row.orders || []).map(order => order.slot).join(', ') || '未配置')}</span>
+      </button>`).join('') : '<div class="subtle">还没有项目。点击新建后填写项目 ID。</div>';
+    }
+
+    function renderProjectModelPalette() {
+      const target = document.getElementById('project-model-palette');
+      if (!target) return;
+      const selected = new Set(slotModels(state.selectedSlot));
+      const query = state.projectModelSearch.trim().toLowerCase();
+      const rows = availableModelRows().filter(row => !query || searchText(row).includes(query)).slice(0, 80);
+      target.innerHTML = rows.length ? rows.map(row => {
+        const modelId = row.model.model_id;
+        const used = selected.has(modelId);
+        const meta = [
+          row.providers.join('/'),
+          `${row.rows.length} 个渠道`,
+          row.priority ? `优先级 ${row.priority}` : '未排序'
+        ].filter(Boolean).join(' · ');
+        return `<button type="button" class="model-option ${used ? 'active' : ''}" data-model-add="${escapeAttr(modelId)}" ${used ? 'disabled' : ''}>
+          <strong>${escapeHtml(modelId)}</strong>
+          <span>${escapeHtml(meta || '暂无可用渠道')}</span>
+        </button>`;
+      }).join('') : '<div class="subtle">没有匹配模型。先到模型配置页发现或添加模型。</div>';
     }
 
     function renderMetrics() {
@@ -1164,20 +1395,10 @@ INDEX_HTML = r"""<!doctype html>
         {label: '状态', render: row => pill(row.status)}
       ], overview);
       renderProviderConfigList();
+      renderProjectList();
       renderProjectSlots();
+      renderProjectModelPalette();
       renderProjectBundlePreview();
-      renderDataTable('profilesTable', '项目偏好', [
-        {key: 'project_id', label: '项目'},
-        {label: '能力', render: row => escapeHtml((row.default_capabilities || []).join(', '))},
-        {label: '能力槽', render: row => String((data.model_orders || []).filter(order => order.project_id === row.project_id).length)},
-        {key: 'notes', label: '说明'}
-      ], data.profiles || []);
-      renderDataTable('overridesTable', '项目模型顺序', [
-        {key: 'project_id', label: '项目'},
-        {key: 'slot', label: '能力槽'},
-        {label: '模型顺序', render: row => escapeHtml((row.model_ids || []).join(' -> '))},
-        {key: 'updated_at', label: '更新时间'}
-      ], data.model_orders || []);
       renderDataTable('monitorTable', '监控', [
         {key: 'account_id', label: '渠道'},
         {label: '状态', render: row => pill(row.health.status || 'unknown')},
@@ -1277,6 +1498,11 @@ INDEX_HTML = r"""<!doctype html>
         slots: modelSlots.map(([slot, label, description]) => ({slot, label, description})),
         model_orders: projectOrderPayload().orders,
         rule: '同名模型按模型配置页渠道优先级解析；不可用时切到下一渠道或下一模型',
+        integration: {
+          manifest_path: '.omni/omni-hub.project.json',
+          resolver_endpoint: 'http://127.0.0.1:8765/api/project-resolve',
+          request_shape: {project_id: document.getElementById('project-id')?.value || '', slot: state.selectedSlot}
+        },
         routes: []
       }, null, 2);
     }
@@ -1571,9 +1797,10 @@ INDEX_HTML = r"""<!doctype html>
     function projectOrderPayload() {
       const form = document.getElementById('project-import-form');
       const payload = formPayload(form);
-      payload.orders = Array.from(document.querySelectorAll('[data-slot-models]')).map(input => ({
-        slot: input.dataset.slotModels,
-        model_ids: input.value.split(/[\n,]+/).map(item => item.trim()).filter(Boolean)
+      const draft = ensureProjectDraft(payload.project_id || projectDraftKey());
+      payload.orders = modelSlots.map(([slot]) => ({
+        slot,
+        model_ids: draft[slot] || []
       }));
       return payload;
     }
@@ -1586,6 +1813,7 @@ INDEX_HTML = r"""<!doctype html>
         body: JSON.stringify(payload)
       });
       state.projectBundle = data.bundle;
+      state.selectedProjectId = payload.project_id;
       await refresh();
       renderProjectBundlePreview();
       showToast(`已保存 ${data.orders.length} 个能力槽模型顺序`);
@@ -1607,6 +1835,29 @@ INDEX_HTML = r"""<!doctype html>
       await copyText(JSON.stringify(state.projectBundle, null, 2), '项目模型包已复制');
     }
 
+    async function copyProjectSection(section) {
+      const projectId = document.getElementById('project-id').value.trim();
+      if (!projectId) throw new Error('请先填写项目 ID');
+      if (!state.projectBundle || state.projectBundle.project_id !== projectId) {
+        const data = await api('/api/project-bundle', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({project_id: projectId})
+        });
+        state.projectBundle = data.bundle;
+      }
+      const integration = state.projectBundle.integration || {};
+      if (section === 'manifest') {
+        await copyText(JSON.stringify(integration.manifest || state.projectBundle, null, 2), 'omni-hub.project.json 已复制');
+        return;
+      }
+      const request = integration.request_shape || {method: 'POST', body: {project_id: projectId, slot: state.selectedSlot}};
+      const text = `curl -sS -X ${request.method || 'POST'} ${integration.resolver_endpoint || 'http://127.0.0.1:8765/api/project-resolve'} \\
+  -H 'Content-Type: application/json' \\
+  -d '${JSON.stringify(request.body || {project_id: projectId, slot: state.selectedSlot})}'`;
+      await copyText(text, 'resolver 请求已复制');
+    }
+
     document.querySelectorAll('[data-view]').forEach(button => button.addEventListener('click', () => setView(button.dataset.view)));
     document.getElementById('refresh').addEventListener('click', event => {
       withButtonLoading(event.currentTarget, '刷新中', () => refresh(true));
@@ -1615,6 +1866,20 @@ INDEX_HTML = r"""<!doctype html>
       const preset = state.officialProvider || officialProviders()[0];
       if (preset) applyOfficialProvider(preset, false);
       openProviderModal('add');
+    });
+    document.getElementById('project-new').addEventListener('click', () => {
+      state.selectedProjectId = '';
+      state.selectedSlot = 'default';
+      state.projectBundle = null;
+      state.projectDrafts.__draft__ = {};
+      document.getElementById('project-id').value = '';
+      document.getElementById('project-model-search').value = '';
+      state.projectModelSearch = '';
+      renderProjectList();
+      renderProjectSlots();
+      renderProjectModelPalette();
+      renderProjectBundlePreview();
+      showToast('已进入新建项目');
     });
     document.getElementById('close-provider-modal').addEventListener('click', closeProviderModal);
     document.getElementById('provider-modal').addEventListener('click', event => {
@@ -1647,6 +1912,58 @@ INDEX_HTML = r"""<!doctype html>
         if (action === 'export-codex') withButtonLoading(accountAction, '导出中', () => copyAccountCodexConfig(accountId));
         if (action === 'quota') withButtonLoading(accountAction, '查询中', () => showQuota(accountId));
       }
+      const projectButton = event.target.closest('[data-project-id]');
+      if (projectButton) {
+        state.selectedProjectId = projectButton.dataset.projectId;
+        state.projectBundle = null;
+        document.getElementById('project-id').value = state.selectedProjectId;
+        ensureProjectDraft(state.selectedProjectId);
+        renderProjectList();
+        renderProjectSlots();
+        renderProjectModelPalette();
+        renderProjectBundlePreview();
+      }
+      const slotButton = event.target.closest('[data-project-slot-select]');
+      if (slotButton) {
+        state.selectedSlot = slotButton.dataset.projectSlotSelect;
+        renderProjectSlots();
+        renderProjectModelPalette();
+        renderProjectBundlePreview();
+      }
+      const modelAdd = event.target.closest('[data-model-add]');
+      if (modelAdd) {
+        const models = slotModels(state.selectedSlot);
+        setSlotModels(state.selectedSlot, [...models, modelAdd.dataset.modelAdd]);
+      }
+      const modelRemove = event.target.closest('[data-model-remove]');
+      if (modelRemove) {
+        const slot = modelRemove.dataset.slot;
+        setSlotModels(slot, slotModels(slot).filter(item => item !== modelRemove.dataset.modelRemove));
+      }
+      const modelUp = event.target.closest('[data-model-up]');
+      if (modelUp) {
+        const slot = modelUp.dataset.slot;
+        const models = [...slotModels(slot)];
+        const index = models.indexOf(modelUp.dataset.modelUp);
+        if (index > 0) {
+          [models[index - 1], models[index]] = [models[index], models[index - 1]];
+          setSlotModels(slot, models);
+        }
+      }
+      const modelDown = event.target.closest('[data-model-down]');
+      if (modelDown) {
+        const slot = modelDown.dataset.slot;
+        const models = [...slotModels(slot)];
+        const index = models.indexOf(modelDown.dataset.modelDown);
+        if (index >= 0 && index < models.length - 1) {
+          [models[index + 1], models[index]] = [models[index], models[index + 1]];
+          setSlotModels(slot, models);
+        }
+      }
+      const projectCopySection = event.target.closest('[data-project-copy-section]');
+      if (projectCopySection) {
+        withButtonLoading(projectCopySection, '复制中', () => copyProjectSection(projectCopySection.dataset.projectCopySection));
+      }
       const pageButton = event.target.closest('[data-page]');
       if (pageButton) {
         const id = pageButton.dataset.page;
@@ -1659,7 +1976,19 @@ INDEX_HTML = r"""<!doctype html>
       const id = event.target.dataset.tableSearch;
       if (!id) {
         if (event.target.closest('#official-form')) updateScriptPreview();
-        if (event.target.id === 'project-id' || event.target.matches('[data-slot-models]')) renderProjectBundlePreview();
+        if (event.target.id === 'project-id') {
+          state.selectedProjectId = event.target.value.trim();
+          state.projectBundle = null;
+          ensureProjectDraft(state.selectedProjectId || '__draft__');
+          renderProjectList();
+          renderProjectSlots();
+          renderProjectModelPalette();
+          renderProjectBundlePreview();
+        }
+        if (event.target.id === 'project-model-search') {
+          state.projectModelSearch = event.target.value;
+          renderProjectModelPalette();
+        }
         return;
       }
       tableState[id] = tableState[id] || {page: 1, query: ''};

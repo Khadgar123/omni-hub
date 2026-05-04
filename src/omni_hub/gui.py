@@ -3009,20 +3009,102 @@ def _project_model_bundle(
             item["model_id"],
         ),
     )
+    slot_routes = (
+        _project_slot_routes_from_orders(store, model_orders)
+        if model_orders
+        else _project_slot_routes(sorted_routes)
+    )
     return {
         "project_id": project_id,
         "slots": MODEL_SLOT_PRESETS,
         "model_orders": [order.to_dict() for order in model_orders],
-        "slot_routes": (
-            _project_slot_routes_from_orders(store, model_orders)
-            if model_orders
-            else _project_slot_routes(sorted_routes)
-        ),
+        "slot_routes": slot_routes,
         "routes": sorted_routes,
+        "integration": _project_integration_contract(project_id, slot_routes),
         "security": {
             "api_key": "not_exported",
             "secret_ref": "resolve at runtime from local file/env/runtime",
         },
+    }
+
+
+def _project_integration_contract(
+    project_id: str,
+    slot_routes: list[dict[str, Any]],
+) -> dict[str, Any]:
+    manifest_slots: dict[str, Any] = {}
+    for route in slot_routes:
+        selected = route.get("selected") or {}
+        manifest_slots[str(route.get("slot", ""))] = {
+            "label": route.get("label", ""),
+            "model_order": route.get("model_order", []),
+            "selected": {
+                key: selected.get(key)
+                for key in (
+                    "model_id",
+                    "provider_model_id",
+                    "provider",
+                    "account_id",
+                    "base_url",
+                    "secret_ref",
+                    "proxy_url",
+                    "api_format",
+                    "max_concurrency",
+                    "rps_limit",
+                    "rpm_limit",
+                    "tpm_limit",
+                    "health_status",
+                )
+                if selected.get(key) not in (None, "")
+            },
+        }
+    return {
+        "manifest_path": ".omni/omni-hub.project.json",
+        "resolver_endpoint": "http://127.0.0.1:8765/api/project-resolve",
+        "request_shape": {
+            "method": "POST",
+            "headers": {"Content-Type": "application/json"},
+            "body": {"project_id": project_id, "slot": "default"},
+        },
+        "manifest": {
+            "schema": "omni-hub.project.v1",
+            "project_id": project_id,
+            "resolver": "http://127.0.0.1:8765/api/project-resolve",
+            "slots": manifest_slots,
+            "secret_policy": "raw keys stay in local secret backend; resolve secret_ref at runtime",
+        },
+        "adapter_notes": [
+            {
+                "target": "Codex",
+                "mode": "export snippet",
+                "path": "~/.codex/config.toml",
+                "note": "Codex uses a global TOML provider map; keep the project manifest in the repo and export the selected provider snippet when launching Codex.",
+            },
+            {
+                "target": "Claude Code",
+                "mode": "project settings",
+                "path": ".claude/settings.json or .claude/settings.local.json",
+                "note": "Claude Code can pin one model in settings and read env/apiKeyHelper; multi-model fallback should call the Omni resolver before starting a task.",
+            },
+            {
+                "target": "Gemini CLI",
+                "mode": "workspace settings",
+                "path": ".gemini/settings.json",
+                "note": "Gemini CLI supports workspace settings such as model.name; fallback remains Omni-side.",
+            },
+            {
+                "target": "Continue",
+                "mode": "config.yaml",
+                "path": ".continue/config.yaml or ~/.continue/config.yaml",
+                "note": "Continue supports model roles; map Omni slots to roles like chat/edit/apply/autocomplete.",
+            },
+            {
+                "target": "LiteLLM or Portkey",
+                "mode": "gateway config",
+                "path": "config.yaml or gateway config JSON",
+                "note": "Use Omni orders to generate model aliases, fallback targets, budgets, and rate limits in a gateway.",
+            },
+        ],
     }
 
 
