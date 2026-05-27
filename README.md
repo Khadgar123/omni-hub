@@ -26,6 +26,12 @@ conda activate omni-hub
 PYTHONPATH=src python3.12 -m omni_hub.cli summarize-text --text "万象中枢是个人知识、AI Skill、自动化工作流与本地 API 网关的统一中枢。" --max-chars 40
 ```
 
+初始化大型外部服务 fork：
+
+```bash
+make setup
+```
+
 常用本地能力：
 
 ```bash
@@ -57,6 +63,15 @@ api-management/ccLoad  -> https://github.com/Khadgar123/ccLoad
 
 - Metapi：上游账号、站点、模型发现、余额刷新、低余额告警、成本/余额/使用率路由。
 - ccLoad：Claude Code、Codex、Gemini、OpenAI-compatible 本地入口，协议转换、失败切换、令牌限制、RPM/成本限制和请求日志。
+
+工程方式：主仓库是产品编排仓，锁定两个服务 fork 的精确 commit；两个服务仍保留独立仓库、上游 remote、测试和构建系统。日常不要手写 submodule 命令，统一用：
+
+```bash
+make setup
+make api-update
+make test
+make compose-config
+```
 
 本地启动：
 

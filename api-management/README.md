@@ -9,6 +9,32 @@ It is intentionally split into two maintained forks:
 
 The old local Python provider router, GUI, and agent planning layer have been removed from the main repository. Keep API gateway changes inside these two forks.
 
+## Engineering Model
+
+This repository uses a product-orchestrator plus pinned service forks model:
+
+- `omni-hub` owns product configuration, docs, compose files, status checks, tests, and release pointers.
+- `metapi` and `ccLoad` stay as independent forked services with their own upstreams, history, tests, and build systems.
+- The main repository pins exact service commits through gitlinks, so every checkout is reproducible.
+- Contributors should use the root `Makefile` instead of remembering submodule commands.
+
+Bootstrap after clone:
+
+```bash
+make setup
+```
+
+Update the maintained forks from upstream:
+
+```bash
+make api-update
+make test
+make compose-config
+git commit -m "Update API management forks"
+```
+
+If an upstream merge is not fast-forward, resolve it inside the fork repository, push the fork branch, then commit the bumped gitlink in `omni-hub`.
+
 ## Forks
 
 ```text
@@ -16,7 +42,7 @@ api-management/metapi  -> https://github.com/Khadgar123/metapi
 api-management/ccLoad  -> https://github.com/Khadgar123/ccLoad
 ```
 
-Each fork also has an `upstream` remote:
+`make setup` adds each fork's `upstream` remote automatically. Manual equivalent:
 
 ```bash
 cd api-management/metapi

@@ -1,6 +1,6 @@
 # 推荐组合架构
 
-万象中枢主仓库只保留知识内核和最小控制入口；API 网关不再自研，交给 `api-management/` 下的两个 fork。
+万象中枢主仓库只保留知识内核和最小控制入口；API 网关不再自研，交给 `api-management/` 下的两个 fork。成熟工程形态选择“产品编排仓 + 独立服务 fork + 精确版本锁定”，而不是把所有源码复制进主仓库。
 
 ## 当前组合
 
@@ -31,6 +31,19 @@ omni-hub
 | API 本地网关 | Claude Code / Codex / Gemini / OpenAI-compatible、协议转换、限流、日志 | `api-management/ccLoad` |
 | 工作流层 | 暂未接入 | 后续可接 n8n webhook adapter |
 | 智能编排 | 暂未接入 | 后续可接 OpenAI Agents SDK 或 LangGraph |
+
+## 大型工程方式
+
+| 责任 | 落点 |
+| --- | --- |
+| 产品配置、默认模型、compose、状态检查、文档、主测试 | `omni-hub` |
+| 余额/账号/路由管理服务源码 | `api-management/metapi` fork |
+| 本地网关/协议转换服务源码 | `api-management/ccLoad` fork |
+| 版本锁定 | 主仓库 gitlink 指针 |
+| 新人初始化 | `make setup` |
+| 上游同步 | `make api-update`，只做 fast-forward，冲突进 fork 内解决 |
+
+这种方式接近大型产品的 polyrepo/service ownership 模型：服务边界清楚，主仓库可复现，外部上游可以持续同步；脚本和 Makefile 把 submodule 的复杂度收起来。
 
 ## 为什么删除旧网关
 
