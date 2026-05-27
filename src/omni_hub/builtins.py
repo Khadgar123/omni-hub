@@ -2,25 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .agent import AgentPlanner, AgentTaskRequest
+from .api_management import api_management_status
 from .connectors.web import build_resource_from_body, fetch_url
 from .content_store import ContentStore
 from .memory import MemoryStore
 from .models import OperationSpec, RiskLevel
 from .proposals import ProposalStore, build_knowledge_proposal
-from .provider_router import (
-    HealthStatus,
-    ModelSpec,
-    ModelStatus,
-    ProviderAccount,
-    ProviderAccountStatus,
-    ProviderHealth,
-    ProviderRouterStore,
-    ProjectRouteOverride,
-    ProjectRouteProfile,
-    RouteAbility,
-    RouteRequest,
-)
 from .registry import OperationRegistry
 from .skill_intel import analyze_skill_set, recommend_skills
 from .skills import SkillKind, SkillRegistry, SkillSpec, SkillStatus
@@ -52,7 +39,7 @@ def make_write_markdown(workspace: Path):
         try:
             target.relative_to(workspace_root)
         except ValueError as exc:
-            raise PermissionError("target path is outside the workspace")
+            raise PermissionError("target path is outside the workspace") from exc
 
         target.parent.mkdir(parents=True, exist_ok=True)
         content = f"# {title}\n\n{body}\n" if title else f"{body}\n"
@@ -293,266 +280,14 @@ def make_analyze_skills(workspace: Path):
     return analyze
 
 
-def make_add_provider_account(workspace: Path):
+def make_api_management_status(workspace: Path):
     workspace_root = workspace.resolve()
 
-    def add_provider_account(spec: OperationSpec) -> dict[str, object]:
-        payload = spec.payload
-        account = ProviderAccount(
-            account_id=str(payload["account_id"]),
-            provider=str(payload["provider"]),
-            name=str(payload["name"]),
-            base_url=str(payload["base_url"]),
-            secret_ref=str(payload.get("secret_ref", "")),
-            status=ProviderAccountStatus(
-                str(payload.get("status", ProviderAccountStatus.ACTIVE.value))
-            ),
-            account_group=str(payload.get("account_group", "")),
-            notes=str(payload.get("notes", "")),
-        )
-        stored = ProviderRouterStore(workspace_root).upsert_account(account)
-        return {"account": stored.to_dict()}
+    def status(spec: OperationSpec) -> dict[str, object]:
+        timeout_seconds = float(spec.payload.get("timeout_seconds", 0.5))
+        return api_management_status(workspace_root, timeout_seconds=timeout_seconds)
 
-    return add_provider_account
-
-
-def make_list_provider_accounts(workspace: Path):
-    workspace_root = workspace.resolve()
-
-    def list_provider_accounts(spec: OperationSpec) -> dict[str, object]:
-        accounts = ProviderRouterStore(workspace_root, create=False).list_accounts(
-            status=spec.payload.get("status"),
-            provider=spec.payload.get("provider"),
-        )
-        return {
-            "count": len(accounts),
-            "accounts": [account.to_dict() for account in accounts],
-        }
-
-    return list_provider_accounts
-
-
-def make_disable_provider_account(workspace: Path):
-    workspace_root = workspace.resolve()
-
-    def disable_provider_account(spec: OperationSpec) -> dict[str, object]:
-        store = ProviderRouterStore(workspace_root)
-        account = store.disable_account(
-            str(spec.payload["account_id"]),
-            auto=bool(spec.payload.get("auto", False)),
-            reason=str(spec.payload.get("reason", "")),
-        )
-        return {"account": account.to_dict()}
-
-    return disable_provider_account
-
-
-def make_add_model(workspace: Path):
-    workspace_root = workspace.resolve()
-
-    def add_model(spec: OperationSpec) -> dict[str, object]:
-        payload = spec.payload
-        model = ModelSpec(
-            model_id=str(payload["model_id"]),
-            display_name=str(payload.get("display_name", "")),
-            status=ModelStatus(str(payload.get("status", ModelStatus.ACTIVE.value))),
-            capabilities=list(payload.get("capabilities", [])),
-            context_window=int(payload.get("context_window", 0)),
-            input_usd_per_million=float(payload.get("input_usd_per_million", 0.0)),
-            output_usd_per_million=float(payload.get("output_usd_per_million", 0.0)),
-            cache_read_usd_per_million=float(
-                payload.get("cache_read_usd_per_million", 0.0)
-            ),
-            cache_write_usd_per_million=float(
-                payload.get("cache_write_usd_per_million", 0.0)
-            ),
-            supports_batch=bool(payload.get("supports_batch", False)),
-            notes=str(payload.get("notes", "")),
-        )
-        stored = ProviderRouterStore(workspace_root).upsert_model(model)
-        return {"model": stored.to_dict()}
-
-    return add_model
-
-
-def make_list_models(workspace: Path):
-    workspace_root = workspace.resolve()
-
-    def list_models(spec: OperationSpec) -> dict[str, object]:
-        models = ProviderRouterStore(workspace_root, create=False).list_models(
-            status=spec.payload.get("status"),
-            capability=spec.payload.get("capability"),
-        )
-        return {
-            "count": len(models),
-            "models": [model.to_dict() for model in models],
-        }
-
-    return list_models
-
-
-def make_set_route_ability(workspace: Path):
-    workspace_root = workspace.resolve()
-
-    def set_route_ability(spec: OperationSpec) -> dict[str, object]:
-        payload = spec.payload
-        ability = RouteAbility(
-            account_id=str(payload["account_id"]),
-            model_id=str(payload["model_id"]),
-            enabled=bool(payload.get("enabled", True)),
-            priority=int(payload.get("priority", 0)),
-            weight=float(payload.get("weight", 1.0)),
-            model_mapping=str(payload.get("model_mapping", "")),
-            notes=str(payload.get("notes", "")),
-        )
-        stored = ProviderRouterStore(workspace_root).upsert_ability(ability)
-        return {"ability": stored.to_dict()}
-
-    return set_route_ability
-
-
-def make_set_route_profile(workspace: Path):
-    workspace_root = workspace.resolve()
-
-    def set_route_profile(spec: OperationSpec) -> dict[str, object]:
-        payload = spec.payload
-        profile = ProjectRouteProfile(
-            project_id=str(payload["project_id"]),
-            default_capabilities=list(payload.get("default_capabilities", [])),
-            max_cost_usd=payload.get("max_cost_usd"),
-            require_batch=bool(payload.get("require_batch", False)),
-            preferred_providers=list(payload.get("preferred_providers", [])),
-            preferred_accounts=list(payload.get("preferred_accounts", [])),
-            notes=str(payload.get("notes", "")),
-        )
-        stored = ProviderRouterStore(workspace_root).upsert_project_profile(profile)
-        return {"profile": stored.to_dict()}
-
-    return set_route_profile
-
-
-def make_list_route_profiles(workspace: Path):
-    workspace_root = workspace.resolve()
-
-    def list_route_profiles(spec: OperationSpec) -> dict[str, object]:
-        profiles = ProviderRouterStore(
-            workspace_root,
-            create=False,
-        ).list_project_profiles()
-        return {
-            "count": len(profiles),
-            "profiles": [profile.to_dict() for profile in profiles],
-        }
-
-    return list_route_profiles
-
-
-def make_set_project_route_override(workspace: Path):
-    workspace_root = workspace.resolve()
-
-    def set_project_route_override(spec: OperationSpec) -> dict[str, object]:
-        payload = spec.payload
-        override = ProjectRouteOverride(
-            project_id=str(payload["project_id"]),
-            account_id=str(payload["account_id"]),
-            model_id=str(payload["model_id"]),
-            priority=payload.get("priority"),
-            weight=payload.get("weight"),
-            enabled=bool(payload.get("enabled", True)),
-            notes=str(payload.get("notes", "")),
-        )
-        stored = ProviderRouterStore(workspace_root).upsert_project_override(override)
-        return {"override": stored.to_dict()}
-
-    return set_project_route_override
-
-
-def make_list_project_route_overrides(workspace: Path):
-    workspace_root = workspace.resolve()
-
-    def list_project_route_overrides(spec: OperationSpec) -> dict[str, object]:
-        overrides = ProviderRouterStore(
-            workspace_root,
-            create=False,
-        ).list_project_overrides(project_id=spec.payload.get("project_id"))
-        return {
-            "count": len(overrides),
-            "overrides": [override.to_dict() for override in overrides],
-        }
-
-    return list_project_route_overrides
-
-
-def make_set_provider_health(workspace: Path):
-    workspace_root = workspace.resolve()
-
-    def set_provider_health(spec: OperationSpec) -> dict[str, object]:
-        payload = spec.payload
-        health = ProviderHealth(
-            account_id=str(payload["account_id"]),
-            model_id=str(payload.get("model_id", "")),
-            status=HealthStatus(str(payload.get("status", HealthStatus.UNKNOWN.value))),
-            latency_ms=payload.get("latency_ms"),
-            consecutive_failures=int(payload.get("consecutive_failures", 0)),
-            last_error=str(payload.get("last_error", "")),
-        )
-        stored = ProviderRouterStore(workspace_root).set_health(health)
-        return {"health": stored.to_dict()}
-
-    return set_provider_health
-
-
-def make_route_simulate(workspace: Path):
-    workspace_root = workspace.resolve()
-
-    def route_simulate(spec: OperationSpec) -> dict[str, object]:
-        payload = spec.payload
-        request = RouteRequest(
-            project_id=str(payload.get("project_id", "")),
-            capabilities=list(payload.get("capabilities", [])),
-            input_tokens=int(payload.get("input_tokens", 0)),
-            output_tokens=int(payload.get("output_tokens", 0)),
-            max_cost_usd=payload.get("max_cost_usd"),
-            require_batch=bool(payload.get("require_batch", False)),
-            preferred_providers=list(payload.get("preferred_providers", [])),
-            preferred_accounts=list(payload.get("preferred_accounts", [])),
-            limit=int(payload.get("limit", 10)),
-        )
-        return ProviderRouterStore(workspace_root, create=False).route(request).to_dict()
-
-    return route_simulate
-
-
-def make_provider_router_stats(workspace: Path):
-    workspace_root = workspace.resolve()
-
-    def provider_router_stats(spec: OperationSpec) -> dict[str, int]:
-        return ProviderRouterStore(workspace_root, create=False).stats()
-
-    return provider_router_stats
-
-
-def make_plan_agent_task(workspace: Path):
-    workspace_root = workspace.resolve()
-
-    def plan_agent_task(spec: OperationSpec) -> dict[str, object]:
-        payload = spec.payload
-        request = AgentTaskRequest(
-            project_id=str(payload.get("project_id", "")),
-            task_preview=str(payload.get("task_preview", "")),
-            task_chars=int(payload.get("task_chars", 0)),
-            capabilities=list(payload.get("capabilities", [])),
-            input_tokens=int(payload.get("input_tokens", 0)),
-            output_tokens=int(payload.get("output_tokens", 0)),
-            max_cost_usd=payload.get("max_cost_usd"),
-            require_batch=bool(payload.get("require_batch", False)),
-            preferred_providers=list(payload.get("preferred_providers", [])),
-            preferred_accounts=list(payload.get("preferred_accounts", [])),
-            limit=int(payload.get("limit", 5)),
-        )
-        return AgentPlanner(workspace_root).plan(request).to_dict()
-
-    return plan_agent_task
+    return status
 
 
 def build_default_registry(workspace: Path | str = ".") -> OperationRegistry:
@@ -573,27 +308,5 @@ def build_default_registry(workspace: Path | str = ".") -> OperationRegistry:
     registry.register("disable_skill", make_disable_skill(workspace_path))
     registry.register("recommend_skills", make_recommend_skills(workspace_path))
     registry.register("analyze_skills", make_analyze_skills(workspace_path))
-    registry.register("add_provider_account", make_add_provider_account(workspace_path))
-    registry.register("list_provider_accounts", make_list_provider_accounts(workspace_path))
-    registry.register(
-        "disable_provider_account",
-        make_disable_provider_account(workspace_path),
-    )
-    registry.register("add_model", make_add_model(workspace_path))
-    registry.register("list_models", make_list_models(workspace_path))
-    registry.register("set_route_ability", make_set_route_ability(workspace_path))
-    registry.register("set_route_profile", make_set_route_profile(workspace_path))
-    registry.register("list_route_profiles", make_list_route_profiles(workspace_path))
-    registry.register(
-        "set_project_route_override",
-        make_set_project_route_override(workspace_path),
-    )
-    registry.register(
-        "list_project_route_overrides",
-        make_list_project_route_overrides(workspace_path),
-    )
-    registry.register("set_provider_health", make_set_provider_health(workspace_path))
-    registry.register("route_simulate", make_route_simulate(workspace_path))
-    registry.register("provider_router_stats", make_provider_router_stats(workspace_path))
-    registry.register("plan_agent_task", make_plan_agent_task(workspace_path))
+    registry.register("api_management_status", make_api_management_status(workspace_path))
     return registry

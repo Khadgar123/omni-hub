@@ -1,169 +1,42 @@
 # 万象中枢
 
-个人知识、AI Skill、自动化工作流与多平台连接的统一中枢。
+个人知识、AI Skill、自动化工作流与本地 API 网关的统一中枢。
 
-## 项目定位
+## 当前定位
 
-万象中枢不只是一个个人知识库，而是未来 AI 工作效率系统的基础入口。它用于沉淀知识、管理项目上下文、配置 AI Skill、编排自动化工作流，并逐步连接飞书、X、B 站、YouTube、小红书等外部平台。
+仓库只保留两类能力：
 
-核心目标是把分散的信息源、项目资料、自动化脚本、Agent 能力和平台接口统一到一个可维护、可扩展、可复用的中枢里。
+- 本地知识内核：Operation、Policy、Audit、Capture、Vault、Memory、Skill Registry。
+- API 管理与网关：维护 `api-management/metapi` 和 `api-management/ccLoad` 两个 fork，用成熟项目承接余额、额度、模型、路由、协议转换和监控。
 
-## 当前开发状态
-
-当前仓库已经完成 v0.1 本地内核、v0.2 捕获与知识入库，并开始 v0.3 Provider Router：
-
-- `Operation`：所有动作的原子抽象，可审计、可审批、可重试。
-- `Policy`：按风险等级决定是否自动执行、等待人工审批或要求沙箱。
-- `Audit`：本地 JSONL 审计日志，默认写入 `.omni/audit/events.jsonl`。
-- `CLI`：先用本地命令跑通内核，后续再接飞书、Discord、GitHub、Obsidian 和 Web 控制台。
-- `Capture`：v0.2 已开始支持 URL 捕获、HTML 元数据提取、YouTube URL 识别和本地 Inbox 卡片生成。
-- `Provider Router`：v0.3 已开始支持本地 SQLite provider/account/model/ability/health 注册与路由模拟。
-- `Agent Planner`：自有 agent 调用前先走 Provider Router，支持项目级模型优先级。
+原来自研的 Provider Router、Agent Planner 和 GUI 已移除，避免重复造低质量网关。后续 API 能力优先在两个 fork 中维护，主仓库只保留最小状态检查和文档入口。
 
 ## 快速开始
 
-推荐使用 Python 3.12。已有 conda 时可以这样创建环境：
+推荐 Python 3.12：
 
 ```bash
 conda env create -f environment.yml
 conda activate omni-hub
 ```
 
-也可以直接使用本机的 `python3.12`：
+也可以直接运行：
 
 ```bash
-PYTHONPATH=src python3.12 -m omni_hub.cli summarize-text --text "万象中枢是个人知识、AI Skill、自动化工作流与多平台连接的统一中枢。" --max-chars 40
+PYTHONPATH=src python3.12 -m omni_hub.cli summarize-text --text "万象中枢是个人知识、AI Skill、自动化工作流与本地 API 网关的统一中枢。" --max-chars 40
 ```
 
-写入本地知识库：
-
-```bash
-PYTHONPATH=src python3.12 -m omni_hub.cli write-markdown --path vault/00_Inbox/demo.md --title "Demo" --body "第一条本地知识卡片"
-```
-
-检查风险策略：
-
-```bash
-PYTHONPATH=src python3.12 -m omni_hub.cli check-policy --connector x --action publish --risk L3
-```
-
-捕获网页 URL：
+常用本地能力：
 
 ```bash
 PYTHONPATH=src python3.12 -m omni_hub.cli capture-url --url "https://example.com"
-```
-
-只登记 YouTube URL，不联网抓取：
-
-```bash
-PYTHONPATH=src python3.12 -m omni_hub.cli capture-url --url "https://youtu.be/dQw4w9WgXcQ" --no-fetch
-```
-
-列出本地 vault 笔记：
-
-```bash
 PYTHONPATH=src python3.12 -m omni_hub.cli vault-list --limit 20
-```
-
-为 Inbox 中的笔记生成知识提案：
-
-```bash
-PYTHONPATH=src python3.12 -m omni_hub.cli propose-note --path vault/00_Inbox/example.md
-```
-
-接受提案并写入本地 SQLite 记忆层：
-
-```bash
-PYTHONPATH=src python3.12 -m omni_hub.cli memory-digest-proposal --proposal "<proposal_id>"
-```
-
-搜索本地记忆：
-
-```bash
 PYTHONPATH=src python3.12 -m omni_hub.cli memory-search --query "Graphiti"
-```
-
-注册 Skill：
-
-```bash
-PYTHONPATH=src python3.12 -m omni_hub.cli skill-register --id url-capture --name "URL Capture" --kind connector --description "Capture HTTP pages into the inbox." --entrypoint operation:capture_url --risk L1 --connector web --tag capture
-```
-
-列出 Skill：
-
-```bash
 PYTHONPATH=src python3.12 -m omni_hub.cli skill-list
+PYTHONPATH=src python3.12 -m omni_hub.cli api-management-status
 ```
 
-推荐 Skill：
-
-```bash
-PYTHONPATH=src python3.12 -m omni_hub.cli skill-recommend --query "youtube capture" --max-risk L1
-```
-
-分析 Skill 组合：
-
-```bash
-PYTHONPATH=src python3.12 -m omni_hub.cli skill-analyze --id url-capture --id vault-proposal --id memory-digest
-```
-
-注册 Provider account：
-
-```bash
-PYTHONPATH=src python3.12 -m omni_hub.cli provider-add --id openai-main --provider openai --name "OpenAI Main" --base-url "https://api.openai.com/v1" --secret-ref env:OPENAI_API_KEY
-```
-
-注册模型：
-
-```bash
-PYTHONPATH=src python3.12 -m omni_hub.cli model-add --id gpt-5.4 --capability text --capability tools --input-cost 2 --output-cost 10
-```
-
-绑定 route ability：
-
-```bash
-PYTHONPATH=src python3.12 -m omni_hub.cli route-ability-set --account openai-main --model gpt-5.4 --priority 10
-```
-
-模拟路由决策：
-
-```bash
-PYTHONPATH=src python3.12 -m omni_hub.cli route-simulate --capability tools --input-tokens 1000 --output-tokens 500 --max-cost 0.01
-```
-
-设置项目级路由 profile：
-
-```bash
-PYTHONPATH=src python3.12 -m omni_hub.cli route-profile-set --project writing --capability text --prefer-provider anthropic --max-cost 0.02
-```
-
-设置项目级 account/model 优先级：
-
-```bash
-PYTHONPATH=src python3.12 -m omni_hub.cli project-route-set --project writing --account anthropic-main --model claude-opus --priority 50
-```
-
-按项目模拟路由决策：
-
-```bash
-PYTHONPATH=src python3.12 -m omni_hub.cli route-simulate --project writing --capability text
-```
-
-规划一次我们自己的 agent 调用：
-
-```bash
-PYTHONPATH=src python3.12 -m omni_hub.cli agent-plan --project writing --task "帮我整理这个项目的上下文" --capability text --output-tokens 800
-```
-
-`agent-plan` 只生成调用计划，不真实请求外部模型。它会先查询 Provider Router，并返回将使用的 provider、account、model、provider 侧模型名、secret ref、成本估算和路由原因。
-
-启动本地 GUI：
-
-```bash
-PYTHONPATH=src python3.12 -m omni_hub.cli gui --open
-```
-
-默认打开 `http://127.0.0.1:8765`。GUI 是中文本地控制台，包含总览、模型配置、项目编组、监控检测和 Skills；模型配置页按 OpenAI、Claude、Qwen、DeepSeek、Kimi、GLM、MiniMax 管理官方渠道和多个中转站渠道，添加和修改都进入同一个弹窗。Base URL、API Key、代理、并发/RPM/TPM、模型列表是主配置；高级配置只放 API 格式、认证字段、Full URL、模型发现 URL、测试参数和计费参数。网页填写的 API Key 默认写入本地 `.omni/secrets.json`，`.omni/` 已被 git ignore；SQLite 只保存 `local:` 引用。每个厂商下的渠道列表支持刷新余额、复制条目、导出 export 脚本、导出 Codex 配置、修改、删除，以及拖拽调整启用顺序；同名模型会按渠道优先级、健康状态和额度状态解析，故障时自动切到下一级。项目页采用左侧项目列表和右侧详情，模型从可选模型库点击添加并用 chip 调整顺位；运行时再从全局模型配置解析具体渠道、base_url、secret_ref、proxy、并发限制、限流、计费和健康状态。换中转站或换 key 时只改模型配置页，项目模型顺序不用重写；raw key 不会导出。
+当前所有项目的 API 默认配置在 [api-management/defaults.json](/Users/hzh/Desktop/简历/个人知识库/api-management/defaults.json)：默认 provider 是 DeepSeek，默认模型是 `deepseek-v4-pro`，真实 key 只通过 `local:omni-hub/api/deepseek/default` 保存在本地 secret backend。
 
 运行测试：
 
@@ -171,22 +44,44 @@ PYTHONPATH=src python3.12 -m omni_hub.cli gui --open
 PYTHONPATH=src python3.12 -m unittest discover -s tests
 ```
 
+## API 管理
+
+`api-management/` 是本地 API 管理部分：
+
+```text
+api-management/metapi  -> https://github.com/Khadgar123/metapi
+api-management/ccLoad  -> https://github.com/Khadgar123/ccLoad
+```
+
+分工：
+
+- Metapi：上游账号、站点、模型发现、余额刷新、低余额告警、成本/余额/使用率路由。
+- ccLoad：Claude Code、Codex、Gemini、OpenAI-compatible 本地入口，协议转换、失败切换、令牌限制、RPM/成本限制和请求日志。
+
+本地启动：
+
+```bash
+docker compose --env-file api-management/env.example -f api-management/compose.yml up -d
+```
+
+本地改 fork 后构建：
+
+```bash
+docker compose --env-file api-management/env.example -f api-management/compose.yml -f api-management/compose.build.yml up -d --build
+```
+
+更多说明见 [api-management/README.md](/Users/hzh/Desktop/简历/个人知识库/api-management/README.md)。
+
 ## 项目结构
 
 ```text
 .
+├── api-management/    # Metapi + ccLoad fork 与 compose 入口
 ├── docs/              # 架构、权限、路线图
 ├── registry/          # 机器可读注册表
-├── src/omni_hub/      # 控制平面核心代码
-├── tests/             # 基础单元测试
+├── src/omni_hub/      # 本地知识内核与 API 管理状态入口
+├── tests/             # 单元测试
 ├── vault/             # 本地 Markdown / Obsidian 知识库
-│   ├── 00_Inbox/      # 临时收集
-│   ├── 10_Knowledge/  # 知识沉淀
-│   ├── 20_Projects/   # 项目上下文
-│   ├── 30_Skills/     # AI Skill 配置与说明
-│   ├── 40_Workflows/  # 自动化工作流
-│   ├── 50_Connectors/ # 平台连接
-│   └── 90_Archive/    # 归档
 └── README.md
 ```
 
@@ -200,24 +95,18 @@ PYTHONPATH=src python3.12 -m unittest discover -s tests
 - [记忆层模型](docs/memory-model.md)
 - [Skill Registry](docs/skill-registry.md)
 - [Skill Intelligence](docs/skill-intelligence.md)
-- [GUI](docs/gui.md)
-- [API 配置与导入](docs/api-configuration.md)
-- [项目模型接入设计](docs/project-model-integration.md)
 - [推荐组合架构](docs/recommended-stack.md)
-- [本地控制平面参考项目](docs/local-control-plane-references.md)
-- [Provider Router 设计](docs/provider-router-design.md)
-- [参考项目](docs/reference-projects.md)
 - [Roadmap](docs/roadmap.md)
 
 ## 维护原则
 
-- 先沉淀上下文，再抽象为可复用的 Skill 或工作流。
+- 敏感信息、私钥、Token、账号和证件材料不要提交到 GitHub。
+- API key 只放运行时环境或本地 secret backend，仓库只保留示例占位值。
+- 主仓库不再维护自研 API 路由器；网关能力进入 `api-management/metapi` 或 `api-management/ccLoad`。
 - 每个项目尽量保留目标、输入、输出、依赖和自动化入口。
-- 每个连接器记录账号范围、授权方式、API 限制和安全注意事项。
-- 敏感信息、私钥、Token、账号、证件材料不要提交到 GitHub。
 
 ## 仓库信息
 
 - 中文名：万象中枢
 - 仓库名：omni-hub
-- 描述：个人知识、AI Skill、自动化工作流与多平台连接的统一中枢
+- 描述：个人知识、AI Skill、自动化工作流与本地 API 网关的统一中枢

@@ -1,20 +1,19 @@
 # Agent Entry
 
-万象中枢的本地模型/API 配置以 GUI 和本地 HTTP API 为准。Codex 或其他代码 agent 第一次进入仓库时，先读这个文件，再读 `README.md`、`docs/api-configuration.md` 和 `vault/30_Skills/provider-channel-config/SKILL.md`。
+Codex 或其他代码 agent 第一次进入仓库时，先读这个文件，再读 `README.md` 和 `api-management/README.md`。
 
-## API 配置原则
+## API 管理原则
 
-- 不要把 raw API key 写入仓库、README、docs 或测试夹具。
-- 新增或修改模型渠道时，优先写入本地控制面：启动 GUI 后 POST `http://127.0.0.1:8765/api/official-provider-config`。
-- GUI 和 API 会把网页填写的 key 存进本地 secret backend；SQLite 只保存 `local:`、`env:`、`keychain:` 或 `runtime:` 引用。
-- 官方接口、中转站、CC Switch/NewAPI 风格余额查询、可爬取第三方查询页的处理方式见 `docs/api-configuration.md`。
-- 新增厂商或中转站时，按 `vault/30_Skills/provider-channel-config/SKILL.md` 收集字段、写入条目、发现模型、刷新余额，并探测 0-10 并发、RPS 和批处理能力。
-- 项目运行时只读取项目模型包里的 `secret_ref`、`base_url`、`proxy_url`、并发/限流和模型映射，不读取 raw key。
+- 不要把 raw API key 写入仓库、README、docs、测试夹具或 compose 示例。
+- 本地 API 管理已交给 `api-management/metapi` 和 `api-management/ccLoad` 两个 fork。
+- Metapi 负责上游账号、余额、模型发现、成本/余额/使用率路由和告警。
+- ccLoad 负责本地网关、协议转换、失败切换、令牌/RPM/成本限制和请求监控。
+- 主仓库只保留最小状态检查；新增网关能力优先改对应 fork，不要恢复旧 Provider Router 或 GUI。
+- 全项目当前默认 DeepSeek：配置声明在 `api-management/defaults.json`，真实 key 只允许写入 `local:omni-hub/api/deepseek/default`。
 
-## 本地 GUI
+## 本地检查
 
 ```bash
-PYTHONPATH=src python3.12 -m omni_hub.cli gui --open
+PYTHONPATH=src python3.12 -m omni_hub.cli api-management-status
+docker compose --env-file api-management/env.example -f api-management/compose.yml config
 ```
-
-如果 `--open` 失败，手动打开 `http://127.0.0.1:8765`。

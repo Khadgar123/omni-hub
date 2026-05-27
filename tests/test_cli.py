@@ -137,246 +137,59 @@ class CliTests(unittest.TestCase):
                 "memory-search",
             )
 
-    def test_provider_router_cli_flow(self) -> None:
+    def test_api_management_status_cli(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            api_dir = root / "api-management"
+            (api_dir / "metapi" / ".git").mkdir(parents=True)
+            (api_dir / "ccLoad" / ".git").mkdir(parents=True)
+            (api_dir / "compose.yml").write_text("services: {}\n", encoding="utf-8")
+            (api_dir / "compose.build.yml").write_text(
+                "services: {}\n",
+                encoding="utf-8",
+            )
+            (api_dir / "env.example").write_text(
+                "METAPI_AUTH_TOKEN=change-me\n",
+                encoding="utf-8",
+            )
+            (api_dir / "defaults.json").write_text(
+                """{
+  "version": 1,
+  "default_project": "*",
+  "default_provider": "deepseek",
+  "default_model": "deepseek-v4-pro",
+  "providers": {
+    "deepseek": {
+      "secret_ref": "local:omni-hub/api/deepseek/default"
+    }
+  }
+}
+""",
+                encoding="utf-8",
+            )
+
             original_cwd = os.getcwd()
-            buffers = [StringIO() for _ in range(4)]
+            buffer = StringIO()
             try:
                 os.chdir(tmpdir)
-                with redirect_stdout(buffers[0]):
-                    self.assertEqual(
-                        main(
-                            [
-                                "provider-add",
-                                "--id",
-                                "openai-main",
-                                "--provider",
-                                "openai",
-                                "--name",
-                                "OpenAI Main",
-                                "--base-url",
-                                "https://api.openai.com/v1",
-                                "--secret-ref",
-                                "env:OPENAI_API_KEY",
-                            ]
-                        ),
-                        0,
-                    )
-                with redirect_stdout(buffers[1]):
-                    self.assertEqual(
-                        main(
-                            [
-                                "model-add",
-                                "--id",
-                                "gpt-5.4",
-                                "--capability",
-                                "text",
-                                "--capability",
-                                "tools",
-                                "--input-cost",
-                                "2",
-                                "--output-cost",
-                                "10",
-                            ]
-                        ),
-                        0,
-                    )
-                with redirect_stdout(buffers[2]):
-                    self.assertEqual(
-                        main(
-                            [
-                                "route-ability-set",
-                                "--account",
-                                "openai-main",
-                                "--model",
-                                "gpt-5.4",
-                                "--priority",
-                                "10",
-                            ]
-                        ),
-                        0,
-                    )
-                with redirect_stdout(buffers[3]):
+                with redirect_stdout(buffer):
                     exit_code = main(
-                        [
-                            "route-simulate",
-                            "--capability",
-                            "tools",
-                            "--input-tokens",
-                            "1000",
-                            "--output-tokens",
-                            "500",
-                            "--max-cost",
-                            "0.01",
-                        ]
+                        ["api-management-status", "--timeout-seconds", "0.01"]
                     )
             finally:
                 os.chdir(original_cwd)
 
             self.assertEqual(exit_code, 0)
-            payload = json.loads(buffers[3].getvalue())
+            payload = json.loads(buffer.getvalue())
+            output = payload["output"]
             self.assertEqual(payload["status"], "succeeded")
+            self.assertTrue(output["ready_for_local_run"])
+            self.assertFalse(output["all_services_reachable"])
+            self.assertEqual(output["defaults"]["default_provider"], "deepseek")
             self.assertEqual(
-                payload["output"]["selected"]["account"]["account_id"],
-                "openai-main",
+                [service["id"] for service in output["services"]],
+                ["metapi", "ccload"],
             )
-            self.assertTrue((Path(tmpdir) / ".omni/provider-router.sqlite3").exists())
-
-    def test_project_route_cli_override(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            original_cwd = os.getcwd()
-            buffers = [StringIO() for _ in range(8)]
-            try:
-                os.chdir(tmpdir)
-                commands = [
-                    [
-                        "provider-add",
-                        "--id",
-                        "openai-main",
-                        "--provider",
-                        "openai",
-                        "--name",
-                        "OpenAI Main",
-                        "--base-url",
-                        "https://api.openai.com/v1",
-                        "--secret-ref",
-                        "env:OPENAI_API_KEY",
-                    ],
-                    [
-                        "provider-add",
-                        "--id",
-                        "anthropic-main",
-                        "--provider",
-                        "anthropic",
-                        "--name",
-                        "Anthropic Main",
-                        "--base-url",
-                        "https://api.anthropic.com/v1",
-                        "--secret-ref",
-                        "env:ANTHROPIC_API_KEY",
-                    ],
-                    ["model-add", "--id", "gpt-5.4", "--capability", "text"],
-                    ["model-add", "--id", "claude-opus", "--capability", "text"],
-                    [
-                        "route-ability-set",
-                        "--account",
-                        "openai-main",
-                        "--model",
-                        "gpt-5.4",
-                        "--priority",
-                        "20",
-                    ],
-                    [
-                        "route-ability-set",
-                        "--account",
-                        "anthropic-main",
-                        "--model",
-                        "claude-opus",
-                        "--priority",
-                        "10",
-                    ],
-                    [
-                        "project-route-set",
-                        "--project",
-                        "writing",
-                        "--account",
-                        "anthropic-main",
-                        "--model",
-                        "claude-opus",
-                        "--priority",
-                        "50",
-                    ],
-                ]
-                for index, command in enumerate(commands):
-                    with redirect_stdout(buffers[index]):
-                        self.assertEqual(main(command), 0)
-                with redirect_stdout(buffers[7]):
-                    exit_code = main(
-                        [
-                            "route-simulate",
-                            "--project",
-                            "writing",
-                            "--capability",
-                            "text",
-                        ]
-                    )
-            finally:
-                os.chdir(original_cwd)
-
-            self.assertEqual(exit_code, 0)
-            payload = json.loads(buffers[7].getvalue())
-            self.assertEqual(
-                payload["output"]["selected"]["account"]["account_id"],
-                "anthropic-main",
-            )
-
-    def test_agent_plan_cli_uses_router(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            original_cwd = os.getcwd()
-            buffers = [StringIO() for _ in range(5)]
-            try:
-                os.chdir(tmpdir)
-                commands = [
-                    [
-                        "provider-add",
-                        "--id",
-                        "openai-main",
-                        "--provider",
-                        "openai",
-                        "--name",
-                        "OpenAI Main",
-                        "--base-url",
-                        "https://api.openai.com/v1",
-                        "--secret-ref",
-                        "env:OPENAI_API_KEY",
-                    ],
-                    ["model-add", "--id", "gpt-5.4", "--capability", "text"],
-                    [
-                        "route-ability-set",
-                        "--account",
-                        "openai-main",
-                        "--model",
-                        "gpt-5.4",
-                        "--priority",
-                        "10",
-                    ],
-                    [
-                        "route-profile-set",
-                        "--project",
-                        "agent-dev",
-                        "--capability",
-                        "text",
-                        "--prefer-provider",
-                        "openai",
-                    ],
-                ]
-                for index, command in enumerate(commands):
-                    with redirect_stdout(buffers[index]):
-                        self.assertEqual(main(command), 0)
-                with redirect_stdout(buffers[4]):
-                    exit_code = main(
-                        [
-                            "agent-plan",
-                            "--project",
-                            "agent-dev",
-                            "--task",
-                            "summarize this project context",
-                            "--output-tokens",
-                            "300",
-                        ]
-                    )
-            finally:
-                os.chdir(original_cwd)
-
-            self.assertEqual(exit_code, 0)
-            payload = json.loads(buffers[4].getvalue())
-            self.assertEqual(payload["output"]["status"], "planned")
-            self.assertEqual(
-                payload["output"]["invocation"]["account_id"],
-                "openai-main",
-            )
-            self.assertNotIn("task", payload["output"]["request"])
-            self.assertIn("task_preview", payload["output"]["request"])
 
 
 if __name__ == "__main__":

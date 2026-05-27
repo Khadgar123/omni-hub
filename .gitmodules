@@ -1,0 +1,8 @@
+[submodule "api-management/metapi"]
+	path = api-management/metapi
+	url = https://github.com/Khadgar123/metapi.git
+	branch = main
+[submodule "api-management/ccLoad"]
+	path = api-management/ccLoad
+	url = https://github.com/Khadgar123/ccLoad.git
+	branch = master

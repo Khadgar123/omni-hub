@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "default_project": "*",
+  "default_provider": "deepseek",
+  "default_model": "deepseek-v4-pro",
+  "providers": {
+    "deepseek": {
+      "name": "DeepSeek",
+      "base_url": "https://api.deepseek.com",
+      "anthropic_base_url": "https://api.deepseek.com/anthropic",
+      "api_format": "openai-compatible",
+      "secret_ref": "local:omni-hub/api/deepseek/default",
+      "models": [
+        "deepseek-v4-pro",
+        "deepseek-v4-flash"
+      ],
+      "gateway": {
+        "preferred_service": "ccLoad",
+        "channel_type": "openai",
+        "priority": 100,
+        "rpm_limit": 0,
+        "daily_cost_limit_usd": 0
+      },
+      "claude_code": {
+        "anthropic_model": "deepseek-v4-pro[1m]",
+        "anthropic_default_opus_model": "deepseek-v4-pro[1m]",
+        "anthropic_default_sonnet_model": "deepseek-v4-pro[1m]",
+        "anthropic_default_haiku_model": "deepseek-v4-flash",
+        "subagent_model": "deepseek-v4-flash",
+        "effort_level": "max"
+      }
+    }
+  }
+}

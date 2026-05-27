@@ -1,0 +1,12 @@
+services:
+  metapi:
+    image: omni-metapi:local
+    build:
+      context: ./metapi
+      dockerfile: docker/Dockerfile
+
+  ccload:
+    image: omni-ccload:local
+    build:
+      context: ./ccLoad
+      dockerfile: Dockerfile

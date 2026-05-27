@@ -1,0 +1,39 @@
+services:
+  metapi:
+    image: 1467078763/metapi:latest
+    container_name: omni-metapi
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:4000:4000"
+    environment:
+      AUTH_TOKEN: ${METAPI_AUTH_TOKEN:?METAPI_AUTH_TOKEN is required}
+      PROXY_TOKEN: ${METAPI_PROXY_TOKEN:?METAPI_PROXY_TOKEN is required}
+      CHECKIN_CRON: ${METAPI_CHECKIN_CRON:-0 8 * * *}
+      BALANCE_REFRESH_CRON: ${METAPI_BALANCE_REFRESH_CRON:-0 * * * *}
+      PORT: 4000
+      DATA_DIR: /app/data
+      TZ: ${TZ:-Asia/Shanghai}
+    volumes:
+      - ../.omni/api-management/metapi:/app/data
+
+  ccload:
+    image: ghcr.io/caidaoli/ccload:latest
+    container_name: omni-ccload
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      PORT: 8080
+      SQLITE_PATH: /app/data/ccload.db
+      GIN_MODE: release
+      CCLOAD_PASS: ${CCLOAD_PASS:?CCLOAD_PASS is required}
+      CCLOAD_API_TOKENS: ${CCLOAD_API_TOKENS:-}
+      TZ: ${TZ:-Asia/Shanghai}
+    volumes:
+      - ../.omni/api-management/ccload:/app/data
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
