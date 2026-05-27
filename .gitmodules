@@ -6,3 +6,19 @@
 	path = api-management/ccLoad
 	url = https://github.com/Khadgar123/ccLoad.git
 	branch = master
+[submodule "agent-harness/swe-agent"]
+	path = agent-harness/swe-agent
+	url = https://github.com/Khadgar123/SWE-agent.git
+	branch = main
+[submodule "agent-harness/promptfoo"]
+	path = agent-harness/promptfoo
+	url = https://github.com/Khadgar123/promptfoo.git
+	branch = main
+[submodule "agent-harness/argilla"]
+	path = agent-harness/argilla
+	url = https://github.com/Khadgar123/argilla.git
+	branch = develop
+[submodule "agent-harness/graphiti"]
+	path = agent-harness/graphiti
+	url = https://github.com/Khadgar123/graphiti.git
+	branch = main

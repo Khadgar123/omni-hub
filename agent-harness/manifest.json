@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "strategy": "product-orchestrator-with-pinned-service-forks",
+  "forks": [
+    {
+      "id": "swe-agent",
+      "path": "agent-harness/swe-agent",
+      "origin": "https://github.com/Khadgar123/SWE-agent.git",
+      "upstream": "https://github.com/SWE-agent/SWE-agent.git",
+      "branch": "main",
+      "role": "engineering iteration core for issue-to-patch loops",
+      "decision": "fork"
+    },
+    {
+      "id": "promptfoo",
+      "path": "agent-harness/promptfoo",
+      "origin": "https://github.com/Khadgar123/promptfoo.git",
+      "upstream": "https://github.com/promptfoo/promptfoo.git",
+      "branch": "main",
+      "role": "evaluation, prompt regression, RAG/agent CI, and red-team checks",
+      "decision": "fork"
+    },
+    {
+      "id": "argilla",
+      "path": "agent-harness/argilla",
+      "origin": "https://github.com/Khadgar123/argilla.git",
+      "upstream": "https://github.com/argilla-io/argilla.git",
+      "branch": "develop",
+      "role": "human preference capture and accepted/rejected sentence datasets",
+      "decision": "fork"
+    },
+    {
+      "id": "graphiti",
+      "path": "agent-harness/graphiti",
+      "origin": "https://github.com/Khadgar123/graphiti.git",
+      "upstream": "https://github.com/getzep/graphiti.git",
+      "branch": "main",
+      "role": "temporal knowledge graph, provenance, redundancy detection, and memory evolution",
+      "decision": "fork"
+    }
+  ],
+  "candidates": [
+    {
+      "id": "opik",
+      "repo": "https://github.com/comet-ml/opik",
+      "role": "observability, traces, eval dashboards, and production monitoring",
+      "decision": "evaluate-before-fork"
+    }
+  ]
+}

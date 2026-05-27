@@ -69,6 +69,7 @@ api-management/ccLoad  -> https://github.com/Khadgar123/ccLoad
 ```bash
 make setup
 make api-update
+make harness-update
 make test
 make compose-config
 ```
@@ -111,6 +112,7 @@ docker compose --env-file api-management/env.example -f api-management/compose.y
 - [Skill Registry](docs/skill-registry.md)
 - [Skill Intelligence](docs/skill-intelligence.md)
 - [推荐组合架构](docs/recommended-stack.md)
+- [自进化 Agent Harness](docs/self-evolution-harness.md)
 - [Roadmap](docs/roadmap.md)
 
 ## 维护原则
