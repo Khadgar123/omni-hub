@@ -22,6 +22,7 @@ from .base import (
 from .builtin import BuiltinAdapter
 from .claude import ClaudeAdapter
 from .codex import CodexAdapter
+from .openhands import OpenHandsAdapter
 
 __all__ = [
     "Artifact",
@@ -30,6 +31,7 @@ __all__ = [
     "ClaudeAdapter",
     "CodexAdapter",
     "LeaseLost",
+    "OpenHandsAdapter",
     "WorkerAdapter",
     "WorkerError",
     "WorkerTimeout",

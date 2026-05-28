@@ -141,5 +141,39 @@ class CodexAdapterTests(unittest.TestCase):
         self.assertEqual(artifact.error, "codex binary missing")
 
 
+class OpenHandsAdapterTests(unittest.TestCase):
+    def test_happy_path_picks_last_jsonl_object_with_patch(self) -> None:
+        from omni_hub.workers import OpenHandsAdapter
+
+        # Build the fake stdout with json.dumps so escaping is robust.
+        first = json.dumps({"event": "start"})
+        last = json.dumps({
+            "output_text": "fixed",
+            "patch": "diff --git a b",
+            "usage": {"input_tokens": 8, "output_tokens": 9},
+        })
+        adapter = OpenHandsAdapter(
+            command_prefix=[
+                sys.executable, "-c",
+                f"print({first!r}); print({last!r})",
+            ],
+        )
+        artifact = adapter.run(_task({"goal": "fix the test"}))
+        self.assertIsNone(artifact.error)
+        self.assertEqual(artifact.data["text"], "fixed")
+        self.assertEqual(artifact.data["patch"], "diff --git a b")
+        self.assertEqual(artifact.tokens_in, 8)
+        self.assertEqual(artifact.worker_lane, "openhands")
+
+    def test_missing_binary_returns_error(self) -> None:
+        from omni_hub.workers import OpenHandsAdapter
+
+        adapter = OpenHandsAdapter(
+            command_prefix=["/definitely/does/not/exist/openhands-binary"],
+        )
+        artifact = adapter.run(_task({"goal": "x"}))
+        self.assertEqual(artifact.error, "openhands binary missing")
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

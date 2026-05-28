@@ -434,6 +434,120 @@ def make_task_stats(workspace: Path):
     return task_stats
 
 
+def make_memory_remember_core(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def memory_remember_core(spec: OperationSpec) -> dict[str, object]:
+        payload = spec.payload
+        return MemoryStore(workspace_root).remember_core(
+            str(payload["key"]),
+            str(payload["value"]),
+            confidence=float(payload.get("confidence", 1.0)),
+        )
+
+    return memory_remember_core
+
+
+def make_memory_forget_core(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def memory_forget_core(spec: OperationSpec) -> dict[str, object]:
+        deleted = MemoryStore(workspace_root).forget_core(str(spec.payload["key"]))
+        return {"key": spec.payload["key"], "deleted": bool(deleted)}
+
+    return memory_forget_core
+
+
+def make_memory_recall(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def memory_recall(spec: OperationSpec) -> dict[str, object]:
+        store = MemoryStore(workspace_root, create=False)
+        tier = str(spec.payload.get("tier", "recall")).lower()
+        query = str(spec.payload.get("query", ""))
+        limit = int(spec.payload.get("limit", 20))
+
+        if tier == "core":
+            return {"tier": "core", "results": store.list_core()}
+        if tier == "recall":
+            if query:
+                return {"tier": "recall", "results": store.recall_search(query, limit=limit)}
+            return {"tier": "recall", "results": store.list_recall(limit=limit)}
+        if tier == "archival":
+            return {
+                "tier": "archival",
+                "results": [r.to_dict() for r in store.search(query, limit=limit)] if query else [],
+            }
+        raise ValueError(f"unknown tier: {tier!r}; expected core|recall|archival")
+
+    return memory_recall
+
+
+def make_memory_promote_recall(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def memory_promote_recall(spec: OperationSpec) -> dict[str, object]:
+        payload = spec.payload
+        return MemoryStore(workspace_root).promote_to_recall(
+            str(payload["content"]),
+            source_kind=str(payload.get("source_kind", "preference")),
+            source_id=str(payload.get("source_id", "")),
+            score=float(payload.get("score", 0.0)),
+        )
+
+    return memory_promote_recall
+
+
+def make_event_log_dump(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def event_log_dump(spec: OperationSpec) -> dict[str, object]:
+        from .event_log import EventLog
+
+        log = EventLog(workspace_root)
+        task_id = int(spec.payload.get("task_id", 0))
+        events = [event.to_dict() for event in log.replay(task_id)]
+        result: dict[str, object] = {
+            "task_id": task_id,
+            "count": len(events),
+            "events": events,
+        }
+        if spec.payload.get("verify"):
+            ok, errors = log.verify_chain(task_id)
+            result["chain_ok"] = ok
+            result["chain_errors"] = errors
+        return result
+
+    return event_log_dump
+
+
+def make_event_log_list(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def event_log_list(spec: OperationSpec) -> dict[str, object]:
+        from .event_log import EventLog
+
+        log = EventLog(workspace_root)
+        ids = log.list_tasks()
+        return {"task_ids": ids, "count": len(ids)}
+
+    return event_log_list
+
+
+def make_skill_sync(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def skill_sync(spec: OperationSpec) -> dict[str, object]:
+        from .skill_sync import sync_skills
+
+        return sync_skills(
+            workspace_root,
+            apply=bool(spec.payload.get("apply", False)),
+        )
+
+    return skill_sync
+
+
 def make_schedule_tick(workspace: Path):
     workspace_root = workspace.resolve()
 
@@ -763,6 +877,61 @@ def make_harness_redundancy_scan(workspace: Path):
     return harness_redundancy_scan
 
 
+def make_argilla_export_proposals(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def argilla_export_proposals(spec: OperationSpec) -> dict[str, object]:
+        from ._storage import safe_workspace_path
+        from .harness.argilla_bridge import export_proposals
+
+        payload = spec.payload
+        output_path = safe_workspace_path(
+            workspace_root,
+            str(payload.get("output", ".omni/argilla/proposals.jsonl")),
+        )
+        proposals = ProposalStore(workspace_root, create=False).list(
+            state=payload.get("state"),
+            kind=payload.get("kind"),
+            limit=int(payload.get("limit", 100)),
+        )
+        result = export_proposals(
+            proposals,
+            output_path,
+            dataset=str(payload.get("dataset", "omni_proposal_review_v1")),
+            domain=str(payload.get("domain", "general")),
+            skill_id=str(payload.get("skill_id", "")),
+            skill_version=str(payload.get("skill_version", "v0")),
+        )
+        result["file"] = str(output_path.relative_to(workspace_root))
+        return result
+
+    return argilla_export_proposals
+
+
+def make_argilla_sync_feedback(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def argilla_sync_feedback(spec: OperationSpec) -> dict[str, object]:
+        from ._storage import safe_workspace_path
+        from .harness.argilla_bridge import sync_feedback_file
+        from .harness.preference import PreferenceStore
+
+        payload = spec.payload
+        input_path = safe_workspace_path(workspace_root, str(payload["input"]))
+        preference_root = safe_workspace_path(
+            workspace_root,
+            str(payload.get("preference_root", ".omni/preference")),
+        )
+        return sync_feedback_file(
+            input_path,
+            proposal_store=ProposalStore(workspace_root),
+            preference_store=PreferenceStore(preference_root),
+            default_domain=str(payload.get("domain", "general")),
+        )
+
+    return argilla_sync_feedback
+
+
 def build_default_registry(workspace: Path | str = ".") -> OperationRegistry:
     workspace_path = Path(workspace)
     registry = OperationRegistry()
@@ -785,6 +954,8 @@ def build_default_registry(workspace: Path | str = ".") -> OperationRegistry:
     registry.register("harness_preference_add", make_harness_preference_add(workspace_path))
     registry.register("harness_compile", make_harness_compile(workspace_path))
     registry.register("harness_redundancy_scan", make_harness_redundancy_scan(workspace_path))
+    registry.register("argilla_export_proposals", make_argilla_export_proposals(workspace_path))
+    registry.register("argilla_sync_feedback", make_argilla_sync_feedback(workspace_path))
     registry.register("list_proposals", make_list_proposals(workspace_path))
     registry.register("approve_proposal", make_approve_proposal(workspace_path))
     registry.register("reject_proposal", make_reject_proposal(workspace_path))
@@ -805,6 +976,13 @@ def build_default_registry(workspace: Path | str = ".") -> OperationRegistry:
     registry.register("optimizer_list_runs", make_optimizer_list_runs(workspace_path))
     registry.register("schedule_tick", make_schedule_tick(workspace_path))
     registry.register("task_stats", make_task_stats(workspace_path))
+    registry.register("skill_sync", make_skill_sync(workspace_path))
+    registry.register("event_log_dump", make_event_log_dump(workspace_path))
+    registry.register("event_log_list", make_event_log_list(workspace_path))
+    registry.register("memory_remember_core", make_memory_remember_core(workspace_path))
+    registry.register("memory_forget_core", make_memory_forget_core(workspace_path))
+    registry.register("memory_recall", make_memory_recall(workspace_path))
+    registry.register("memory_promote_recall", make_memory_promote_recall(workspace_path))
     registry.register("build_daily_report", _make_build_report(workspace_path, "daily"))
     registry.register("build_weekly_report", _make_build_report(workspace_path, "weekly"))
     registry.register("build_monthly_report", _make_build_report(workspace_path, "monthly"))

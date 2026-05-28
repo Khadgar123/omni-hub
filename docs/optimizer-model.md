@@ -61,8 +61,10 @@ PYTHONPATH=src python3.12 -m omni_hub.cli optimizer-run-record \
 
 ```text
 question + context + gold answer + evidence requirements
-  -> promptfoo eval case
-  -> Argilla accepted/rejected/edit spans
+  -> Proposal(kind="generation")
+  -> argilla-export-proposals
+  -> Argilla accepted/rejected/edit responses
+  -> argilla-sync-feedback
   -> DSPy dataset
   -> GEPA optimize
   -> qa:v2 candidate

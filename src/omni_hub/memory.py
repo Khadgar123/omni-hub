@@ -263,6 +263,132 @@ class MemoryStore:
             for row in rows
         ]
 
+    # ------- three-tier memory (core / recall / archival) ----------------
+
+    def remember_core(
+        self,
+        key: str,
+        value: str,
+        *,
+        confidence: float = 1.0,
+    ) -> dict[str, Any]:
+        """Pin a fact in core memory (Letta convention)."""
+
+        if not key.strip():
+            raise ValueError("core memory key must be non-empty")
+        now = datetime.now(UTC).isoformat()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO core_memory (key, value, confidence, updated_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(key) DO UPDATE SET
+                    value = excluded.value,
+                    confidence = excluded.confidence,
+                    updated_at = excluded.updated_at
+                """,
+                (key.strip(), value, float(confidence), now),
+            )
+            conn.commit()
+        return {"key": key.strip(), "value": value, "confidence": float(confidence), "updated_at": now}
+
+    def forget_core(self, key: str) -> bool:
+        with self._connect() as conn:
+            cur = conn.execute("DELETE FROM core_memory WHERE key = ?", (key.strip(),))
+            conn.commit()
+        return bool(cur.rowcount)
+
+    def list_core(self) -> list[dict[str, Any]]:
+        if not self.db_path.exists():
+            return []
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT key, value, confidence, updated_at "
+                "FROM core_memory ORDER BY key"
+            ).fetchall()
+        return [
+            {"key": row["key"], "value": row["value"],
+             "confidence": float(row["confidence"]), "updated_at": row["updated_at"]}
+            for row in rows
+        ]
+
+    def promote_to_recall(
+        self,
+        content: str,
+        *,
+        source_kind: str = "preference",
+        source_id: str = "",
+        score: float = 0.0,
+    ) -> dict[str, Any]:
+        """Append a session-scoped summary into recall memory.
+
+        Called by the preference flywheel (accepted candidates) or worker
+        artifact promotion (post-Proposal-approve hooks).
+        """
+
+        now = datetime.now(UTC).isoformat()
+        with self._connect() as conn:
+            cur = conn.execute(
+                """
+                INSERT INTO recall_memory
+                    (content, source_kind, source_id, score, accessed_count, created_at)
+                VALUES (?, ?, ?, ?, 0, ?)
+                RETURNING id
+                """,
+                (content, source_kind, source_id, float(score), now),
+            )
+            row = cur.fetchone()
+            conn.commit()
+        return {"id": int(row["id"]), "content": content, "source_kind": source_kind,
+                "source_id": source_id, "score": float(score), "created_at": now}
+
+    def list_recall(self, *, limit: int = 50) -> list[dict[str, Any]]:
+        if not self.db_path.exists():
+            return []
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT id, content, source_kind, source_id, score, "
+                "accessed_count, created_at, accessed_at "
+                "FROM recall_memory ORDER BY created_at DESC LIMIT ?",
+                (int(limit),),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def recall_search(
+        self,
+        query: str,
+        *,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        """Substring search across recall_memory + mark accessed."""
+
+        normalized = query.strip()
+        if not normalized or not self.db_path.exists():
+            return []
+        like = f"%{normalized}%"
+        now = datetime.now(UTC).isoformat()
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, content, source_kind, source_id, score,
+                       accessed_count, created_at, accessed_at
+                FROM recall_memory
+                WHERE content LIKE ?
+                ORDER BY score DESC, created_at DESC
+                LIMIT ?
+                """,
+                (like, int(limit)),
+            ).fetchall()
+            ids = [int(row["id"]) for row in rows]
+            if ids:
+                conn.executemany(
+                    "UPDATE recall_memory SET accessed_count = accessed_count + 1, "
+                    "accessed_at = ? WHERE id = ?",
+                    [(now, rid) for rid in ids],
+                )
+                conn.commit()
+        return [dict(row) for row in rows]
+
     def stats(self, conn: sqlite3.Connection | None = None) -> dict[str, int]:
         if conn is None and not self.db_path.exists():
             return {"documents": 0, "entities": 0, "relations": 0}
@@ -270,7 +396,7 @@ class MemoryStore:
         owns_connection = conn is None
         active_conn = conn or self._connect()
         try:
-            return {
+            stats: dict[str, int] = {
                 "documents": active_conn.execute(
                     "SELECT COUNT(*) FROM documents"
                 ).fetchone()[0],
@@ -281,6 +407,15 @@ class MemoryStore:
                     "SELECT COUNT(*) FROM relations"
                 ).fetchone()[0],
             }
+            # The two new tiers may not exist on legacy databases — tolerate.
+            for tier_table in ("core_memory", "recall_memory"):
+                try:
+                    stats[tier_table] = active_conn.execute(
+                        f"SELECT COUNT(*) FROM {tier_table}"
+                    ).fetchone()[0]
+                except sqlite3.OperationalError:
+                    stats[tier_table] = 0
+            return stats
         finally:
             if owns_connection:
                 active_conn.close()
@@ -319,6 +454,30 @@ class MemoryStore:
                 """
                 PRAGMA journal_mode = WAL;
                 PRAGMA busy_timeout = 30000;
+
+                -- core_memory: pinned facts that survive across sessions.
+                --   Letta/MemGPT convention.  Small (<10 KB total), high-confidence.
+                CREATE TABLE IF NOT EXISTS core_memory (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL,
+                    confidence REAL NOT NULL DEFAULT 1.0,
+                    updated_at TEXT NOT NULL
+                );
+
+                -- recall_memory: session-scoped summaries.  Promoted from
+                --   preference flywheel (accepted candidates) or worker
+                --   artifacts (after Proposal[T] approval).
+                CREATE TABLE IF NOT EXISTS recall_memory (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    content TEXT NOT NULL,
+                    source_kind TEXT NOT NULL DEFAULT '',     -- task | proposal | preference | ...
+                    source_id TEXT NOT NULL DEFAULT '',
+                    score REAL NOT NULL DEFAULT 0.0,
+                    accessed_count INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL,
+                    accessed_at TEXT
+                );
+                CREATE INDEX IF NOT EXISTS idx_recall_created ON recall_memory(created_at DESC);
 
                 CREATE TABLE IF NOT EXISTS documents (
                     source_path TEXT PRIMARY KEY,

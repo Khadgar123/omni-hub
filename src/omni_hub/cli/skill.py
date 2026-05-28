@@ -44,6 +44,15 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     skill_analyze = subparsers.add_parser("skill-analyze")
     skill_analyze.add_argument("--id", action="append", required=True)
 
+    skill_sync = subparsers.add_parser(
+        "skill-sync",
+        help="Reconcile .agents/skills/<id>/SKILL.md with registry/skills.json",
+    )
+    skill_sync.add_argument(
+        "--apply", action="store_true",
+        help="Actually write registry/skills.json (default is dry-run diff).",
+    )
+
 
 def _register(args, *, runner, workspace) -> int:
     return run_and_print(
@@ -136,6 +145,18 @@ def _analyze(args, *, runner, workspace) -> int:
     )
 
 
+def _sync(args, *, runner, workspace) -> int:
+    return run_and_print(
+        runner,
+        OperationSpec(
+            name="skill_sync",
+            action="sync",
+            payload={"apply": bool(args.apply)},
+            risk_level=RiskLevel.LOCAL_WRITE if args.apply else RiskLevel.READ_ONLY,
+        ),
+    )
+
+
 COMMANDS = {
     "skill-register": _register,
     "skill-list": _list,
@@ -143,4 +164,5 @@ COMMANDS = {
     "skill-disable": _disable,
     "skill-recommend": _recommend,
     "skill-analyze": _analyze,
+    "skill-sync": _sync,
 }

@@ -17,8 +17,11 @@ from ..builtins import build_default_registry
 from ..runner import OperationRunner
 from . import (
     api_management,
+    argilla,
     capture,
+    event,
     harness,
+    mcp,
     memory,
     optimizer,
     policy,
@@ -30,8 +33,8 @@ from . import (
 )
 
 _AREAS = [
-    capture, memory, skill, api_management, policy,
-    propose, task, worker, harness, reports, optimizer,
+    capture, memory, skill, api_management, policy, argilla,
+    propose, task, worker, harness, reports, optimizer, event, mcp,
 ]
 
 

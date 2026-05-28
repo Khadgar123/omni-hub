@@ -93,6 +93,32 @@ approve 不自动触发任何下游动作——为了避免单点错误连锁。
 - `generation` 类 approved 表示"这段 agent 输出值得入库"，下一阶段会接到 Argilla
   preference store 作为正例。
 
+## Argilla 反馈桥接
+
+v0.8 起，Proposal 可以导出为 Argilla-ready JSONL，让人类在 Argilla 里做
+approve / edit / reject / insufficient_context：
+
+```bash
+PYTHONPATH=src python3.12 -m omni_hub.cli argilla-export-proposals \
+  --output .omni/argilla/proposals.jsonl \
+  --state pending \
+  --kind generation \
+  --domain research \
+  --skill-id qa \
+  --skill-version v1
+```
+
+Argilla 审完后，同步回本地状态和偏好库：
+
+```bash
+PYTHONPATH=src python3.12 -m omni_hub.cli argilla-sync-feedback \
+  --input .omni/argilla/feedback.jsonl \
+  --preference-root .omni/preference
+```
+
+`ProposalStore` 仍是 workflow source of truth；Argilla 只保存人类反馈。
+详细 schema 见 [Argilla 反馈数据集](argilla-feedback-datasets.md)。
+
 ## 防能力坍缩
 
 `Proposal[T]` 是"防能力坍缩"的工程实现：

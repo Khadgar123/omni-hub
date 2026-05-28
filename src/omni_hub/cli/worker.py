@@ -14,12 +14,25 @@ import time
 import uuid
 from pathlib import Path
 
+from ..event_log import (
+    KIND_PROPOSAL_REJECTED_BY_WORKER,
+    KIND_PROPOSAL_STAGED,
+    KIND_TASK_CLAIMED,
+    KIND_TASK_COMPLETED,
+    KIND_TASK_FAILED,
+    KIND_TASK_LEASE_LOST,
+    KIND_WORKER_ADAPTER_DONE,
+    KIND_WORKER_ADAPTER_START,
+    KIND_WORKER_ERROR,
+    EventLog,
+)
 from ..proposals import Proposal, ProposalStore
 from ..queue import LeaseLost, TaskQueue
 from ..workers import (
     Artifact,
     ClaudeAdapter,
     CodexAdapter,
+    OpenHandsAdapter,
     WorkerAdapter,
 )
 from ..workers.builtin import make_builtin_adapter
@@ -97,8 +110,11 @@ def _make_adapter(lane: str, workspace: Path, worker_id: str) -> WorkerAdapter:
         return ClaudeAdapter(cwd=workspace, worker_id=worker_id)
     if lane == "codex":
         return CodexAdapter(cwd=workspace, worker_id=worker_id)
+    if lane == "openhands":
+        return OpenHandsAdapter(cwd=workspace, worker_id=worker_id)
     raise SystemExit(
-        f"unknown lane: {lane!r}. Built-in lanes: python | claude | codex"
+        f"unknown lane: {lane!r}. "
+        f"Built-in lanes: python | claude | codex | openhands"
     )
 
 
@@ -106,6 +122,7 @@ def _handle_worker(args, *, runner, workspace) -> int:
     worker_id = args.worker_id or f"worker-{uuid.uuid4()}"
     queue = TaskQueue(workspace)
     proposal_store = ProposalStore(workspace)
+    event_log = EventLog(workspace)
     adapter = _make_adapter(args.lane, workspace, worker_id)
     gated = args.lane in _GATED_LANES
 
@@ -121,8 +138,16 @@ def _handle_worker(args, *, runner, workspace) -> int:
                 task_id, error=error,
                 claimed_by=worker_id, lease_epoch=lease_epoch,
             )
+            event_log.append(
+                KIND_TASK_FAILED, task_id=task_id,
+                data={"error": error, "worker_id": worker_id, "lease_epoch": lease_epoch},
+            )
         except LeaseLost:
             lease_losses += 1
+            event_log.append(
+                KIND_TASK_LEASE_LOST, task_id=task_id,
+                data={"during": "fail", "worker_id": worker_id, "lease_epoch": lease_epoch},
+            )
 
     while True:
         task = queue.claim(lane=args.lane, claimed_by=worker_id)
@@ -136,12 +161,44 @@ def _handle_worker(args, *, runner, workspace) -> int:
 
         last_task_at = time.monotonic()
         current_epoch = task.lease_epoch       # snapshot fencing token
+        event_log.append(
+            KIND_TASK_CLAIMED, task_id=task.id,
+            data={
+                "worker_id": worker_id,
+                "lane": args.lane,
+                "lease_epoch": current_epoch,
+                "attempts": task.attempts,
+            },
+        )
+        event_log.append(
+            KIND_WORKER_ADAPTER_START, task_id=task.id,
+            data={"worker_id": worker_id, "adapter": adapter.name,
+                  "timeout_sec": args.task_timeout_sec},
+        )
         try:
             artifact: Artifact = adapter.run(task, timeout_sec=args.task_timeout_sec)
         except Exception as exc:                            # noqa: BLE001
+            event_log.append(
+                KIND_WORKER_ERROR, task_id=task.id,
+                data={"error": f"{type(exc).__name__}: {exc}", "worker_id": worker_id},
+            )
             _safe_fail(task.id, f"{type(exc).__name__}: {exc}", current_epoch)
             processed += 1
             continue
+
+        event_log.append(
+            KIND_WORKER_ADAPTER_DONE, task_id=task.id,
+            data={
+                "worker_id": worker_id,
+                "artifact_id": artifact.artifact_id,
+                "kind": artifact.kind,
+                "duration_ms": artifact.duration_ms,
+                "tokens_in": artifact.tokens_in,
+                "tokens_out": artifact.tokens_out,
+                "cost_usd": artifact.cost_usd,
+                "error": artifact.error,
+            },
+        )
 
         proposal: Proposal | None = None
         try:
@@ -160,9 +217,21 @@ def _handle_worker(args, *, runner, workspace) -> int:
                     proposal_store.store(proposal, write_card=False)
                     output["proposal_id"] = proposal.proposal_id
                     output["proposal_state"] = proposal.state
+                    event_log.append(
+                        KIND_PROPOSAL_STAGED, task_id=task.id,
+                        data={"proposal_id": proposal.proposal_id,
+                              "kind": proposal.kind,
+                              "worker_id": worker_id},
+                    )
                 queue.complete(
                     task.id, output=output,
                     claimed_by=worker_id, lease_epoch=current_epoch,
+                )
+                event_log.append(
+                    KIND_TASK_COMPLETED, task_id=task.id,
+                    data={"worker_id": worker_id,
+                          "lease_epoch": current_epoch,
+                          "artifact_id": artifact.artifact_id},
                 )
                 if proposal is not None:
                     proposals_made += 1
@@ -177,6 +246,17 @@ def _handle_worker(args, *, runner, workspace) -> int:
                     reason="lease_lost",
                     decided_by=worker_id,
                 )
+                event_log.append(
+                    KIND_PROPOSAL_REJECTED_BY_WORKER, task_id=task.id,
+                    data={"proposal_id": proposal.proposal_id,
+                          "reason": "lease_lost",
+                          "worker_id": worker_id},
+                )
+            event_log.append(
+                KIND_TASK_LEASE_LOST, task_id=task.id,
+                data={"during": "complete", "worker_id": worker_id,
+                      "lease_epoch": current_epoch},
+            )
             lease_losses += 1
         processed += 1
 

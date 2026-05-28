@@ -62,6 +62,7 @@ CLI → OperationSpec
 | Skill | `register_skill` / `list_skills` / `get_skill` / `disable_skill` / `recommend_skills` / `analyze_skills` | L1/L0/L0/L1/L0/L0 | `skill-*` |
 | API 状态 | `api_management_status` | L0 | `api-management-status` |
 | Harness 写 | `harness_preference_add` / `harness_compile` / `harness_redundancy_scan` | L1 | `harness-preference-add` / `harness-compile` / `harness-redundancy-scan` |
+| Argilla 反馈 | `argilla_export_proposals` / `argilla_sync_feedback` | L1 | `argilla-export-proposals` / `argilla-sync-feedback` |
 | 报表 | `build_daily_report` / `build_weekly_report` / `build_monthly_report` | L1 | `harness-report-*` |
 | 任务队列 | `enqueue_task` / `claim_task` / `complete_task` / `fail_task` / `list_tasks` | L1/L1/L1/L1/L0 | `task-*` |
 | 调度 | `schedule_tick` | L1 | `schedule-tick` |
