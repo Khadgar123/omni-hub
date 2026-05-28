@@ -48,7 +48,7 @@ CLI → OperationSpec
    OperationResult
 ```
 
-## 注册的 operations（截至 v0.7）
+## 注册的 operations（截至 v0.8）
 
 | 域 | operation | risk | 入口 |
 |---|---|---|---|
@@ -58,15 +58,20 @@ CLI → OperationSpec
 | Vault | `list_vault_notes` / `read_vault_note` | L0 | `vault-list` / `vault-read` |
 | 知识提案 | `propose_knowledge` / `digest_proposal` | L1 | `propose-note` / `memory-digest-proposal` |
 | 提案审批 | `list_proposals` / `approve_proposal` / `reject_proposal` | L0 / L1 / L1 | `propose-list` / `propose-approve` / `propose-reject` |
-| 记忆 | `search_memory` / `memory_stats` | L0 | `memory-search` / `memory-stats` |
-| Skill | `register_skill` / `list_skills` / `get_skill` / `disable_skill` / `recommend_skills` / `analyze_skills` | L1/L0/L0/L1/L0/L0 | `skill-*` |
+| 记忆 - 检索 | `search_memory` / `memory_stats` | L0 | `memory-search` / `memory-stats` |
+| 记忆 - 三层 | `memory_remember_core` / `memory_forget_core` / `memory_recall` / `memory_promote_recall` | L1/L1/L0/L1 | `memory-remember` / `memory-forget` / `memory-recall` / `memory-promote-recall` |
+| Skill 注册 | `register_skill` / `list_skills` / `get_skill` / `disable_skill` / `recommend_skills` / `analyze_skills` | L1/L0/L0/L1/L0/L0 | `skill-*` |
+| Skill 同步 | `skill_sync` | L1（apply=true）/ L0（dry-run） | `skill-sync [--apply]` |
 | API 状态 | `api_management_status` | L0 | `api-management-status` |
 | Harness 写 | `harness_preference_add` / `harness_compile` / `harness_redundancy_scan` | L1 | `harness-preference-add` / `harness-compile` / `harness-redundancy-scan` |
 | Argilla 反馈 | `argilla_export_proposals` / `argilla_sync_feedback` | L1 | `argilla-export-proposals` / `argilla-sync-feedback` |
 | 报表 | `build_daily_report` / `build_weekly_report` / `build_monthly_report` | L1 | `harness-report-*` |
-| 任务队列 | `enqueue_task` / `claim_task` / `complete_task` / `fail_task` / `list_tasks` | L1/L1/L1/L1/L0 | `task-*` |
+| 任务队列 | `enqueue_task` / `claim_task` / `complete_task` / `fail_task` / `list_tasks` / `task_stats` | L1/L1/L1/L1/L0/L0 | `task-*` |
 | 调度 | `schedule_tick` | L1 | `schedule-tick` |
+| Event log | `event_log_dump` / `event_log_list` | L0 | `event-log` / `event-log-list` |
 | Optimizer | `optimizer_register_skill_version` / `optimizer_record_run` / `optimizer_list_skill_versions` / `optimizer_list_runs` | L1/L1/L0/L0 | `optimizer-*` |
+
+**注意**：MCP server（`mcp-serve`）不在表里——它本身不是 op，而是把上表里的子集当 tool 暴露给外部 MCP 客户端（Claude Desktop 等）。每次 MCP tool/call 内部仍走 OperationRunner、留 audit；spec 版本 `2025-11-25` 含 tool annotations（readOnlyHint/destructiveHint/idempotentHint）。
 
 ## Policy 默认
 

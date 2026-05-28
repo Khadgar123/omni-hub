@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -34,6 +35,17 @@ from ._storage import safe_workspace_path
 
 
 GENESIS_HASH = "0" * 64
+SCHEMA_VERSION = 1               # bump when Event payload shape evolves
+
+
+class EventLogCorruption(RuntimeError):
+    """The tail of an event-log file is unparseable.
+
+    Raised by :meth:`EventLog._last_hash` instead of silently falling
+    back to GENESIS_HASH (which would re-anchor the chain and defeat
+    tamper detection).  Caller should quarantine or truncate before
+    appending more events.
+    """
 
 # Canonical event kinds.  Custom kinds are allowed (string), but workers
 # should prefer these when one fits.
@@ -69,7 +81,9 @@ class Event:
 
     ``data`` carries the kind-specific payload (worker_id, artifact_id,
     error message, etc.).  ``prev_hash`` and ``content_hash`` form the
-    tamper-evidence chain.
+    tamper-evidence chain.  ``schema_version`` is included in the hash
+    input so a future shape change can be detected without silently
+    breaking ``verify_chain`` for old events.
     """
 
     event_id: str = field(default_factory=lambda: str(uuid4()))
@@ -79,6 +93,7 @@ class Event:
     prev_hash: str = GENESIS_HASH
     content_hash: str = ""
     data: dict[str, Any] = field(default_factory=dict)
+    schema_version: int = SCHEMA_VERSION
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -87,6 +102,7 @@ class Event:
         """JSON used as the hash input — stable key order, no whitespace."""
         return json.dumps(
             {
+                "schema_version": self.schema_version,
                 "event_id": self.event_id,
                 "task_id": self.task_id,
                 "kind": self.kind,
@@ -121,6 +137,15 @@ class EventLog:
         task_id: int = 0,
         data: dict[str, Any] | None = None,
     ) -> Event:
+        """Append one event.
+
+        Calls ``os.fsync`` on the file descriptor by default so a power
+        loss can lose at most the in-flight event, never a previously
+        accepted one.  Set ``EVENT_LOG_FSYNC=0`` (any non-empty value
+        but "0") in the environment to disable — only useful for the
+        test suite where syncing slows things down significantly.
+        """
+
         path = self._path_for(task_id)
         path.parent.mkdir(parents=True, exist_ok=True)
         prev_hash = self._last_hash(path)
@@ -133,8 +158,15 @@ class EventLog:
         )
         event.content_hash = _content_hash(prev_hash, event.canonical_payload())
 
+        line = json.dumps(event.to_dict(), ensure_ascii=False) + "\n"
         with path.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(event.to_dict(), ensure_ascii=False) + "\n")
+            fh.write(line)
+            fh.flush()
+            if os.environ.get("EVENT_LOG_FSYNC", "1") not in ("0", "false", "no"):
+                try:
+                    os.fsync(fh.fileno())
+                except OSError:                  # pragma: no cover — non-POSIX
+                    pass
         return event
 
     def replay(self, task_id: int) -> Iterator[Event]:
@@ -162,6 +194,7 @@ class EventLog:
                     prev_hash=str(raw.get("prev_hash") or GENESIS_HASH),
                     content_hash=str(raw.get("content_hash", "")),
                     data=dict(raw.get("data", {})),
+                    schema_version=int(raw.get("schema_version", SCHEMA_VERSION)),
                 )
 
     def verify_chain(self, task_id: int) -> tuple[bool, list[str]]:
@@ -211,7 +244,15 @@ class EventLog:
 
     def _last_hash(self, path: Path) -> str:
         """Return the ``content_hash`` of the last event in ``path``,
-        or :data:`GENESIS_HASH` if the file is empty / missing."""
+        or :data:`GENESIS_HASH` if the file is empty / missing.
+
+        If the last non-blank line fails to parse (truncated / corrupt
+        / mid-write crash), **raise :class:`EventLogCorruption`** rather
+        than silently fall back to GENESIS — falling back would re-anchor
+        the chain and defeat tamper detection (the very property the
+        hash chain exists to provide).  Caller can quarantine and
+        truncate before retrying.
+        """
 
         if not path.exists():
             return GENESIS_HASH
@@ -226,6 +267,17 @@ class EventLog:
         if not last:
             return GENESIS_HASH
         try:
-            return str(json.loads(last)["content_hash"]) or GENESIS_HASH
-        except (json.JSONDecodeError, KeyError):
-            return GENESIS_HASH
+            parsed = json.loads(last)
+        except json.JSONDecodeError as exc:
+            raise EventLogCorruption(
+                f"{path}: last line is malformed JSON ({exc}); "
+                "refusing to re-anchor the chain.  Quarantine or "
+                "truncate the bad line before appending more events."
+            ) from exc
+        content_hash = parsed.get("content_hash")
+        if not content_hash:
+            raise EventLogCorruption(
+                f"{path}: last event has no content_hash field; "
+                "refusing to re-anchor the chain."
+            )
+        return str(content_hash)

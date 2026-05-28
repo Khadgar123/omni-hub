@@ -38,7 +38,7 @@ from .models import OperationSpec, OperationStatus, RiskLevel
 from .runner import OperationRunner
 
 
-PROTOCOL_VERSION = "2025-06-18"          # MCP spec rev we target
+PROTOCOL_VERSION = "2025-11-25"          # MCP spec rev we target (Q3 2026)
 SERVER_NAME = "omni-hub"
 SERVER_VERSION = "0.8.0"
 
@@ -50,7 +50,14 @@ SERVER_VERSION = "0.8.0"
 
 @dataclass(slots=True)
 class Tool:
-    """One MCP tool — name, JSON-schema input, and OperationSpec factory."""
+    """One MCP tool — name, JSON-schema input, and OperationSpec factory.
+
+    ``destructive`` and ``idempotent`` are surfaced as MCP "tool annotations"
+    (spec 2025-11-25 §tools) — Claude Desktop / other clients use them to
+    decide whether to auto-approve a call or prompt the human.  Default for
+    READ_ONLY ops is ``readOnlyHint=True``; LOCAL_WRITE ops default to
+    non-destructive non-idempotent unless explicitly flagged.
+    """
 
     name: str
     description: str
@@ -61,12 +68,29 @@ class Tool:
     payload_from_args: Callable[[dict[str, Any]], dict[str, Any]] = field(
         default_factory=lambda: lambda args: dict(args)
     )
+    destructive: bool = False
+    idempotent: bool = False
+    title: str | None = None        # human-friendly label for clients
+
+    def annotations(self) -> dict[str, Any]:
+        ann: dict[str, Any] = {
+            "readOnlyHint": self.risk_level == RiskLevel.READ_ONLY,
+            "destructiveHint": self.destructive,
+            "idempotentHint": self.idempotent,
+            # We never call external services from MCP tools — every tool
+            # routes to an in-process OperationRunner handler.
+            "openWorldHint": False,
+        }
+        if self.title:
+            ann["title"] = self.title
+        return ann
 
     def to_mcp_dict(self) -> dict[str, Any]:
         return {
             "name": self.name,
             "description": self.description,
             "inputSchema": self.input_schema,
+            "annotations": self.annotations(),
         }
 
 
@@ -110,6 +134,8 @@ def default_tools() -> list[Tool]:
             },
             operation_name="enqueue_task",
             risk_level=RiskLevel.LOCAL_WRITE,
+            idempotent=True,                     # idempotency_key dedups
+            title="Enqueue Task",
         ),
         Tool(
             name="task-list",
@@ -165,6 +191,8 @@ def default_tools() -> list[Tool]:
             },
             operation_name="approve_proposal",
             risk_level=RiskLevel.LOCAL_WRITE,
+            idempotent=True,                     # re-approve is a no-op
+            title="Approve Proposal",
         ),
         Tool(
             name="propose-reject",
@@ -179,6 +207,9 @@ def default_tools() -> list[Tool]:
             },
             operation_name="reject_proposal",
             risk_level=RiskLevel.LOCAL_WRITE,
+            destructive=True,                    # rejected proposals are terminal
+            idempotent=True,
+            title="Reject Proposal",
         ),
         Tool(
             name="memory-search",

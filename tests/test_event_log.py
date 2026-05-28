@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -15,7 +16,10 @@ from omni_hub.event_log import (
     KIND_TASK_CLAIMED,
     KIND_TASK_COMPLETED,
     KIND_WORKER_ADAPTER_START,
+    SCHEMA_VERSION,
+    Event,
     EventLog,
+    EventLogCorruption,
 )
 from omni_hub.queue import TaskQueue
 from omni_hub.testing import cli_runner as _run_cli
@@ -90,6 +94,88 @@ class EventLogPrimitivesTests(unittest.TestCase):
             for task_id in (1, 2, 3):
                 ok, errors = log.verify_chain(task_id)
                 self.assertTrue(ok, msg=errors)
+
+
+class EventLogDurabilityTests(unittest.TestCase):
+    """A2 regression: schema_version in hash + fsync on append + corruption
+    guard.  Each test pins a specific failure mode the prior impl silently
+    swallowed."""
+
+    def test_schema_version_is_part_of_hash(self) -> None:
+        """Two events identical except for schema_version must hash differently.
+        If they don't, a future schema bump would silently invalidate replay."""
+        e1 = Event(task_id=1, kind="x", data={"i": 1}, prev_hash=GENESIS_HASH)
+        e2 = Event(task_id=1, kind="x", data={"i": 1}, prev_hash=GENESIS_HASH,
+                   schema_version=2)
+        # Pin the event_id + timestamp so only schema_version differs.
+        e1.event_id = e2.event_id = "fixed-id"
+        e1.timestamp = e2.timestamp = "2026-05-28T00:00:00+00:00"
+        self.assertNotEqual(e1.canonical_payload(), e2.canonical_payload())
+
+    def test_default_schema_version_is_current(self) -> None:
+        e = Event()
+        self.assertEqual(e.schema_version, SCHEMA_VERSION)
+        # And canonical payload includes it.
+        self.assertIn('"schema_version":1', e.canonical_payload())
+
+    def test_truncated_last_line_raises_corruption(self) -> None:
+        """The previous impl silently fell back to GENESIS, re-anchoring
+        the chain and defeating tamper detection."""
+        with tempfile.TemporaryDirectory() as tmp:
+            log = EventLog(tmp)
+            log.append("custom", task_id=99, data={"i": 0})
+            log.append("custom", task_id=99, data={"i": 1})
+            path = Path(tmp) / ".omni" / "events" / "task-99.jsonl"
+            text = path.read_text(encoding="utf-8")
+            # Truncate trailing newline + last 5 bytes of JSON.
+            truncated = text.rstrip("\n")[:-5]
+            path.write_text(truncated, encoding="utf-8")
+
+            with self.assertRaises(EventLogCorruption):
+                log.append("custom", task_id=99, data={"i": 2})
+
+    def test_missing_content_hash_raises_corruption(self) -> None:
+        """An entry that parses as JSON but has no content_hash must not
+        be treated as a valid chain head."""
+        with tempfile.TemporaryDirectory() as tmp:
+            log = EventLog(tmp)
+            path = Path(tmp) / ".omni" / "events" / "task-50.jsonl"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            # Hand-write a row missing content_hash.
+            path.write_text(
+                json.dumps({"event_id": "x", "task_id": 50, "kind": "y",
+                            "timestamp": "t", "prev_hash": GENESIS_HASH,
+                            "data": {}}) + "\n",
+                encoding="utf-8",
+            )
+            with self.assertRaises(EventLogCorruption):
+                log.append("custom", task_id=50, data={})
+
+    def test_fsync_is_called_by_default(self) -> None:
+        """Power-loss safety: fsync must run after every append unless
+        explicitly opted out by EVENT_LOG_FSYNC=0."""
+        import omni_hub.event_log as elmod
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as tmp:
+            log = EventLog(tmp)
+            # Clear opt-out (which the test suite sets via env in CI).
+            with patch.dict(os.environ, {"EVENT_LOG_FSYNC": "1"}, clear=False):
+                with patch.object(elmod.os, "fsync") as fsync_mock:
+                    log.append("custom", task_id=1, data={})
+                    self.assertGreaterEqual(fsync_mock.call_count, 1)
+
+    def test_fsync_can_be_disabled_for_tests(self) -> None:
+        """Tests can set EVENT_LOG_FSYNC=0 to skip the syscall."""
+        import omni_hub.event_log as elmod
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as tmp:
+            log = EventLog(tmp)
+            with patch.dict(os.environ, {"EVENT_LOG_FSYNC": "0"}, clear=False):
+                with patch.object(elmod.os, "fsync") as fsync_mock:
+                    log.append("custom", task_id=1, data={})
+                    self.assertEqual(fsync_mock.call_count, 0)
 
 
 class EventLogWorkerIntegrationTests(unittest.TestCase):

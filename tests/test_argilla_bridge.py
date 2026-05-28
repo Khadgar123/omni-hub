@@ -160,5 +160,87 @@ class ArgillaCliFlowTests(unittest.TestCase):
             self.assertEqual(prefs[0].judge_summary["citation_support"], 5.0)
 
 
+class ArgillaSyncErrorPathsTests(unittest.TestCase):
+    """A4 regression — error / reject paths in the export→sync flow."""
+
+    def _seed_proposal(self, workspace: Path, *, proposal_id: str = "proposal-1") -> Proposal:
+        proposal = Proposal(
+            proposal_id=proposal_id,
+            kind="generation",
+            title="Draft answer",
+            summary="Needs review",
+            source_task_id="task-42",
+            payload={"text": "Maybe wrong.", "model": "deepseek-v4-pro"},
+        )
+        ProposalStore(workspace).store(proposal, write_card=False)
+        return proposal
+
+    def test_reject_path_records_rejected_proposal_and_preference(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp)
+            self._seed_proposal(workspace)
+
+            feedback = {
+                "external_id": "proposal-1",
+                "metadata": {"domain": "research", "skill_id": "qa"},
+                "responses": [{
+                    "user_id": "reviewer-2",
+                    "values": {
+                        "decision": {"value": "reject"},
+                        "review_reason": {"value": "fabricated citation"},
+                    },
+                }],
+            }
+            path = workspace / ".omni" / "argilla" / "fb.jsonl"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(feedback) + "\n", encoding="utf-8")
+
+            result = _run_cli(workspace, [
+                "argilla-sync-feedback",
+                "--input", ".omni/argilla/fb.jsonl",
+                "--preference-root", ".omni/preference",
+            ])
+            self.assertEqual(result["output"]["rejected"], 1)
+            self.assertEqual(result["output"]["approved"], 0)
+
+            decided = ProposalStore(workspace, create=False).load("proposal-1")
+            self.assertEqual(decided.state, "rejected")
+            self.assertEqual(decided.reason, "fabricated citation")
+
+            prefs = list(PreferenceStore(workspace / ".omni" / "preference").read("research"))
+            self.assertEqual(prefs[0].decision, "rejected")
+
+    def test_sync_skips_unknown_proposal_and_reports_error(self) -> None:
+        """Unknown external_id must increment skipped + collect an error,
+        not abort the whole batch."""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp)
+            ProposalStore(workspace)            # init empty store
+
+            feedback = workspace / ".omni" / "argilla" / "fb.jsonl"
+            feedback.parent.mkdir(parents=True, exist_ok=True)
+            feedback.write_text(
+                json.dumps({
+                    "external_id": "does-not-exist",
+                    "metadata": {"domain": "research"},
+                    "responses": [{
+                        "user_id": "r",
+                        "values": {"decision": {"value": "approve"}},
+                    }],
+                }) + "\n",
+                encoding="utf-8",
+            )
+
+            result = _run_cli(workspace, [
+                "argilla-sync-feedback",
+                "--input", ".omni/argilla/fb.jsonl",
+            ])
+            self.assertEqual(result["output"]["synced"], 0)
+            self.assertEqual(result["output"]["skipped"], 1)
+            self.assertEqual(len(result["output"]["errors"]), 1)
+            self.assertIn("does-not-exist", str(result["output"]["errors"][0]))
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
