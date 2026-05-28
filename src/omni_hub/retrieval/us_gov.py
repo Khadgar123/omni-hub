@@ -159,11 +159,14 @@ class RegulationsGovSource:
         if not self.api_key:
             raise RetrievalError("DATA_GOV_API_KEY not set")
 
+        # regulations.gov API enforces page[size] >= 5; cap top at 250
+        # per their docs.  We post-slice to ``limit`` for the caller.
+        page_size = max(5, min(limit, 250))
         data = http_get_json(
             REGS_GOV_URL,
             params={
                 "filter[searchTerm]": query,
-                "page[size]": str(min(limit, 25)),
+                "page[size]": str(page_size),
                 "sort": "-postedDate",
             },
             headers={"X-Api-Key": self.api_key},
