@@ -1,11 +1,28 @@
 """Omni Hub core package."""
 
 from .content_store import ContentStore, StoredCapture
+from .harness.models import (
+    Candidate,
+    Constraints,
+    GenerationRecord,
+    HumanFeedback,
+    JudgeRubric,
+    JudgeScore,
+    RetrievalPolicy,
+    TaskPacket,
+)
 from .markdown import MarkdownDocument
 from .memory import MemoryDigestResult, MemorySearchResult, MemoryStore
 from .models import OperationSpec, OperationStatus, RiskLevel
 from .policy import PolicyConfig, PolicyDecision, PolicyEngine
 from .proposals import EntityProposal, KnowledgeProposal, RelationProposal
+from .reports import (
+    ReportContext,
+    build_daily,
+    build_monthly,
+    build_weekly,
+    default_output_path,
+)
 from .runner import OperationRunner
 from .skill_intel import (
     SkillConflict,
@@ -17,8 +34,14 @@ from .skills import SkillKind, SkillRegistry, SkillSpec, SkillStatus
 from .vault import VaultReader
 
 __all__ = [
+    "Candidate",
+    "Constraints",
     "ContentStore",
     "EntityProposal",
+    "GenerationRecord",
+    "HumanFeedback",
+    "JudgeRubric",
+    "JudgeScore",
     "KnowledgeProposal",
     "MarkdownDocument",
     "MemoryDigestResult",
@@ -30,8 +53,10 @@ __all__ = [
     "PolicyConfig",
     "PolicyDecision",
     "PolicyEngine",
-    "RiskLevel",
     "RelationProposal",
+    "ReportContext",
+    "RetrievalPolicy",
+    "RiskLevel",
     "SkillConflict",
     "SkillKind",
     "SkillQuality",
@@ -41,5 +66,10 @@ __all__ = [
     "SkillSpec",
     "SkillStatus",
     "StoredCapture",
+    "TaskPacket",
     "VaultReader",
+    "build_daily",
+    "build_monthly",
+    "build_weekly",
+    "default_output_path",
 ]

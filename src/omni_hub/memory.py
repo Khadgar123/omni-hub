@@ -195,6 +195,59 @@ class MemoryStore:
         results.sort(key=lambda result: (-result.score, result.title))
         return results[:limit]
 
+    def list_documents(self, *, limit: int = 100) -> list[dict[str, str]]:
+        """Document-only view ordered by updated_at DESC.
+
+        Safe when the database is missing or contains only the ``documents``
+        table; callers that need entities/relations should use ``search``.
+        """
+        if not self.db_path.exists():
+            return []
+        try:
+            with self._connect() as conn:
+                rows = conn.execute(
+                    "SELECT source_path, title, summary, updated_at "
+                    "FROM documents ORDER BY updated_at DESC LIMIT ?",
+                    (limit,),
+                ).fetchall()
+        except sqlite3.OperationalError:
+            return []
+        return [
+            {
+                "source_path": row["source_path"] or "",
+                "title": row["title"] or "",
+                "summary": row["summary"] or "",
+                "updated_at": row["updated_at"] or "",
+            }
+            for row in rows
+        ]
+
+    def search_documents(self, query: str, *, limit: int = 20) -> list[dict[str, str]]:
+        """Substring LIKE search over documents only — for non-scored callers."""
+        normalized = query.strip()
+        if not normalized or not self.db_path.exists():
+            return []
+        like = f"%{normalized}%"
+        try:
+            with self._connect() as conn:
+                rows = conn.execute(
+                    "SELECT source_path, title, summary, updated_at FROM documents "
+                    "WHERE title LIKE ? OR summary LIKE ? "
+                    "ORDER BY updated_at DESC LIMIT ?",
+                    (like, like, limit),
+                ).fetchall()
+        except sqlite3.OperationalError:
+            return []
+        return [
+            {
+                "source_path": row["source_path"] or "",
+                "title": row["title"] or "",
+                "summary": row["summary"] or "",
+                "updated_at": row["updated_at"] or "",
+            }
+            for row in rows
+        ]
+
     def stats(self, conn: sqlite3.Connection | None = None) -> dict[str, int]:
         if conn is None and not self.db_path.exists():
             return {"documents": 0, "entities": 0, "relations": 0}

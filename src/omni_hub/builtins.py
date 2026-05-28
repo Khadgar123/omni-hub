@@ -290,6 +290,86 @@ def make_api_management_status(workspace: Path):
     return status
 
 
+def make_harness_preference_add(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def harness_preference_add(spec: OperationSpec) -> dict[str, object]:
+        from .harness.preference import PreferenceRecord, PreferenceStore
+
+        payload = spec.payload
+        text = str(payload.get("text", ""))
+        decision = str(payload["decision"])
+        store_root = workspace_root / str(payload.get("store_root", ".omni/preference"))
+        record = PreferenceRecord(
+            task_id=str(payload.get("task_id", "")),
+            domain=str(payload["domain"]),
+            prompt_version=str(payload.get("prompt_version", "v0")),
+            candidate_text=text,
+            decision=decision,
+            accepted_spans=[text] if decision == "accepted" and text else [],
+            rejected_spans=[text] if decision == "rejected" and text else [],
+            reason=str(payload.get("reason", "")),
+        )
+        path = PreferenceStore(store_root).append(record)
+        return {"record_id": record.record_id, "file": str(path)}
+
+    return harness_preference_add
+
+
+def make_harness_compile(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def harness_compile(spec: OperationSpec) -> dict[str, object]:
+        from .harness import dspy_compile
+        from .harness.preference import PreferenceStore
+
+        payload = spec.payload
+        store_root = workspace_root / str(payload.get("store_root", ".omni/preference"))
+        output_root = workspace_root / str(payload.get("output_root", "prompts"))
+        report = dspy_compile.compile(
+            domain=str(payload["domain"]),
+            from_version=str(payload.get("from_version", "v0")),
+            output_root=output_root,
+            preference_store=PreferenceStore(store_root),
+            bootstrap_rounds=int(payload.get("bootstrap_rounds", 8)),
+            max_positive=int(payload.get("max_positive", 12)),
+            max_negative=int(payload.get("max_negative", 6)),
+            backend=str(payload.get("backend", "auto")),
+        )
+        return report.to_dict()
+
+    return harness_compile
+
+
+def make_harness_redundancy_scan(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def harness_redundancy_scan(spec: OperationSpec) -> dict[str, object]:
+        from .harness import redundancy
+
+        payload = spec.payload
+        db_path = workspace_root / str(payload.get("db_path", ".omni/memory.sqlite3"))
+        write_to_raw = payload.get("write_to")
+        write_to: Path | None
+        if payload.get("no_write"):
+            write_to = None
+        elif write_to_raw is None:
+            write_to = workspace_root / ".omni/proposals/redundancy.jsonl"
+        else:
+            write_to = workspace_root / str(write_to_raw)
+        report = redundancy.scan(
+            db_path=db_path,
+            prefer_backend=str(payload.get("prefer_backend", "auto")),
+            freshness_days=int(payload.get("freshness_days", 365)),
+            min_low_signal_ratio=float(payload.get("min_low_signal_ratio", 0.5)),
+            write_to=write_to,
+            max_documents=int(payload.get("max_documents", 5000)),
+        )
+        return report.to_dict()
+
+    return harness_redundancy_scan
+
+
 def build_default_registry(workspace: Path | str = ".") -> OperationRegistry:
     workspace_path = Path(workspace)
     registry = OperationRegistry()
@@ -309,4 +389,7 @@ def build_default_registry(workspace: Path | str = ".") -> OperationRegistry:
     registry.register("recommend_skills", make_recommend_skills(workspace_path))
     registry.register("analyze_skills", make_analyze_skills(workspace_path))
     registry.register("api_management_status", make_api_management_status(workspace_path))
+    registry.register("harness_preference_add", make_harness_preference_add(workspace_path))
+    registry.register("harness_compile", make_harness_compile(workspace_path))
+    registry.register("harness_redundancy_scan", make_harness_redundancy_scan(workspace_path))
     return registry
