@@ -4,8 +4,9 @@ status: active
 mode: lookup-only
 description: |
   Picks the per-domain cascade source list for a query, given the domain
-  profile (engineering / research / photography / fashion / chat_relationships
-  / finance / policy / international_relations / ai_progress / default).
+  profile (engineering / research / biomedical / photography / fashion /
+  chat_relationships / finance / policy / law / international_relations /
+  statistics / ai_progress / default).
 
   Use this skill when the user asks the agent to:
   - "what sources will the cascade hit for X domain"
@@ -40,7 +41,7 @@ from omni_hub.retrieval import DEFAULT_DOMAIN_CASCADES
 cascade_order = DEFAULT_DOMAIN_CASCADES.get(domain, DEFAULT_DOMAIN_CASCADES["default"])
 ```
 
-## Domain → cascade table (2026-Q2, v0.11)
+## Domain → cascade table (2026-Q2, v0.12)
 
 See the `retrieve` router skill's source-map table for the canonical list.
 Domains added in v0.10:
@@ -55,6 +56,15 @@ Domains expanded in v0.11 for global-truth coverage:
 - `engineering` gains brave_search + crossref + wikidata
 - `policy` and `international_relations` gain brave_search + wikidata
 - `finance` gains crossref + wikidata
+Domains expanded in v0.12 for global-truth coverage:
+- `research` gains europe_pmc + pubmed
+- `biomedical` gains europe_pmc + pubmed + crossref + openalex
+- `policy` gains courtlistener + internet_archive
+- `law` gains courtlistener + federal/court/archive sources
+- `statistics` gains data_commons + World Bank + IMF + FRED
+- `default` gains internet_archive as a low-priority archive fallback
+- `wikidata_sparql` and `wayback_cdx` are registered explicit sources but
+  kept out of broad default routes unless the domain/query shape warrants them
 
 ## When to use
 

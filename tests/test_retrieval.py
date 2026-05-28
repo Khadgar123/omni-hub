@@ -224,6 +224,131 @@ class WikidataTests(unittest.TestCase):
         self.assertEqual(mock.call_args.kwargs["params"]["action"], "wbsearchentities")
 
 
+class WikidataSPARQLTests(unittest.TestCase):
+    def test_entity_search_sparql_parses_bindings(self) -> None:
+        from omni_hub.retrieval.wikidata import WikidataSPARQLSource
+
+        fake = {
+            "results": {
+                "bindings": [{
+                    "item": {"value": "http://www.wikidata.org/entity/Q42"},
+                    "itemLabel": {"value": "Douglas Adams"},
+                    "itemDescription": {"value": "English writer and humorist"},
+                }],
+            },
+        }
+        with patch(
+            "omni_hub.retrieval.wikidata.http_get_json",
+            return_value=fake,
+        ) as mock:
+            records = WikidataSPARQLSource().retrieve("Douglas Adams", limit=1)
+        self.assertEqual(len(records), 1)
+        rec = records[0]
+        self.assertEqual(rec.source, "wikidata_sparql")
+        self.assertEqual(rec.canonical_id, "wikidata:Q42")
+        self.assertEqual(rec.title, "Douglas Adams")
+        self.assertIn("SERVICE wikibase:mwapi", mock.call_args.kwargs["params"]["query"])
+
+
+class BiomedicalSourceTests(unittest.TestCase):
+    def test_europe_pmc_parses_rest_results(self) -> None:
+        from omni_hub.retrieval.biomedical import EuropePMCSource
+
+        fake = {
+            "resultList": {
+                "result": [{
+                    "id": "123456",
+                    "source": "MED",
+                    "title": "Evidence synthesis in medicine",
+                    "abstractText": "A clinical evidence abstract.",
+                    "doi": "10.1000/MED.ABC",
+                    "pmid": "123456",
+                    "journalTitle": "Journal of Evidence",
+                    "pubYear": "2024",
+                    "authorString": "Ada Lovelace, Alan Turing",
+                    "citedByCount": "9",
+                    "isOpenAccess": "Y",
+                }],
+            },
+        }
+        with patch(
+            "omni_hub.retrieval.biomedical.http_get_json",
+            return_value=fake,
+        ) as mock:
+            records = EuropePMCSource().retrieve("evidence medicine", limit=1)
+        self.assertEqual(len(records), 1)
+        rec = records[0]
+        self.assertEqual(rec.source, "europe_pmc")
+        self.assertEqual(rec.canonical_id, "doi:10.1000/med.abc")
+        self.assertEqual(rec.score, 9.0)
+        self.assertEqual(rec.metadata["pmid"], "123456")
+        self.assertEqual(rec.metadata["is_open_access"], True)
+        self.assertEqual(mock.call_args.kwargs["params"]["format"], "json")
+
+    def test_pubmed_search_then_summary_parses_articles(self) -> None:
+        from omni_hub.retrieval.biomedical import PubMedSource
+
+        esearch = {"esearchresult": {"idlist": ["12345"]}}
+        esummary = {
+            "result": {
+                "uids": ["12345"],
+                "12345": {
+                    "uid": "12345",
+                    "title": "Clinical evidence review",
+                    "fulljournalname": "PubMed Test Journal",
+                    "pubdate": "2024 Jan",
+                    "authors": [{"name": "Ada Lovelace"}],
+                    "articleids": [{"idtype": "doi", "value": "10.2000/PUBMED.X"}],
+                },
+            },
+        }
+        with patch(
+            "omni_hub.retrieval.biomedical.http_get_json",
+            side_effect=[esearch, esummary],
+        ) as mock:
+            records = PubMedSource(
+                email="dev@example.org",
+                api_key="ncbi-key",
+            ).retrieve("clinical evidence", limit=1)
+        self.assertEqual(len(records), 1)
+        rec = records[0]
+        self.assertEqual(rec.source, "pubmed")
+        self.assertEqual(rec.canonical_id, "doi:10.2000/pubmed.x")
+        self.assertEqual(rec.url, "https://pubmed.ncbi.nlm.nih.gov/12345/")
+        self.assertEqual(rec.metadata["pmid"], "12345")
+        self.assertEqual(rec.metadata["authors"], ["Ada Lovelace"])
+        self.assertEqual(mock.call_args_list[0].kwargs["params"]["db"], "pubmed")
+        self.assertEqual(mock.call_args_list[1].kwargs["params"]["id"], "12345")
+
+
+class StructuredFactSourceTests(unittest.TestCase):
+    def test_data_commons_requires_api_key(self) -> None:
+        from omni_hub.retrieval.datacommons import DataCommonsSource
+
+        with self.assertRaises(RetrievalError):
+            DataCommonsSource(api_key="").retrieve("place=country/USA stat_var=Count_Person")
+
+    def test_data_commons_parses_stat_series(self) -> None:
+        from omni_hub.retrieval.datacommons import DataCommonsSource
+
+        fake = {"series": {"2020": 331501080, "2021": 331893745}}
+        with patch(
+            "omni_hub.retrieval.datacommons.http_get_json",
+            return_value=fake,
+        ) as mock:
+            records = DataCommonsSource(api_key="dc-key").retrieve(
+                "place=country/USA stat_var=Count_Person",
+                limit=1,
+            )
+        self.assertEqual(len(records), 1)
+        rec = records[0]
+        self.assertEqual(rec.source, "data_commons")
+        self.assertEqual(rec.canonical_id, "dc:country/USA:Count_Person")
+        self.assertEqual(rec.metadata["latest_year"], "2021")
+        self.assertEqual(rec.metadata["latest_value"], 331893745)
+        self.assertEqual(mock.call_args.kwargs["params"]["place"], "country/USA")
+
+
 class OpenAlexTests(unittest.TestCase):
     def test_search_parses_inverted_abstract(self) -> None:
         adapter = OpenAlexSource()
@@ -1399,6 +1524,86 @@ class USGovTests(unittest.TestCase):
 
 
 # ===========================================================================
+# v0.11 — Legal + archive sources for global-truth evidence
+# ===========================================================================
+
+
+class LegalAndArchiveSourceTests(unittest.TestCase):
+    def test_courtlistener_parses_search_results(self) -> None:
+        from omni_hub.retrieval.legal import CourtListenerSource
+
+        fake = {"results": [{
+            "cluster_id": 410113,
+            "caseName": "Roe v. Wade",
+            "absolute_url": "/opinion/108713/roe-v-wade/",
+            "snippet": "Privacy and constitutional law.",
+            "court": "scotus",
+            "dateFiled": "1973-01-22",
+            "docketNumber": "70-18",
+            "citation": ["410 U.S. 113"],
+        }]}
+        with patch(
+            "omni_hub.retrieval.legal.http_get_json",
+            return_value=fake,
+        ) as mock:
+            records = CourtListenerSource().retrieve("privacy", limit=1)
+        self.assertEqual(len(records), 1)
+        rec = records[0]
+        self.assertEqual(rec.source, "courtlistener")
+        self.assertEqual(rec.canonical_id, "courtlistener:410113")
+        self.assertEqual(rec.url, "https://www.courtlistener.com/opinion/108713/roe-v-wade/")
+        self.assertEqual(rec.metadata["court"], "scotus")
+        self.assertEqual(mock.call_args.kwargs["params"]["q"], "privacy")
+
+    def test_internet_archive_parses_advanced_search_docs(self) -> None:
+        from omni_hub.retrieval.archive import InternetArchiveSource
+
+        fake = {"response": {"docs": [{
+            "identifier": "evidence-book",
+            "title": "Evidence Book",
+            "description": "Archived public-domain evidence.",
+            "date": "1920",
+            "creator": "Archive Author",
+            "collection": ["opensource"],
+        }]}}
+        with patch(
+            "omni_hub.retrieval.archive.http_get_json",
+            return_value=fake,
+        ) as mock:
+            records = InternetArchiveSource().retrieve("evidence", limit=1)
+        self.assertEqual(len(records), 1)
+        rec = records[0]
+        self.assertEqual(rec.source, "internet_archive")
+        self.assertEqual(rec.canonical_id, "ia:evidence-book")
+        self.assertEqual(rec.url, "https://archive.org/details/evidence-book")
+        self.assertEqual(rec.metadata["creator"], "Archive Author")
+        self.assertIn("fl[]", mock.call_args.kwargs["params"])
+
+    def test_wayback_cdx_requires_urlish_query_and_parses_snapshots(self) -> None:
+        from omni_hub.retrieval.archive import WaybackCDXSource
+
+        self.assertEqual(WaybackCDXSource().retrieve("not a url"), [])
+
+        fake = [[
+            "urlkey", "timestamp", "original", "mimetype", "statuscode", "digest",
+        ], [
+            "com,example)/", "20240102030405", "https://example.com/",
+            "text/html", "200", "DIGEST123",
+        ]]
+        with patch(
+            "omni_hub.retrieval.archive.http_get_json",
+            return_value=fake,
+        ) as mock:
+            records = WaybackCDXSource().retrieve("https://example.com/", limit=1)
+        self.assertEqual(len(records), 1)
+        rec = records[0]
+        self.assertEqual(rec.source, "wayback_cdx")
+        self.assertEqual(rec.canonical_id, "wayback:DIGEST123")
+        self.assertEqual(rec.url, "https://web.archive.org/web/20240102030405/https://example.com/")
+        self.assertEqual(mock.call_args.kwargs["params"]["url"], "https://example.com/")
+
+
+# ===========================================================================
 # v0.10 — twitterapi.io (V10-7)
 # ===========================================================================
 
@@ -1732,6 +1937,8 @@ class V10CascadeIntegrationTests(unittest.TestCase):
         sources = builtin_sources()
         for expected in (
             "brave_search", "crossref", "wikidata",
+            "wikidata_sparql", "europe_pmc", "pubmed",
+            "data_commons", "courtlistener", "internet_archive", "wayback_cdx",
             "edgar", "fred", "hf_daily_papers",
             "federal_register", "regulations_gov", "congress_gov",
             "acled", "world_bank", "imf",
@@ -1744,6 +1951,11 @@ class V10CascadeIntegrationTests(unittest.TestCase):
         self.assertIn("wikidata", DEFAULT_DOMAIN_CASCADES["default"])
         self.assertIn("brave_search", DEFAULT_DOMAIN_CASCADES["default"])
         self.assertIn("crossref", DEFAULT_DOMAIN_CASCADES["research"])
+        self.assertIn("europe_pmc", DEFAULT_DOMAIN_CASCADES["research"])
+        self.assertIn("pubmed", DEFAULT_DOMAIN_CASCADES["biomedical"])
+        self.assertIn("data_commons", DEFAULT_DOMAIN_CASCADES["statistics"])
+        self.assertIn("courtlistener", DEFAULT_DOMAIN_CASCADES["law"])
+        self.assertIn("internet_archive", DEFAULT_DOMAIN_CASCADES["default"])
         self.assertIn("hf_daily_papers", DEFAULT_DOMAIN_CASCADES["ai_progress"])
         self.assertIn("edgar", DEFAULT_DOMAIN_CASCADES["finance"])
         self.assertIn("fred", DEFAULT_DOMAIN_CASCADES["finance"])

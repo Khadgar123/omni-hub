@@ -28,8 +28,9 @@ fused `RetrievalRecord`s.
 
 1. Pick the source list (from `domain` argument, or override via
    `--sources a,b,c`).
-2. Cache lookup per source (SQLite TTL: Wikidata/Wikipedia 7d,
-   OpenAlex/S2/Crossref 24h, arXiv 12h, Brave/GDELT 1h, Jina 5min).
+2. Cache lookup per source (SQLite TTL: Wikidata/Wikipedia/Wikidata SPARQL/
+   Internet Archive/Wayback/CourtListener 7d; OpenAlex/S2/Crossref/
+   Europe PMC/PubMed/Data Commons 24h; arXiv 12h; Brave/GDELT 1h; Jina 5min).
 3. `ThreadPoolExecutor` fan-out over cache-misses with a 15s wall-clock cap.
    Per-source failures are captured into `errors[]`, never aborting.
 4. Per-source result lists are fused:
@@ -46,7 +47,7 @@ fused `RetrievalRecord`s.
 ```bash
 PYTHONPATH=src python3 -m omni_hub.cli retrieve \
   --query   "<NL query>" \
-  --domain  research|engineering|finance|policy|... \
+  --domain  research|biomedical|engineering|finance|policy|law|statistics|... \
   --fusion  rrf|concat \
   --per-source-limit 5 \
   --total-limit 20 \

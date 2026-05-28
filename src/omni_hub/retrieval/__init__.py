@@ -43,13 +43,17 @@ def builtin_sources() -> dict[str, RetrievalSource]:
     the cascade primitives.
     """
 
+    from .archive import InternetArchiveSource, WaybackCDXSource
     from .arxiv_api import ArxivSource
+    from .biomedical import EuropePMCSource, PubMedSource
     from .crossref import CrossrefSource
+    from .datacommons import DataCommonsSource
     from .finance import EdgarSource, FREDSource
     from .gdelt import GDELTSource
     from .hf_daily_papers import HFDailyPapersSource
     from .intl import ACLEDSource, IMFSource, WorldBankSource
     from .jina_reader import JinaReaderFetcher
+    from .legal import CourtListenerSource
     from .openalex import OpenAlexSource
     from .photo import PexelsSource, UnsplashSource
     from .semantic_scholar import SemanticScholarSource
@@ -57,7 +61,7 @@ def builtin_sources() -> dict[str, RetrievalSource]:
     from .us_gov import CongressGovSource, FederalRegisterSource, RegulationsGovSource
     from .web_search import BraveSearchSource
     from .wechat_mp import WeChatMPSource
-    from .wikidata import WikidataSource
+    from .wikidata import WikidataSource, WikidataSPARQLSource
     from .wikipedia import WikipediaSource
     from .xhs import XiaohongshuSource
 
@@ -66,15 +70,21 @@ def builtin_sources() -> dict[str, RetrievalSource]:
         for s in (
             # tier 0 — no auth
             ArxivSource(),
+            CourtListenerSource(),
             CrossrefSource(),
+            EuropePMCSource(),
             FederalRegisterSource(),
             GDELTSource(),
             HFDailyPapersSource(),
+            InternetArchiveSource(),
             IMFSource(),
             JinaReaderFetcher(),
             OpenAlexSource(),
+            PubMedSource(),
             SemanticScholarSource(),
+            WaybackCDXSource(),
             WikidataSource(),
+            WikidataSPARQLSource(),
             WikipediaSource(),
             WorldBankSource(),
             EdgarSource(),
@@ -82,6 +92,7 @@ def builtin_sources() -> dict[str, RetrievalSource]:
             ACLEDSource(),
             BraveSearchSource(),
             CongressGovSource(),
+            DataCommonsSource(),
             FREDSource(),
             PexelsSource(),
             RegulationsGovSource(),

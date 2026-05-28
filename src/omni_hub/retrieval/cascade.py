@@ -53,7 +53,11 @@ DEFAULT_DOMAIN_CASCADES: dict[str, list[str]] = {
         "brave_search", "crossref", "openalex", "arxiv", "wikidata", "wikipedia",
     ],
     "research": [
-        "crossref", "openalex", "semantic_scholar", "arxiv", "wikidata", "wikipedia",
+        "crossref", "openalex", "semantic_scholar", "arxiv",
+        "europe_pmc", "pubmed", "wikidata", "wikipedia",
+    ],
+    "biomedical": [
+        "europe_pmc", "pubmed", "crossref", "openalex", "wikidata", "wikipedia",
     ],
     "photography":           ["unsplash", "pexels", "wikipedia"],
     "fashion":               ["wikipedia"],            # snapshot-only via vault
@@ -62,12 +66,19 @@ DEFAULT_DOMAIN_CASCADES: dict[str, list[str]] = {
         "edgar", "fred", "crossref", "wikidata", "openalex", "wikipedia",
     ],
     "policy":                [
-        "federal_register", "regulations_gov", "congress_gov",
-        "brave_search", "gdelt", "wikidata", "wikipedia",
+        "federal_register", "regulations_gov", "congress_gov", "courtlistener",
+        "brave_search", "gdelt", "internet_archive", "wikidata", "wikipedia",
+    ],
+    "law": [
+        "courtlistener", "federal_register", "regulations_gov", "congress_gov",
+        "internet_archive", "wikidata", "wikipedia",
     ],
     "international_relations": [
         "acled", "gdelt", "world_bank", "imf",
         "brave_search", "wikidata", "wikipedia",
+    ],
+    "statistics": [
+        "data_commons", "world_bank", "imf", "fred", "wikidata", "wikipedia",
     ],
     # Synthetic
     "ai_progress": [
@@ -75,7 +86,8 @@ DEFAULT_DOMAIN_CASCADES: dict[str, list[str]] = {
         "brave_search", "wikidata", "wikipedia",
     ],
     "default": [
-        "wikidata", "wikipedia", "brave_search", "crossref", "openalex", "gdelt",
+        "wikidata", "wikipedia", "brave_search", "crossref", "openalex",
+        "gdelt", "internet_archive",
     ],
     # Tier-2 social-media domains (paid/broker/pinned-fork) — opt-in via
     # `--domain` rather than appearing in `default`, so casual queries

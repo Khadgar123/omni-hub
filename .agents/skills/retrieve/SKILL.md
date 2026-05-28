@@ -3,11 +3,11 @@ name: retrieve
 status: active-router
 mode: federated-cascade
 description: |
-  Unified entry for the omni-hub Retrieval Plane — federated search across 6+
-  free vertical KBs (OpenAlex / Semantic Scholar / arXiv / Wikipedia / GDELT /
-  Jina Reader) with optional paid tiers (Brave, twitterapi.io), per-domain
-  source maps, RRF cross-source fusion, CRAG-style grading, and PaperQA2-style
-  evidence persistence.
+  Unified entry for the omni-hub Retrieval Plane — federated search across
+  scholarly, biomedical, legal, statistical, archive, encyclopedia, news, web,
+  and social sources with optional paid/key-gated tiers, per-domain source maps,
+  RRF cross-source fusion, CRAG-style grading, and PaperQA2-style evidence
+  persistence.
 
   Use this skill whenever the user asks the agent to:
   - find papers / sources / news / docs on a topic from outside the local vault
@@ -69,19 +69,22 @@ underlying CLI (`omni-hub retrieve …`) and the same data shape
 
 | Domain                  | Default cascade order                                   |
 | ----------------------- | ------------------------------------------------------- |
-| engineering             | openalex → arxiv → wikipedia                            |
-| research                | openalex → semantic_scholar → arxiv → wikipedia         |
+| engineering             | brave_search → crossref → openalex → arxiv → wikidata → wikipedia |
+| research                | crossref → openalex → semantic_scholar → arxiv → europe_pmc → pubmed → wikidata → wikipedia |
+| biomedical              | europe_pmc → pubmed → crossref → openalex → wikidata → wikipedia |
 | photography             | unsplash → pexels → wikipedia                           |
 | fashion                 | wikipedia (use research-kb-* for vault snapshots)       |
 | chat_relationships      | (purely reactive — no cascade)                          |
-| finance                 | edgar → fred → openalex → wikipedia                     |
-| policy                  | federal_register → regulations_gov → congress_gov → wp  |
-| international_relations | acled → gdelt → world_bank → imf → wikipedia            |
-| ai_progress             | hf_daily_papers → arxiv → openalex → wikipedia          |
-| default                 | wikipedia → openalex → gdelt                            |
+| finance                 | edgar → fred → crossref → wikidata → openalex → wikipedia |
+| policy                  | federal_register → regulations_gov → congress_gov → courtlistener → brave_search → gdelt → internet_archive → wikidata → wikipedia |
+| law                     | courtlistener → federal_register → regulations_gov → congress_gov → internet_archive → wikidata → wikipedia |
+| international_relations | acled → gdelt → world_bank → imf → brave_search → wikidata → wikipedia |
+| statistics              | data_commons → world_bank → imf → fred → wikidata → wikipedia |
+| ai_progress             | hf_daily_papers → arxiv → crossref → openalex → brave_search → wikidata → wikipedia |
+| default                 | wikidata → wikipedia → brave_search → crossref → openalex → gdelt → internet_archive |
 
-Sources marked in italic in the table above arrive in v0.10 — until they ship,
-the cascade transparently skips unknown source names and records them in
+Sources that require keys remain registered so `retrieve-doctor` can explain
+setup gaps; the cascade fail-soft-skips unavailable sources and records them in
 `errors[]`.
 
 ## Canonical commands the agent should know

@@ -172,14 +172,21 @@ grounding, optional broad-web discovery, scholarly DOI metadata, scholarly work
 search, and recent-news discovery:
 
 ```text
-default -> wikidata -> wikipedia -> brave_search -> crossref -> openalex -> gdelt
+default -> wikidata -> wikipedia -> brave_search -> crossref -> openalex
+        -> gdelt -> internet_archive
 ```
 
 Domain profiles can override the order.  For example, `research` leads with
-Crossref/OpenAlex/Semantic Scholar/arXiv, while `policy` leads with federal
-primary sources before Brave/GDELT/Wikidata.  `brave_search` is key-gated via
-`BRAVE_SEARCH_API_KEY`; `crossref` and `wikidata` work anonymously, with
-`CROSSREF_MAILTO` recommended for polite Crossref traffic.
+Crossref/OpenAlex/Semantic Scholar/arXiv and then biomedical indexes
+(`europe_pmc`, `pubmed`), while `policy` leads with federal primary sources,
+CourtListener, broad web/news, and archive fallback.  Dedicated profiles also
+exist for `biomedical`, `law`, and `statistics`.
+
+Key-gated sources stay in the registry but fail-soft when unset:
+`brave_search` uses `BRAVE_SEARCH_API_KEY`; `data_commons` uses
+`DATACOMMONS_API_KEY`.  Polite-but-anonymous sources include `crossref`
+(`CROSSREF_MAILTO` recommended), `pubmed` (`NCBI_EMAIL` recommended), and
+`courtlistener` (`COURTLISTENER_TOKEN` optional for higher limits).
 
 ## ResearchFlow Role
 

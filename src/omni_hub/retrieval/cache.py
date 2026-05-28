@@ -33,14 +33,21 @@ from .base import RetrievalRecord
 #   * Jina Reader: URL contents can change; 5 min is generous
 DEFAULT_TTL_SEC: dict[str, int] = {
     "brave_search":      3600,
+    "courtlistener":     7 * 24 * 3600,
     "crossref":          24 * 3600,
+    "data_commons":      24 * 3600,
+    "europe_pmc":        24 * 3600,
+    "internet_archive":  7 * 24 * 3600,
     "wikipedia":         7 * 24 * 3600,
     "wikidata":          7 * 24 * 3600,
+    "wikidata_sparql":   7 * 24 * 3600,
     "openalex":          24 * 3600,
+    "pubmed":            24 * 3600,
     "semantic_scholar":  24 * 3600,
     "arxiv":             12 * 3600,
     "gdelt":             3600,
     "jina_reader":       300,
+    "wayback_cdx":       7 * 24 * 3600,
 }
 FALLBACK_TTL_SEC = 6 * 3600
 
