@@ -62,7 +62,7 @@ ALL_RULES = (
 
 WIKI_LINK_RE = re.compile(r"\[\[([^\]\|\#]+)(?:\|[^\]]+)?\]\]")
 FRONTMATTER_RE = re.compile(r"\A---\n(.*?)\n---\n", re.DOTALL)
-META_FILES = {"AGENTS.md", "index.md", "log.md"}
+META_FILES = {"AGENTS.md", "index.md", "log.md", "_schema.md"}
 
 
 @dataclass(slots=True)
@@ -367,12 +367,28 @@ def _rule_data_gap(
     now: datetime,
     stale_after_days: int,
 ) -> list[LintFinding]:
-    threshold = now - timedelta(days=int(stale_after_days))
+    """Per-domain stale threshold: research → 730d, finance → 30d,
+    international_relations → 7d, etc.  The ``stale_after_days`` CLI flag
+    overrides the per-domain default when explicitly set (caller signals
+    by passing it explicitly — the default 30 matches the floor in
+    domain_schemas).
+    """
+
+    from .domain_schemas import get_stale_after_days
+
     findings: list[LintFinding] = []
     for page in pages:
         confidence = str(page.frontmatter.get("confidence", "")).lower()
         if confidence != "low":
             continue
+        domain = str(page.frontmatter.get("domain", "")).strip()
+        # Resolve threshold: CLI override (passed in) takes precedence when
+        # it differs from the floor (30); otherwise use domain default.
+        if stale_after_days != 30:
+            threshold_days = stale_after_days
+        else:
+            threshold_days = get_stale_after_days(domain or "default", default=30)
+        threshold = now - timedelta(days=int(threshold_days))
         if page.mtime >= threshold:
             continue
         findings.append(
@@ -381,13 +397,15 @@ def _rule_data_gap(
                 severity="low",
                 summary=(
                     f"{page.relative_path}: confidence=low and unchanged for "
-                    f">{stale_after_days}d (mtime={page.mtime.isoformat()})"
+                    f">{threshold_days}d (mtime={page.mtime.isoformat()}, "
+                    f"domain={domain or 'default'})"
                 ),
                 affected_paths=[page.relative_path],
                 detail={
                     "mtime": page.mtime.isoformat(),
                     "threshold": threshold.isoformat(),
-                    "stale_after_days": stale_after_days,
+                    "stale_after_days": threshold_days,
+                    "domain": domain or "default",
                 },
             )
         )

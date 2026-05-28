@@ -15,6 +15,9 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     search = subparsers.add_parser("wiki-search")
     search.add_argument("--query", required=True)
     search.add_argument("--limit", type=int, default=10)
+    search.add_argument("--include-closed", action="store_true",
+                         help="Include pages with review_state=rejected/superseded "
+                              "or t_valid_to in the past (default: filter them out).")
 
     propose = subparsers.add_parser("wiki-propose-research")
     propose.add_argument("--source", required=True, choices=["researchflow", "paperbite"])
@@ -85,6 +88,12 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     pack.add_argument("--wiki-limit", type=int, default=6)
     pack.add_argument("--research-limit", type=int, default=6)
     pack.add_argument("--persist", action="store_true")
+    pack.add_argument("--tier", default="standard",
+                       choices=["minimal", "standard", "expanded"],
+                       help="Progressive disclosure tier: minimal=frontmatter, "
+                            "standard=+snippet, expanded=+body excerpt")
+    pack.add_argument("--include-closed", action="store_true",
+                       help="Include superseded/rejected wiki pages (default: filter out)")
 
 
 def _init(args, *, runner, workspace) -> int:
@@ -117,7 +126,11 @@ def _search(args, *, runner, workspace) -> int:
         OperationSpec(
             name="wiki_search",
             action="search",
-            payload={"query": args.query, "limit": args.limit},
+            payload={
+                "query": args.query,
+                "limit": args.limit,
+                "include_closed": bool(args.include_closed),
+            },
             risk_level=RiskLevel.READ_ONLY,
         ),
     )
@@ -247,6 +260,8 @@ def _context_pack(args, *, runner, workspace) -> int:
                 "wiki_limit": args.wiki_limit,
                 "research_limit": args.research_limit,
                 "persist": args.persist,
+                "tier": args.tier,
+                "include_closed": bool(args.include_closed),
             },
             risk_level=RiskLevel.LOCAL_WRITE if args.persist else RiskLevel.READ_ONLY,
         ),

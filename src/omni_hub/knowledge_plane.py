@@ -187,6 +187,8 @@ WIKI_DIRS = (
     f"{WIKI_ROOT}/domains/international-relations",
     f"{WIKI_ROOT}/domains/ai-progress",
     f"{WIKI_ROOT}/domains/agent-systems",
+    f"{WIKI_ROOT}/domains/social-en",
+    f"{WIKI_ROOT}/domains/social-zh",
 )
 
 
@@ -196,6 +198,8 @@ class WikiSearchResult:
     title: str
     snippet: str
     score: float
+    frontmatter: dict[str, object] = field(default_factory=dict)
+    body_excerpt: str = ""  # first ~600 chars of body, set by progressive disclosure
 
     def to_dict(self) -> dict[str, object]:
         data = asdict(self)
@@ -203,25 +207,41 @@ class WikiSearchResult:
         return data
 
 
+CONTEXT_PACK_TIERS = ("minimal", "standard", "expanded")
+# Per-tier excerpt budgets (chars) — calibrated so a 6-result minimal pack
+# fits in ~1k tokens, standard in ~5k tokens, expanded uncapped.
+_TIER_BUDGETS = {
+    "minimal": 0,
+    "standard": 600,
+    "expanded": 8000,
+}
+
+
 @dataclass(slots=True)
 class ContextPack:
     pack_id: str
     query: str
     domain: str
+    tier: str = "standard"
     wiki_results: list[WikiSearchResult] = field(default_factory=list)
     research_results: list[dict[str, object]] = field(default_factory=list)
     path: str = ""
     created_at: str = field(default_factory=_utcnow)
+    char_budget: int = 0
+    total_chars: int = 0
 
     def to_dict(self) -> dict[str, object]:
         return {
             "pack_id": self.pack_id,
             "query": self.query,
             "domain": self.domain,
+            "tier": self.tier,
             "wiki_results": [result.to_dict() for result in self.wiki_results],
             "research_results": self.research_results,
             "path": self.path,
             "created_at": self.created_at,
+            "char_budget": self.char_budget,
+            "total_chars": self.total_chars,
         }
 
 
@@ -244,7 +264,14 @@ def init_layout(workspace: Path | str = ".") -> dict[str, object]:
     schema_path = workspace_root / WIKI_ROOT / "AGENTS.md"
     if not schema_path.exists() or _schema_is_stale(schema_path):
         schema_path.write_text(WIKI_SCHEMA_BODY, encoding="utf-8")
-    return status(workspace_root)
+
+    # Per-domain sub-schemas — 12 folders under vault/wiki/domains/.
+    from .domain_schemas import materialise_all
+    domain_actions = materialise_all(workspace_root / WIKI_ROOT / "domains")
+
+    state = status(workspace_root)
+    state["domain_schemas"] = domain_actions
+    return state
 
 
 def _schema_is_stale(path: Path) -> bool:
@@ -288,18 +315,43 @@ def search_wiki(
     *,
     workspace: Path | str = ".",
     limit: int = 10,
+    include_closed: bool = False,
+    now: datetime | None = None,
 ) -> list[WikiSearchResult]:
+    """Search the compiled wiki.
+
+    Default filters (bitemporal + state hygiene):
+
+    * Skip pages whose ``review_state`` is ``rejected`` or ``superseded``.
+    * Skip pages whose ``t_valid_to`` is set and lies in the past
+      (Graphiti closed window).
+    * Skip page-type ``_schema`` (domain sub-schemas — they're not content).
+
+    Pass ``include_closed=True`` to disable the bitemporal/state filter
+    and surface superseded / closed pages too (useful for audit).
+    """
+
     workspace_root = Path(workspace).resolve()
     wiki_root = workspace_root / WIKI_ROOT
     normalized = query.strip()
     if not normalized or not wiki_root.exists():
         return []
+    now = now or datetime.now(UTC)
     terms = _query_terms(normalized)
+
+    # Import locally to avoid circular import (wiki_lint imports knowledge_plane).
+    from .wiki_lint import _parse_frontmatter
+
     results: list[WikiSearchResult] = []
     for path in sorted(wiki_root.rglob("*.md")):
-        if path.name in {"AGENTS.md", "index.md", "log.md"}:
+        if path.name in {"AGENTS.md", "index.md", "log.md", "_schema.md"}:
             continue
         text = path.read_text(encoding="utf-8")
+        frontmatter = _parse_frontmatter(text)
+
+        if not include_closed and _is_closed_page(frontmatter, now=now):
+            continue
+
         relative = str(path.relative_to(workspace_root))
         score = _score_text(f"{relative}\n{text}", terms)
         if score <= 0:
@@ -310,10 +362,30 @@ def search_wiki(
                 title=_markdown_title(text) or path.stem.replace("-", " ").title(),
                 snippet=_snippet(text, terms),
                 score=score,
+                frontmatter=dict(frontmatter),
             )
         )
     results.sort(key=lambda item: (-item.score, item.path))
     return results[: max(limit, 0)]
+
+
+def _is_closed_page(frontmatter: dict[str, object], *, now: datetime) -> bool:
+    """Page is "closed" when review_state ∈ rejected/superseded OR
+    t_valid_to is in the past."""
+
+    state = str(frontmatter.get("review_state", "")).strip().lower()
+    if state in {"rejected", "superseded"}:
+        return True
+    t_valid_to = frontmatter.get("t_valid_to")
+    if t_valid_to is None:
+        return False
+    if isinstance(t_valid_to, str) and t_valid_to.strip().lower() in {"", "null", "none"}:
+        return False
+    try:
+        parsed = datetime.fromisoformat(str(t_valid_to))
+    except ValueError:
+        return False
+    return parsed < now
 
 
 def propose_research_wiki_update(
@@ -532,6 +604,139 @@ def ingest_retrieval_evidence(
         "evidence_files": evidence_files,
         **paths,
     }
+
+
+def list_claims(
+    workspace: Path | str = ".",
+    *,
+    state: str | None = None,
+    domain: str | None = None,
+    include_closed: bool = False,
+    limit: int = 50,
+) -> list[dict[str, object]]:
+    """List claims from ``.omni/claims.jsonl`` with optional filters.
+
+    Default behaviour matches ``wiki-search``: filter out closed claims
+    (those with ``t_valid_to`` set, plus rejected/superseded).  Pass
+    ``include_closed=True`` for the full audit view.
+    """
+
+    workspace_root = Path(workspace).resolve()
+    claims = _load_claims_jsonl(workspace_root)
+    state_filter = state.strip().lower() if state else None
+    domain_filter = domain.strip() if domain else None
+    out: list[dict[str, object]] = []
+    for claim in claims:
+        if not include_closed and _is_closed_claim(claim):
+            continue
+        if state_filter and str(claim.get("review_state", "")).lower() != state_filter:
+            continue
+        if domain_filter and str(claim.get("domain", "")) != domain_filter:
+            continue
+        out.append(claim)
+        if len(out) >= max(limit, 0):
+            break
+    return out
+
+
+def show_claim(
+    workspace: Path | str = ".",
+    *,
+    claim_id: str,
+) -> dict[str, object]:
+    """Show a single claim plus its supersession chain.
+
+    Returns ``{claim: ..., supersedes_chain: [...], superseded_chain: [...]}``
+    where the chains are ordered oldest-to-newest.
+    """
+
+    workspace_root = Path(workspace).resolve()
+    claims = _load_claims_jsonl(workspace_root)
+    index = {str(c.get("claim_id", "")): c for c in claims if c.get("claim_id")}
+    if claim_id not in index:
+        raise KeyError(f"claim_id not found: {claim_id}")
+    target = index[claim_id]
+
+    # Walk backwards: claims this one supersedes, recursively.
+    supersedes_chain: list[dict[str, object]] = []
+    visited: set[str] = {claim_id}
+    queue = [str(cid) for cid in target.get("supersedes", []) or []]
+    while queue:
+        cid = queue.pop()
+        if cid in visited or cid not in index:
+            continue
+        visited.add(cid)
+        record = index[cid]
+        supersedes_chain.append(record)
+        queue.extend(str(x) for x in record.get("supersedes", []) or [])
+
+    # Walk forward: claims that supersede this one (follow superseded_by hops).
+    superseded_chain: list[dict[str, object]] = []
+    cursor = str(target.get("superseded_by") or "")
+    seen: set[str] = set()
+    while cursor and cursor in index and cursor not in seen:
+        seen.add(cursor)
+        record = index[cursor]
+        superseded_chain.append(record)
+        cursor = str(record.get("superseded_by") or "")
+
+    return {
+        "claim": target,
+        "supersedes_chain": supersedes_chain,
+        "superseded_chain": superseded_chain,
+    }
+
+
+def claims_stats(workspace: Path | str = ".") -> dict[str, object]:
+    """Aggregate claim counts: total, by state, by domain, closed count."""
+
+    workspace_root = Path(workspace).resolve()
+    claims = _load_claims_jsonl(workspace_root)
+    by_state: dict[str, int] = {}
+    by_domain: dict[str, int] = {}
+    closed = 0
+    for claim in claims:
+        state = str(claim.get("review_state", "")) or "unknown"
+        by_state[state] = by_state.get(state, 0) + 1
+        domain = str(claim.get("domain", "")) or "unknown"
+        by_domain[domain] = by_domain.get(domain, 0) + 1
+        if _is_closed_claim(claim):
+            closed += 1
+    return {
+        "total": len(claims),
+        "open": len(claims) - closed,
+        "closed": closed,
+        "by_state": dict(sorted(by_state.items())),
+        "by_domain": dict(sorted(by_domain.items())),
+    }
+
+
+def _load_claims_jsonl(workspace: Path) -> list[dict[str, object]]:
+    ledger = workspace / CLAIM_LEDGER_PATH
+    if not ledger.exists():
+        return []
+    out: list[dict[str, object]] = []
+    for line in ledger.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            out.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    return out
+
+
+def _is_closed_claim(claim: dict[str, object]) -> bool:
+    state = str(claim.get("review_state", "")).strip().lower()
+    if state in {"rejected", "superseded"}:
+        return True
+    t_valid_to = claim.get("t_valid_to")
+    if t_valid_to is None:
+        return False
+    if isinstance(t_valid_to, str) and t_valid_to.strip().lower() in {"", "null", "none"}:
+        return False
+    return True
 
 
 def supersede_claim(
@@ -777,9 +982,26 @@ def build_context_pack(
     wiki_limit: int = 6,
     research_limit: int = 6,
     persist: bool = False,
+    tier: str = "standard",
+    include_closed: bool = False,
 ) -> ContextPack:
+    """Build a context pack with Karpathy / Anthropic Skills progressive
+    disclosure: ``minimal`` (frontmatter only, ~1k tok), ``standard``
+    (frontmatter + snippet/abstract per result, ~5k tok), ``expanded``
+    (full bodies up to ~30k tok).
+    """
+
+    tier = tier.strip().lower()
+    if tier not in CONTEXT_PACK_TIERS:
+        raise ValueError(f"unknown tier {tier!r}; expected one of {CONTEXT_PACK_TIERS}")
     workspace_root = Path(workspace).resolve()
-    wiki_results = search_wiki(query, workspace=workspace_root, limit=wiki_limit)
+
+    wiki_results = search_wiki(
+        query,
+        workspace=workspace_root,
+        limit=wiki_limit,
+        include_closed=include_closed,
+    )
     research_results = [
         result.to_dict()
         for result in search_research_assets(
@@ -789,12 +1011,23 @@ def build_context_pack(
             limit=research_limit,
         )
     ]
+
+    budget = _TIER_BUDGETS[tier]
+    wiki_results = _apply_disclosure_tier(workspace_root, wiki_results, tier=tier, budget=budget)
+    research_results = _apply_research_disclosure_tier(research_results, tier=tier, budget=budget)
+
+    total_chars = sum(len(r.snippet) + len(r.body_excerpt) for r in wiki_results)
+    total_chars += sum(len(str(r.get("snippet", ""))) for r in research_results)
+
     pack = ContextPack(
-        pack_id=_stable_id("context-pack", domain, query, _utcnow(), str(uuid4())),
+        pack_id=_stable_id("context-pack", domain, query, tier, _utcnow(), str(uuid4())),
         query=query,
         domain=domain,
+        tier=tier,
         wiki_results=wiki_results,
         research_results=research_results,
+        char_budget=budget,
+        total_chars=total_chars,
     )
     if persist:
         out_dir = safe_workspace_path(workspace_root, CONTEXT_PACK_ROOT)
@@ -803,6 +1036,69 @@ def build_context_pack(
         pack.path = str(path)
         path.write_text(json.dumps(pack.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
     return pack
+
+
+def _apply_disclosure_tier(
+    workspace: Path,
+    results: list[WikiSearchResult],
+    *,
+    tier: str,
+    budget: int,
+) -> list[WikiSearchResult]:
+    """Trim or expand each wiki result according to the tier budget.
+
+    * ``minimal``  — snippet cleared (frontmatter is the surface).
+    * ``standard`` — snippet kept (~320 chars from search).
+    * ``expanded`` — load body excerpt up to ``budget`` chars per result.
+    """
+
+    if tier == "minimal":
+        for r in results:
+            r.snippet = ""
+            r.body_excerpt = ""
+        return results
+
+    if tier == "standard":
+        # Search-provided snippet is already truncated; nothing to expand.
+        for r in results:
+            r.body_excerpt = ""
+        return results
+
+    # expanded — read body off disk up to budget.
+    for r in results:
+        page_path = workspace / r.path
+        try:
+            text = page_path.read_text(encoding="utf-8")
+        except OSError:
+            r.body_excerpt = ""
+            continue
+        # Skip frontmatter section in the body excerpt.
+        if text.startswith("---\n"):
+            end = text.find("\n---\n", 4)
+            if end > 0:
+                text = text[end + 5:]
+        r.body_excerpt = text[: max(budget, 0)]
+    return results
+
+
+def _apply_research_disclosure_tier(
+    research_results: list[dict[str, object]],
+    *,
+    tier: str,
+    budget: int,
+) -> list[dict[str, object]]:
+    if tier == "minimal":
+        return [
+            {k: v for k, v in r.items() if k in {"source_id", "title", "analysis_path", "score"}}
+            for r in research_results
+        ]
+    if tier == "standard":
+        return research_results
+    # expanded
+    for r in research_results:
+        snippet = str(r.get("snippet", ""))
+        r["snippet"] = snippet[: max(budget, 0)] if snippet else snippet
+    return research_results
 
 
 def _write_if_missing(path: Path, body: str) -> None:

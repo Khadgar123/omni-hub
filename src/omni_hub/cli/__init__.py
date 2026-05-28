@@ -19,6 +19,7 @@ from . import (
     api_management,
     argilla,
     capture,
+    claims,
     event,
     harness,
     mcp,
@@ -38,7 +39,7 @@ from . import (
 _AREAS = [
     capture, memory, skill, api_management, policy, argilla,
     propose, task, worker, harness, reports, optimizer, event, mcp,
-    retrieve, research_kb, wiki,
+    retrieve, research_kb, wiki, claims,
 ]
 
 

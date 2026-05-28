@@ -738,6 +738,7 @@ def make_wiki_search(workspace: Path):
             query,
             workspace=workspace_root,
             limit=int(payload.get("limit", 10)),
+            include_closed=bool(payload.get("include_closed", False)),
         )
         return {
             "query": query,
@@ -864,6 +865,49 @@ def make_wiki_conflict_resolve(workspace: Path):
     return wiki_conflict_resolve
 
 
+def make_claims_list(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def claims_list(spec: OperationSpec) -> dict[str, object]:
+        from .knowledge_plane import list_claims
+
+        payload = spec.payload
+        state = (str(payload.get("state", "")).strip() or None)
+        domain = (str(payload.get("domain", "")).strip() or None)
+        claims = list_claims(
+            workspace_root,
+            state=state,
+            domain=domain,
+            include_closed=bool(payload.get("include_closed", False)),
+            limit=int(payload.get("limit", 50)),
+        )
+        return {"count": len(claims), "claims": claims}
+
+    return claims_list
+
+
+def make_claims_show(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def claims_show(spec: OperationSpec) -> dict[str, object]:
+        from .knowledge_plane import show_claim
+
+        return show_claim(workspace_root, claim_id=str(spec.payload["claim_id"]))
+
+    return claims_show
+
+
+def make_claims_stats(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def claims_stats_op(spec: OperationSpec) -> dict[str, object]:
+        from .knowledge_plane import claims_stats
+
+        return claims_stats(workspace_root)
+
+    return claims_stats_op
+
+
 def make_wiki_log_append(workspace: Path):
     workspace_root = workspace.resolve()
 
@@ -895,6 +939,8 @@ def make_context_pack_build(workspace: Path):
             wiki_limit=int(payload.get("wiki_limit", 6)),
             research_limit=int(payload.get("research_limit", 6)),
             persist=bool(payload.get("persist", False)),
+            tier=str(payload.get("tier", "standard")),
+            include_closed=bool(payload.get("include_closed", False)),
         )
         return pack.to_dict()
 
@@ -1401,6 +1447,9 @@ def build_default_registry(workspace: Path | str = ".") -> OperationRegistry:
     registry.register("wiki_lint", make_wiki_lint(workspace_path))
     registry.register("wiki_supersede", make_wiki_supersede(workspace_path))
     registry.register("wiki_conflict_resolve", make_wiki_conflict_resolve(workspace_path))
+    registry.register("claims_list", make_claims_list(workspace_path))
+    registry.register("claims_show", make_claims_show(workspace_path))
+    registry.register("claims_stats", make_claims_stats(workspace_path))
     registry.register("wiki_log_append", make_wiki_log_append(workspace_path))
     registry.register("context_pack_build", make_context_pack_build(workspace_path))
     registry.register("memory_remember_core", make_memory_remember_core(workspace_path))
