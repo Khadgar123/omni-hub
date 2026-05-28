@@ -29,9 +29,67 @@ from typing import Any
 from .base import DEFAULT_TIMEOUT_SEC, RetrievalError, RetrievalRecord, http_get_json
 
 
-GED_URL = "https://ucdpapi.pcr.uu.se/api/gedevents/24.1"          # version 24.1 (2024 release)
+GED_URL = "https://ucdpapi.pcr.uu.se/api/gedevents/25.1"          # version 25.1 (2025 yearly release)
 DEFAULT_YEAR_RANGE = (2024, 2026)
 UCDP_SECRET_REF = "local:omni-hub/api/ucdp/default"
+
+
+# Common Gleditsch & Ward country codes — UCDP API requires these (NOT names).
+# Full table: https://www.andybeger.com/states/ — we ship the high-traffic
+# ones for ergonomic query("Ukraine") instead of forcing query("369").
+_GW_CODES: dict[str, int] = {
+    "afghanistan": 700, "algeria": 615, "angola": 540,
+    "argentina": 160, "australia": 900, "azerbaijan": 373,
+    "bangladesh": 771, "belarus": 370, "brazil": 140,
+    "burkina faso": 439, "cambodia": 811, "cameroon": 471,
+    "canada": 20, "central african republic": 482, "chad": 483,
+    "chile": 155, "china": 710, "colombia": 100,
+    "congo (kinshasa)": 490, "dr congo": 490, "drc": 490, "democratic republic of congo": 490,
+    "cuba": 40, "czech republic": 316,
+    "ecuador": 130, "egypt": 651, "el salvador": 92,
+    "ethiopia": 530, "france": 220, "georgia": 372,
+    "germany": 255, "ghana": 452, "greece": 350,
+    "guatemala": 90, "honduras": 91, "india": 750,
+    "indonesia": 850, "iran": 630, "iraq": 645,
+    "ireland": 205, "israel": 666, "italy": 325,
+    "ivory coast": 437, "japan": 740, "jordan": 663,
+    "kenya": 501, "korea, north": 731, "north korea": 731,
+    "korea, south": 732, "south korea": 732, "kosovo": 347,
+    "kuwait": 690, "kyrgyzstan": 703, "laos": 812,
+    "lebanon": 660, "liberia": 450, "libya": 620,
+    "malaysia": 820, "mali": 432, "mexico": 70,
+    "morocco": 600, "mozambique": 541, "myanmar": 775,
+    "burma": 775, "nepal": 790, "netherlands": 210,
+    "new zealand": 920, "nicaragua": 93, "niger": 436,
+    "nigeria": 475, "pakistan": 770, "palestine": 665,
+    "panama": 95, "peru": 135, "philippines": 840,
+    "poland": 290, "portugal": 235, "russia": 365,
+    "rwanda": 517, "saudi arabia": 670, "senegal": 433,
+    "serbia": 345, "sierra leone": 451, "singapore": 830,
+    "somalia": 520, "south africa": 560, "south sudan": 626,
+    "spain": 230, "sri lanka": 780, "sudan": 625,
+    "sweden": 380, "syria": 652, "taiwan": 713,
+    "tajikistan": 702, "tanzania": 510, "thailand": 800,
+    "trinidad and tobago": 52, "tunisia": 616,
+    "turkey": 640, "uganda": 500, "ukraine": 369,
+    "united arab emirates": 696, "uae": 696,
+    "united kingdom": 200, "uk": 200, "great britain": 200,
+    "united states": 2, "united states of america": 2, "usa": 2, "us": 2,
+    "uruguay": 165, "uzbekistan": 704, "venezuela": 101,
+    "vietnam": 816, "yemen": 678, "zambia": 551,
+    "zimbabwe": 552,
+}
+
+
+def _to_gw_code(country: str) -> int | None:
+    """Map country name → GW code, accept already-integer input."""
+
+    c = country.strip()
+    if not c:
+        return None
+    if c.isdigit():
+        return int(c)
+    return _GW_CODES.get(c.lower())
 
 
 def _resolve_ucdp_token() -> str:
@@ -100,13 +158,22 @@ class UCDPSource:
             return []
         if not self.api_token:
             raise RetrievalError("UCDP_API_TOKEN not set")
-        country, start_year, end_year = _parse_query(query)
+        country_str, start_year, end_year = _parse_query(query)
+        gw_code = _to_gw_code(country_str)
+        if gw_code is None:
+            raise RetrievalError(
+                f"UCDP requires Gleditsch & Ward country code (integer); "
+                f"could not resolve {country_str!r}. Pass GW code directly "
+                f"or use a country name from the built-in table "
+                f"(e.g. 'Ukraine', 'Syria', 'Yemen')."
+            )
 
-        # UCDP GED filter syntax: Country=<name>&StartDate=<YYYY-MM-DD>&EndDate=<YYYY-MM-DD>
+        # UCDP GED filter — Country must be the integer GW code, NOT a name.
+        # Per docs: pagesize defaults to 5 minimum; we use 50 as a sane chunk.
         params = {
-            "pagesize": str(min(max(limit, 1), 100)),
+            "pagesize": str(max(min(limit, 100), 5)),
             "page": "0",
-            "Country": country,
+            "Country": str(gw_code),
             "StartDate": f"{start_year}-01-01",
             "EndDate": f"{end_year}-12-31",
         }
