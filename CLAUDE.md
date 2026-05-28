@@ -50,23 +50,41 @@ social_en / social_zh / **meta** / **fitness_wellness** / **cooking** /
 - **域子 schema 在 `src/omni_hub/domain_schemas.py`**。改完 bump `DOMAIN_SCHEMA_VERSION`；19 个 `vault/wiki/domains/<x>/_schema.md` 自动 refresh。
 - **搜索默认过滤过期/被替换页**。`wiki-search` / `claims-list` 默认跳过 `t_valid_to < now` 和 `review_state ∈ {rejected, superseded}`；audit 时显式 `--include-closed`。
 
-## Interface + Application Plane (v0.19)
+## Interface + Application Plane (v0.19-v0.27)
 
 ```bash
 # Interface 健康检查
 omni-hub channel-list                                # 列 5 个 channel + health
 omni-hub channel-health --name email                 # 单 channel 详细诊断
 
-# Application 对话路由 (LLM-free heuristic, v0.19)
+# Application 对话路由 (LLM-free heuristic, v0.19 + v0.27 history bias)
 omni-hub app-route-task --query "今晚做什么菜"          # → cooking skill + recommended op
 
 # Application 跨技能报告 (纯数据聚合,无 LLM)
 omni-hub app-report-build --period daily   --persist
-omni-hub app-report-build --period weekly  --persist
-omni-hub app-report-build --period monthly --persist
+omni-hub app-report-build --period weekly  --persist --narrate    # v0.26: enqueue claude task
 
 # Skill stubs 同步 (改完 DOMAIN_SCHEMAS 后跑)
 omni-hub skill-stubs-sync                            # 19 个 SKILL.md → .agents/skills/
+```
+
+## Eval + Evolution Plane (v0.23-v0.29)
+
+```bash
+# Judge LLM framework (v0.23)
+omni-hub judge-list                                  # heuristic 总可用; llm 需要 ccLoad 或 ANTHROPIC_API_KEY
+omni-hub judge-evaluate --domain research \
+  --candidate "ACE 演化 context [1]..." --judge heuristic
+
+# Cross-skill transfer (v0.28 meta skill)
+omni-hub meta-cross-skill-scan --signal-threshold 0.4 --min-strong-domains 3
+# → 19 域 PreferenceStore 共同模式 → CrossSkillFinding 列表 → 人审促成 Proposal
+
+# A/B test framework (v0.29)
+omni-hub ab-test --domain research --candidate-a "..." --candidate-b "..." --judge llm
+omni-hub ab-list   --domain research --limit 20
+omni-hub ab-stats  --domain research                 # win-rate aggregate
+omni-hub ab-show   --id <run_id>
 ```
 
 常用入口（按生命周期）：

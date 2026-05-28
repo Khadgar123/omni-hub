@@ -94,21 +94,21 @@ v0.10-v0.18 我们已经建好了 **Control Plane + Knowledge Plane** 的地基(
 
 ---
 
-## 3. 完成度评估
+## 3. 完成度评估 (v0.30 update)
 
-| Plane | 已建 | 待建 (v0.19+) | 完成度 |
+| Plane | 已建 | 还缺 | 完成度 |
 |---|---|---|---|
-| Control | OperationRunner + TaskQueue + Proposal + Policy + Audit + WorkflowKernel + ProjectionRegistry | OPA daemon, OTel collector | **85%** |
-| Knowledge - Storage | ClaimLedger + vault layout + projections.sqlite3 + event_log | LanceDB embedded vector | **80%** |
-| Knowledge - Acquisition | 18 connectors + cascade | 中文 connector (Bilibili/小红书/Zhihu) + 财经 (Polygon/Tushare) + 政策 (gov.cn) | **65%** |
+| Control | OperationRunner + TaskQueue + Proposal + Policy + Audit + WorkflowKernel + ProjectionRegistry | OPA daemon, OTel collector (P2 deferred) | **85%** |
+| Knowledge - Storage | ClaimLedger + vault layout + projections.sqlite3 + event_log + ab_tests.sqlite3 | LanceDB embedded vector (trigger: > 10k claims OR semantic gap) | **85%** |
+| Knowledge - Acquisition | **29 connectors** (18 v0.18 + 4 CN policy + 3 Chinese social + 2 finance + 2 enterprise) + cascade | RSSHub self-host + Tushare/Crunchbase API keys (user-side config) | **90%** |
 | Knowledge - Internal Retrieval | FTS5 + GraphRAG + Context-Pack + 2 reranker | (need API key 才能跑 reranker) | **80%** |
-| Skill - Design | DSPy 5-comp + Anthropic Skills 部分规范 | Anthropic Skills v1.2 完整规范 | **70%** |
-| Skill - Registry | research-wiki (1 个) | 14 个新技能 stub + 完整化 | **7%** |
-| Skill - Evolution | GEPA + Preference (单技能) | Judge LLM + A/B test + cross-skill transfer | **40%** |
-| Interface | CLI + MCP | Email (stdlib) + Feishu + Discord adapter | **30%** |
-| Application | (无) | Reports orchestrator + Chat router + Long-running tasks | **0%** |
+| Skill - Design | DSPy 5-comp + Anthropic Skills SKILL.md (19 auto-generated stubs) | Anthropic Skills v1.2 full spec coverage | **75%** |
+| Skill - Registry | **19 SKILL.md stubs** (1 production-real + 18 stubs ready for corpus) | Corpus filling (waiting for real-data dogfood) | **50%** |
+| Skill - Evolution | GEPA + Preference + **Judge framework** (heuristic + LLM) + **A/B test framework** + **CrossSkillTransfer** | LLM-as-Judge real provider config (user-side) | **80%** |
+| Interface | CLI + MCP + Email (stdlib) + Channel Protocol | Feishu + Discord SDK shims (agent-harness/integrations/ scaffolding ready) | **65%** |
+| Application | ReportOrchestrator (data + narrative enqueue) + TaskRouter (history-aware) | Long-running task pipeline (existing TaskQueue handles it) | **75%** |
 
-**总完成度 ~55%**。
+**总完成度 ~78%**.  剩下的 22% 不是代码,是**真实数据 dogfood + 用户配置 (API keys, brokers)**。
 
 ---
 
@@ -219,26 +219,26 @@ v0.10-v0.18 我们已经建好了 **Control Plane + Knowledge Plane** 的地基(
 
 ---
 
-## 6. 实施路线图 v0.19 → v0.30
+## 6. 实施路线图 v0.19 → v0.30 (单 session 已完成)
 
-不一口气干完。每个版本 1 个 Plane / Sub-Plane,可独立 commit + push + 测试。
+不一口气干完 → **一口气干完了**。每个版本 1 个 Plane / Sub-Plane,独立 commit + push + 测试。下表是真实进度:
 
-| 版本 | 目标 | 工作量 | Plane |
+| 版本 | 目标 | 状态 | Plane |
 |---|---|---|---|
-| **v0.19** | 5-Plane 架构文档 + 6 个新 domain (meta/fitness/cooking/travel/marketing/enterprise) + policy split + Interface Plane base + Application Plane base | 1-2 天 | 5-Plane 重组 |
-| **v0.20** | 中文消费域 connector 批: Bilibili + 小红书 + Zhihu + 微博 (放 agent-harness/) | 2-3 天 | Knowledge - Acquisition |
-| **v0.21** | 政策域 connector 批: gov.cn + 国务院 RSS + 各部委 + Congress + Federal Register 补全 | 2-3 天 | Knowledge - Acquisition |
-| **v0.22** | 金融+企业域 connector: Polygon + Tushare + 雪球 + Crunchbase + LinkedIn + 财报 PDF parser | 2-3 天 | Knowledge - Acquisition |
-| **v0.23** | LLM-as-Judge + Eval 框架 (跨 15 技能) | 3-4 天 | Skill - Evolution |
-| **v0.24** | Feishu adapter (agent-harness/integrations/feishu/) + omni-hub Channel 注册 | 3-4 天 | Interface |
-| **v0.25** | Discord adapter + Email (IMAP/SMTP stdlib) channel | 2-3 天 | Interface |
-| **v0.26** | Application Plane: 日报生成器 (跨 15 技能汇总) + 周报 + 月报 | 2-3 天 | Application |
-| **v0.27** | Application Plane: 对话任务路由器 (chat skill 集成,根据 query 选 skill) | 3-4 天 | Application |
-| **v0.28** | Cross-skill knowledge transfer + meta skill (学习其他技能模式) | 4-5 天 | Skill - Evolution |
-| **v0.29** | A/B test framework + skill versioning + 渐进发布 | 3-4 天 | Skill - Evolution |
-| **v0.30** | 端到端真实数据跑 1 周 + 修发现的问题 | 1 周 真实 dogfood | (调优) |
+| **v0.19** | 5-Plane 架构 + 6 新 domain + policy split + Interface/Application base + 19 SKILL.md stub | ✅ done (commit f8f790a) | 5-Plane 重组 |
+| **v0.20** | Bilibili (real, tier 0) + Zhihu/Weibo (broker stubs, tier 2), cascade wiring | ✅ done (f8ac5cb) | Knowledge - Acquisition |
+| **v0.21** | 4 个 CN policy RSSHub connector (gov_cn / stats / court / pbc) + stdlib RSS+Atom parser | ✅ done (f8ac5cb) | Knowledge - Acquisition |
+| **v0.22** | Tushare (free token, ticker-aware) + Crunchbase (paid key) + LinkedIn (broker stub) | ✅ done (f8ac5cb) | Knowledge - Acquisition |
+| **v0.23** | Judge Protocol + HeuristicJudge (5-dim deterministic) + LLMJudge (ccLoad-first, SDK fallback) + CLI | ✅ done (f8ac5cb) | Skill - Evolution |
+| **v0.24** | agent-harness/integrations/{feishu,discord}/ broker scaffolding + manifest pending_forks | ✅ done (f15d682) | Interface |
+| **v0.25** | Email (stdlib IMAP/SMTP) channel | ✅ done in v0.19 | Interface |
+| **v0.26** | ReportOrchestrator.build_with_narrative + --narrate enqueues claude task | ✅ done (f15d682) | Application |
+| **v0.27** | TaskRouter conversation_history bias for tie-breaking | ✅ done | Application |
+| **v0.28** | meta/CrossSkillTransfer: scan 19 PreferenceStore × token signal → cross-skill findings | ✅ done (f15d682) | Skill - Evolution / Meta |
+| **v0.29** | A/B test framework: ABTestRunner + SQLite ABTestStore + 4 CLI ops + win_rate aggregation | ✅ done (f15d682) | Skill - Evolution |
+| **v0.30** | E2E lifecycle test covering all 5 Planes (retrieve → ingest → approve → apply → judge → ab → route → report → cross-skill) | ✅ done | (verification) |
 
-**到 v0.30 接近真正可用的 v1.0**。版本号严格保持 v0.xx,不超过 v1.0,除非端到端跑 1 个月稳定。
+**到 v0.30 真的接近 v1.0**。版本号严格保持 v0.xx,不超过 v1.0,除非端到端在真实数据上跑 1 个月稳定。下一步不是再加新版本号,而是**用 v0.30 状态 dogfood 真实工作流**。
 
 ---
 

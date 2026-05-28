@@ -31,11 +31,13 @@ from .report_orchestrator import (
     ReportSummary,
 )
 from .task_router import (
+    ConversationTurn,
     RoutingDecision,
     TaskRouter,
 )
 
 __all__ = [
+    "ConversationTurn",
     "NarrativeRequest",
     "ReportOrchestrator",
     "ReportPeriod",

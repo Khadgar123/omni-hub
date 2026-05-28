@@ -147,6 +147,20 @@ class RoutingDecision:
     recommended_operation: str = ""           # e.g. "context_pack_build" / "task_enqueue"
     recommended_payload: dict[str, Any] = field(default_factory=dict)
     note: str = ""                            # human-readable explanation
+    history_bias_applied: bool = False        # v0.27 — set when prior-turn skill broke a tie
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
+class ConversationTurn:
+    """One prior router decision, supplied for v0.27 history-aware routing."""
+
+    trace_id: str
+    selected_skill_id: str
+    timestamp: str = ""                       # ISO 8601; ordering only
+    note: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -157,14 +171,24 @@ class TaskRouter:
 
     Stdlib-only.  Future versions will swap the keyword map for an
     LLM-as-Judge classifier, but the Protocol stays stable.
+
+    v0.27 adds optional ``conversation_history``: when two skills tie on
+    keyword score, recent prior turns nudge the decision toward the
+    skill that already owns the conversation context.
     """
 
     DEFAULT_SKILL_ID = "research"             # fall-through default
+    HISTORY_BIAS_WINDOW = 5                   # only consider the last N turns
 
     def __init__(self, *, default_skill_id: str | None = None) -> None:
         self.default_skill_id = default_skill_id or self.DEFAULT_SKILL_ID
 
-    def route(self, inbound: InboundMessage) -> RoutingDecision:
+    def route(
+        self,
+        inbound: InboundMessage,
+        *,
+        conversation_history: list["ConversationTurn"] | None = None,
+    ) -> RoutingDecision:
         haystack = " ".join([inbound.body, inbound.subject]).strip()
         if not haystack:
             return RoutingDecision(
@@ -206,14 +230,41 @@ class TaskRouter:
 
         ranked = sorted(scores.items(), key=lambda kv: -kv[1][0])
         top_domain, (top_hits, top_words) = ranked[0]
+
+        # v0.27 — break ties with conversation history.  If the runner-up
+        # matches the top hit-count AND was the skill from a recent
+        # prior turn, promote it.
+        history_bias_applied = False
+        if (
+            conversation_history
+            and len(ranked) > 1
+            and ranked[1][1][0] == top_hits
+        ):
+            recent_skills = [
+                t.selected_skill_id
+                for t in conversation_history[-self.HISTORY_BIAS_WINDOW:]
+            ]
+            for candidate_domain, (hits, words) in ranked:
+                if hits != top_hits:
+                    break
+                if candidate_domain in recent_skills:
+                    top_domain = candidate_domain
+                    top_hits = hits
+                    top_words = words
+                    history_bias_applied = True
+                    break
+
         total_hits = sum(c for c, _ in scores.values())
         confidence = top_hits / max(total_hits, 1)
         runners_up = [
             (domain, hits / max(total_hits, 1))
             for domain, (hits, _) in ranked[1:5]
+            if domain != top_domain
         ]
 
         recommended_op, payload, note = self._recommend(top_domain, haystack)
+        if history_bias_applied:
+            note = f"{note} [history-bias: matched recent skill]"
 
         return RoutingDecision(
             inbound_trace_id=inbound.trace_id,
@@ -224,6 +275,7 @@ class TaskRouter:
             recommended_operation=recommended_op,
             recommended_payload=payload,
             note=note,
+            history_bias_applied=history_bias_applied,
         )
 
     def reply_template(
@@ -289,4 +341,4 @@ class TaskRouter:
         )
 
 
-__all__ = ["RoutingDecision", "TaskRouter"]
+__all__ = ["ConversationTurn", "RoutingDecision", "TaskRouter"]
