@@ -739,6 +739,7 @@ def make_wiki_search(workspace: Path):
             workspace=workspace_root,
             limit=int(payload.get("limit", 10)),
             include_closed=bool(payload.get("include_closed", False)),
+            backend=str(payload.get("backend", "auto")),
         )
         return {
             "query": query,
@@ -906,6 +907,17 @@ def make_claims_stats(workspace: Path):
         return claims_stats(workspace_root)
 
     return claims_stats_op
+
+
+def make_wiki_reindex(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def wiki_reindex(spec: OperationSpec) -> dict[str, object]:
+        from .knowledge_plane import reindex_wiki
+
+        return reindex_wiki(workspace_root)
+
+    return wiki_reindex
 
 
 def make_wiki_log_append(workspace: Path):
@@ -1316,6 +1328,31 @@ def make_harness_compile(workspace: Path):
     return harness_compile
 
 
+def make_harness_compile_skill(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def harness_compile_skill(spec: OperationSpec) -> dict[str, object]:
+        from .harness import dspy_compile
+        from .harness.preference import PreferenceStore
+
+        payload = spec.payload
+        store_root = workspace_root / str(payload.get("store_root", ".omni/preference"))
+        output_root = workspace_root / str(payload.get("output_root", ".agents/skills"))
+        report = dspy_compile.compile_skill_md(
+            domain=str(payload["domain"]),
+            skill_id=str(payload.get("skill_id", "")),
+            description=str(payload.get("description", "")),
+            output_root=output_root,
+            preference_store=PreferenceStore(store_root),
+            max_positive=int(payload.get("max_positive", 10)),
+            max_negative=int(payload.get("max_negative", 4)),
+            backend=str(payload.get("backend", "manual")),
+        )
+        return report.to_dict()
+
+    return harness_compile_skill
+
+
 def make_harness_redundancy_scan(workspace: Path):
     workspace_root = workspace.resolve()
 
@@ -1340,6 +1377,8 @@ def make_argilla_export_proposals(workspace: Path):
     workspace_root = workspace.resolve()
 
     def argilla_export_proposals(spec: OperationSpec) -> dict[str, object]:
+        from datetime import UTC, datetime, timedelta
+
         from ._storage import safe_workspace_path
         from .harness.argilla_bridge import export_proposals
 
@@ -1353,6 +1392,20 @@ def make_argilla_export_proposals(workspace: Path):
             kind=payload.get("kind"),
             limit=int(payload.get("limit", 100)),
         )
+        since_days = int(payload.get("since_days", 0) or 0)
+        if since_days > 0:
+            threshold = datetime.now(UTC) - timedelta(days=since_days)
+            kept = []
+            for p in proposals:
+                try:
+                    ts = datetime.fromisoformat(str(p.created_at).replace("Z", "+00:00"))
+                except (ValueError, AttributeError):
+                    continue
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=UTC)
+                if ts >= threshold:
+                    kept.append(p)
+            proposals = kept
         result = export_proposals(
             proposals,
             output_path,
@@ -1362,6 +1415,7 @@ def make_argilla_export_proposals(workspace: Path):
             skill_version=str(payload.get("skill_version", "v0")),
         )
         result["file"] = str(output_path.relative_to(workspace_root))
+        result["since_days"] = since_days
         return result
 
     return argilla_export_proposals
@@ -1412,6 +1466,7 @@ def build_default_registry(workspace: Path | str = ".") -> OperationRegistry:
     registry.register("api_management_status", make_api_management_status(workspace_path))
     registry.register("harness_preference_add", make_harness_preference_add(workspace_path))
     registry.register("harness_compile", make_harness_compile(workspace_path))
+    registry.register("harness_compile_skill", make_harness_compile_skill(workspace_path))
     registry.register("harness_redundancy_scan", make_harness_redundancy_scan(workspace_path))
     registry.register("argilla_export_proposals", make_argilla_export_proposals(workspace_path))
     registry.register("argilla_sync_feedback", make_argilla_sync_feedback(workspace_path))
@@ -1454,6 +1509,7 @@ def build_default_registry(workspace: Path | str = ".") -> OperationRegistry:
     registry.register("wiki_propose_research", make_wiki_propose_research(workspace_path))
     registry.register("wiki_apply_proposal", make_wiki_apply_proposal(workspace_path))
     registry.register("wiki_ingest", make_wiki_ingest(workspace_path))
+    registry.register("wiki_reindex", make_wiki_reindex(workspace_path))
     registry.register("wiki_lint", make_wiki_lint(workspace_path))
     registry.register("wiki_supersede", make_wiki_supersede(workspace_path))
     registry.register("wiki_conflict_resolve", make_wiki_conflict_resolve(workspace_path))

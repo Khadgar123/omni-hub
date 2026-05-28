@@ -317,6 +317,7 @@ def search_wiki(
     limit: int = 10,
     include_closed: bool = False,
     now: datetime | None = None,
+    backend: str = "auto",
 ) -> list[WikiSearchResult]:
     """Search the compiled wiki.
 
@@ -327,8 +328,15 @@ def search_wiki(
       (Graphiti closed window).
     * Skip page-type ``_schema`` (domain sub-schemas — they're not content).
 
-    Pass ``include_closed=True`` to disable the bitemporal/state filter
-    and surface superseded / closed pages too (useful for audit).
+    Pass ``include_closed=True`` to disable the bitemporal/state filter.
+
+    ``backend`` selects the index implementation:
+
+    * ``"auto"`` (default) — use FTS5 when the local sqlite3 build supports
+      it AND the FTS index has any rows; fall back to substring otherwise.
+    * ``"fts5"`` — force the FTS5 path; raises if unsupported.
+    * ``"substring"`` — force the legacy substring scoring path
+      (kept for parity / tests / very small wikis).
     """
 
     workspace_root = Path(workspace).resolve()
@@ -337,9 +345,62 @@ def search_wiki(
     if not normalized or not wiki_root.exists():
         return []
     now = now or datetime.now(UTC)
-    terms = _query_terms(normalized)
 
-    # Import locally to avoid circular import (wiki_lint imports knowledge_plane).
+    backend = backend.strip().lower()
+    if backend not in {"auto", "fts5", "substring"}:
+        raise ValueError(f"unknown search backend {backend!r}")
+
+    # Decide which path to take.
+    if backend in {"auto", "fts5"}:
+        from .wiki_fts import WikiFTSIndex, fts5_available
+        if not fts5_available():
+            if backend == "fts5":
+                raise RuntimeError(
+                    "backend='fts5' requested but the local sqlite3 build "
+                    "lacks FTS5 support."
+                )
+        else:
+            index = WikiFTSIndex(workspace_root)
+            if backend == "fts5" or index.stats().get("indexed", 0) > 0:
+                hits = index.search(
+                    normalized, limit=limit, include_closed=include_closed, now=now,
+                )
+                return [
+                    WikiSearchResult(
+                        path=h.path,
+                        title=h.title,
+                        snippet=h.snippet,
+                        score=h.score,
+                        frontmatter=dict(h.frontmatter),
+                    )
+                    for h in hits
+                ]
+
+    # Substring fallback (legacy path).
+    return _substring_search_wiki(
+        normalized,
+        workspace_root=workspace_root,
+        wiki_root=wiki_root,
+        limit=limit,
+        include_closed=include_closed,
+        now=now,
+    )
+
+
+def _substring_search_wiki(
+    query: str,
+    *,
+    workspace_root: Path,
+    wiki_root: Path,
+    limit: int,
+    include_closed: bool,
+    now: datetime,
+) -> list[WikiSearchResult]:
+    """Linear scan over vault/wiki/*.md.  Used when FTS5 is unavailable or
+    the FTS index is still empty (fresh workspace, first ingest)."""
+
+    terms = _query_terms(query)
+    # Local import to dodge circular (wiki_lint imports knowledge_plane).
     from .wiki_lint import _parse_frontmatter
 
     results: list[WikiSearchResult] = []
@@ -367,6 +428,24 @@ def search_wiki(
         )
     results.sort(key=lambda item: (-item.score, item.path))
     return results[: max(limit, 0)]
+
+
+def reindex_wiki(workspace: Path | str = ".") -> dict[str, int]:
+    """Drop + rebuild the FTS5 index from every page under vault/wiki/.
+
+    Returns ``{"indexed": N, "skipped": M, "fts5": True|False}``.  When the
+    local sqlite3 build lacks FTS5, returns ``{"fts5": False}`` and does
+    no work; callers stay on the substring path automatically.
+    """
+
+    from .wiki_fts import WikiFTSIndex, fts5_available
+
+    if not fts5_available():
+        return {"fts5": False}
+    index = WikiFTSIndex(Path(workspace).resolve())
+    stats = index.rebuild_all()
+    stats["fts5"] = True
+    return stats
 
 
 def _is_closed_page(frontmatter: dict[str, object], *, now: datetime) -> bool:
@@ -494,13 +573,33 @@ def apply_wiki_proposal(
         # Preference flywheel is opportunistic; never block apply.
         preference_path = ""
 
+    # Incremental FTS5 reindex of the new page (non-fatal: substring
+    # fallback still works when FTS5 isn't available).
+    fts5_indexed = False
+    try:
+        fts5_indexed = _reindex_fts_for(workspace_root, target)
+    except Exception:                                           # noqa: BLE001
+        fts5_indexed = False
+
     return {
         "proposal_id": proposal.proposal_id,
         "target_path": str(target.relative_to(workspace_root)),
         "claims_written": claims_written,
         "log_path": f"{WIKI_ROOT}/log.md",
         "preference_path": preference_path,
+        "fts5_indexed": fts5_indexed,
     }
+
+
+def _reindex_fts_for(workspace: Path, page_path: Path) -> bool:
+    """Re-index a single page in the FTS5 sidecar.  Returns True when the
+    page lands in the index; False when FTS5 is unavailable or the path
+    isn't under vault/wiki/."""
+
+    from .wiki_fts import WikiFTSIndex, fts5_available
+    if not fts5_available():
+        return False
+    return WikiFTSIndex(workspace).rebuild_one(page_path)
 
 
 def _record_wiki_preference(

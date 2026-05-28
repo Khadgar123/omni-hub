@@ -30,7 +30,7 @@ Codex / Claude Code 在这套架构里是 **headless worker**，不是项目本�
 
 ## 工程硬约束
 
-下列规则保证 policy + audit + Proposal 覆盖率不漏：违反 = PR 必拒。
+下列规则保证 policy + audit + Proposal 覆盖率不漏：违反 = PR 必拒(5 条规则,v0.11+ 起含 Knowledge Plane 写入)。
 
 ### 1. CLI 子命令与写操作
 
@@ -59,6 +59,16 @@ Codex / Claude Code 在这套架构里是 **headless worker**，不是项目本�
 - 新增第三方 fork 必须**先**写进 `agent-harness/manifest.json::pending_forks`（带 upstream / role / next_step），**再**由 `scripts/add_pending_harness_forks.sh <id>` 转 submodule。
 - 如果用户对上游仓库有协作权限（例如 `RipeMangoBox/ResearchFlow`、`RipeMangoBox/PaperBite`），可以登记为 `decision=upstream-direct` 并直接 pin 上游 gitlink，不要绕到个人 fork。
 - **禁止**手动 `git submodule add` 跳过这条流程。理由：manifest 是 `make harness-status` 的源、fork 决策有 `decision_log` 留痕。
+
+### 5. Knowledge Plane 写入
+
+v0.11 起 `vault/wiki/` + `.omni/claims.jsonl` 是 Karpathy LLM-Wiki 母模板的真源。写入规则：
+
+- **禁止 agent 直写 `vault/wiki/`**。所有页面变更走 `Proposal(kind="wiki_update")`（来自 `wiki-ingest` 或 `wiki-propose-research`），人审通过后由 `wiki-apply-proposal` 落地。`vault/wiki/log.md` 是唯一例外（append-only 审计,通过 `wiki-log` 公共接口）。
+- **claim 永不删除**。需要废弃时调 `wiki-supersede --new <new_id> --old <old_id>` 关时间窗（写 `t_valid_to`）+ 链 `superseded_by`/`supersedes`。这是 Graphiti / Zep bitemporal 模式，满足 EU AI Act 风格的审计要求。
+- **schema 文档是代码生成的**：`vault/wiki/AGENTS.md` 由 `src/omni_hub/knowledge_plane.py::WIKI_SCHEMA_BODY` 生成，12 个 `domains/<x>/_schema.md` 由 `src/omni_hub/domain_schemas.py::DOMAIN_SCHEMAS` 生成。改 schema = 改代码 + bump `*_SCHEMA_VERSION`,**不要直接编辑生成的文件**(stale 会被 `wiki-init` 自动覆盖)。
+- **wiki-lint 六规则的域 override 写在 `DomainSchema.rule_overrides`**。新增/改 override = 改代码,不要在 finding 端 patch severity。
+- **`.omni/preference/<domain>.jsonl` 是飞轮真源**。`wiki-apply-proposal` 自动 append `decision=accepted` 一条;不要在其他路径直写 preference,确保 `harness-compile` / `harness-compile-skill` 能稳定消费。
 
 ## 本地检查
 

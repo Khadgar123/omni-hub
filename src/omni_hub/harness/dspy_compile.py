@@ -259,3 +259,237 @@ def _bump_version(version: str) -> str:
         return f"{version}-next"
     major = int(match.group(1)) + 1
     return f"v{major}"
+
+
+# ---------------------------------------------------------------------------
+# SKILL.md compilation (Anthropic Skills spec) — the flywheel closure point
+# that turns ``.omni/preference/<domain>.jsonl`` into a loadable
+# ``.agents/skills/<skill-id>/SKILL.md`` so Claude Code / Codex / other
+# agent runtimes pick up the accepted-span style next session.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(slots=True)
+class SkillCompileReport:
+    skill_id: str
+    domain: str
+    target_path: str
+    prompt_version: str
+    backend: str
+    positive_used: int
+    negative_used: int
+    bytes_written: int
+    created_at: str = field(default_factory=_utcnow)
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+_SKILL_NAME_RE = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
+
+
+def compile_skill_md(
+    *,
+    domain: str,
+    skill_id: str = "",
+    description: str = "",
+    output_root: Path | str = ".agents/skills",
+    prompt_compile_report: CompileReport | None = None,
+    preference_store: PreferenceStore | None = None,
+    max_positive: int = 10,
+    max_negative: int = 4,
+    backend: str = "manual",
+) -> SkillCompileReport:
+    """Compile accepted/rejected preference spans into a SKILL.md file.
+
+    Follows the Anthropic Skills frontmatter contract:
+
+        ---
+        name: <kebab-case, ≤64 chars>
+        description: <≤1024 chars; both WHAT the skill does AND WHEN to use it>
+        ---
+
+    Body section is a curated few-shot brief: positive exemplars
+    (accepted spans), explicit anti-patterns (rejected spans), and the
+    domain sub-schema authoritative-source list when available.  No
+    Anthropic / Claude / DSPy import is required — fully stdlib.
+    """
+
+    skill_id = (skill_id or f"{domain.replace('_', '-')}-wiki").strip().lower()
+    if not _SKILL_NAME_RE.match(skill_id):
+        raise ValueError(
+            f"skill_id {skill_id!r} must be kebab-case [a-z][a-z0-9-]{{0,63}}"
+        )
+
+    store = preference_store or PreferenceStore()
+    positives = store.export(
+        domain,
+        include_decisions=("accepted", "edited"),
+        max_records=max_positive,
+    )
+    negatives = store.export(
+        domain,
+        include_decisions=("rejected",),
+        max_records=max_negative,
+    )
+
+    if prompt_compile_report is None:
+        prompt_compile_report = compile(
+            domain=domain,
+            preference_store=store,
+            max_positive=max_positive,
+            max_negative=max_negative,
+            backend=backend,
+        )
+
+    description = description.strip() or _default_description(
+        domain=domain, positives=len(positives), negatives=len(negatives)
+    )
+    if len(description) > 1024:
+        description = description[:1021].rstrip() + "..."
+
+    target_dir = Path(output_root) / skill_id
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target = target_dir / "SKILL.md"
+
+    body = _render_skill_body(
+        skill_id=skill_id,
+        domain=domain,
+        description=description,
+        prompt_compile_report=prompt_compile_report,
+        positives=positives,
+        negatives=negatives,
+    )
+    target.write_text(body, encoding="utf-8")
+
+    return SkillCompileReport(
+        skill_id=skill_id,
+        domain=domain,
+        target_path=str(target),
+        prompt_version=prompt_compile_report.to_version,
+        backend=prompt_compile_report.backend,
+        positive_used=len(positives),
+        negative_used=len(negatives),
+        bytes_written=target.stat().st_size,
+    )
+
+
+def _default_description(*, domain: str, positives: int, negatives: int) -> str:
+    """Anthropic Skills convention: third-person, declare what + when.
+
+    Description must be a single self-contained sentence (skills get
+    loaded by their description before SKILL.md body is read).
+    """
+
+    return (
+        f"Compile a domain-{domain} wiki page or claim from accepted span "
+        f"exemplars and known anti-patterns. Use when the user asks to write, "
+        f"propose, ingest, or revise content for the {domain} domain wiki "
+        f"(synthesised from {positives} accepted and {negatives} rejected "
+        f"local preference spans)."
+    )
+
+
+def _render_skill_body(
+    *,
+    skill_id: str,
+    domain: str,
+    description: str,
+    prompt_compile_report: CompileReport,
+    positives: Sequence[PreferenceRecord],
+    negatives: Sequence[PreferenceRecord],
+) -> str:
+    """Render the SKILL.md body.  Frontmatter follows Anthropic spec; the
+    body is a progressive-disclosure brief the agent reads on trigger."""
+
+    # Pull authoritative sources for the domain when available; falls
+    # silently to "(none registered)" otherwise.
+    try:
+        from ..domain_schemas import DOMAIN_SCHEMAS
+        schema = DOMAIN_SCHEMAS.get(domain) or DOMAIN_SCHEMAS.get(domain.replace("-", "_"))
+        sources = list(schema.authoritative_sources) if schema else []
+        stale_after_days = schema.stale_after_days if schema else 30
+    except Exception:                                           # noqa: BLE001
+        sources = []
+        stale_after_days = 30
+
+    def _exemplar_block(records: Sequence[PreferenceRecord], label: str) -> str:
+        if not records:
+            return f"_(no {label} exemplars yet)_"
+        chunks: list[str] = []
+        for rec in records:
+            text = (rec.candidate_text or "").strip()
+            if not text:
+                spans = rec.accepted_spans if label == "positive" else rec.rejected_spans
+                text = "\n".join(s for s in spans if s).strip()
+            if not text:
+                continue
+            # Cap each exemplar to keep the loaded SKILL.md under a few kB.
+            text = text[:1500]
+            chunks.append(
+                f"### {rec.record_id[:8]}  ·  {rec.created_at[:10]}  ·  reviewer={rec.reviewer}\n\n"
+                f"{text}\n"
+            )
+        return "\n".join(chunks) if chunks else f"_(no {label} exemplars with body text)_"
+
+    lines = [
+        "---",
+        f"name: {skill_id}",
+        f"description: {description}",
+        "---",
+        "",
+        f"# {skill_id}",
+        "",
+        f"Compiled from `.omni/preference/{domain}.jsonl` at "
+        f"`{prompt_compile_report.created_at}` "
+        f"(backend={prompt_compile_report.backend}, "
+        f"version={prompt_compile_report.to_version}).  "
+        f"Regenerate with `harness-compile-skill --domain {domain}`.",
+        "",
+        "## Domain contract",
+        "",
+        f"- Domain: `{domain}`",
+        f"- Stale-after-days: `{stale_after_days}`",
+        "- Authoritative sources (cite at least one when possible):",
+    ]
+    if sources:
+        for src in sources:
+            lines.append(f"  - `{src}`")
+    else:
+        lines.append("  - _(none registered — domain is reactive; see `vault/wiki/domains/<x>/_schema.md`)_")
+
+    lines.extend([
+        "",
+        "## When to use",
+        "",
+        f"- The user asks to write, propose, ingest, or revise a `{domain}` wiki page.",
+        f"- The user asks for a `{domain}` context pack at tier=standard or expanded.",
+        "- The user mentions a topic / paper / entity already in this domain's claim ledger.",
+        "",
+        "## How to use",
+        "",
+        "1. Read the positive exemplars below and match their tone / structure / level of detail.",
+        "2. Avoid the anti-patterns called out in the rejected exemplars.",
+        "3. Output a Karpathy wiki page body: full YAML frontmatter (page_type, "
+        "domain, claim_ids, source_ids, t_valid_from, t_valid_to, confidence, "
+        "review_state), then `## Question`, `## Sources`, `## Compiled Findings`, "
+        "`## Candidate Claims`, `## References`.",
+        "4. Do NOT write directly to `vault/wiki/`.  Emit a `Proposal(kind=wiki_update)` "
+        "via `wiki-ingest` or `wiki-propose-research` and let the human approve.",
+        "",
+        f"## Positive exemplars ({len(positives)})",
+        "",
+        _exemplar_block(positives, "positive"),
+        "",
+        f"## Anti-patterns — do not imitate ({len(negatives)})",
+        "",
+        _exemplar_block(negatives, "negative"),
+        "",
+        "## See also",
+        "",
+        f"- `vault/wiki/AGENTS.md` — global wiki schema",
+        f"- `vault/wiki/domains/{domain.replace('_', '-')}/_schema.md` — domain sub-schema",
+        f"- `prompts/{domain}/{prompt_compile_report.to_version}/system_prompt.md` — raw compiled prompt",
+        "",
+    ])
+    return "\n".join(lines)

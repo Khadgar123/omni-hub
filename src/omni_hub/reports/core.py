@@ -123,6 +123,83 @@ def _section_preference_activity(ctx: ReportContext) -> str:
     return "\n".join(rows)
 
 
+def _section_wiki_health(ctx: ReportContext) -> str:
+    """Compiled wiki + claims ledger snapshot."""
+
+    try:
+        from ..knowledge_plane import claims_stats, status as wiki_status
+    except Exception:
+        return "_(knowledge_plane unavailable)_"
+
+    try:
+        ws = wiki_status(ctx.workspace)
+    except Exception:
+        return "_(wiki not initialised yet — run `wiki-init`)_"
+
+    try:
+        cs = claims_stats(ctx.workspace)
+    except Exception:
+        cs = {"total": 0, "open": 0, "closed": 0, "by_state": {}, "by_domain": {}}
+
+    wiki_section = ws.get("wiki", {})
+    pages = wiki_section.get("page_count", 0)
+    ready = wiki_section.get("ready", False)
+
+    lines = [
+        f"- wiki ready: `{ready}`  ·  pages: **{pages}**",
+        f"- claims: total **{cs['total']}**  ·  open **{cs['open']}**  ·  closed **{cs['closed']}**",
+    ]
+    by_state = cs.get("by_state") or {}
+    if by_state:
+        bits = "  ·  ".join(f"`{k}`={v}" for k, v in sorted(by_state.items()))
+        lines.append(f"- by state: {bits}")
+    by_domain = cs.get("by_domain") or {}
+    if by_domain:
+        top = sorted(by_domain.items(), key=lambda kv: -kv[1])[:6]
+        bits = "  ·  ".join(f"`{k}`={v}" for k, v in top)
+        lines.append(f"- by domain (top 6): {bits}")
+    return "\n".join(lines)
+
+
+def _section_lint_pipeline(ctx: ReportContext) -> str:
+    """Pending lint_finding proposals broken down by rule."""
+
+    try:
+        store = ProposalStore(
+            workspace=ctx.workspace,
+            db_path=str(ctx.proposal_db_path.relative_to(ctx.workspace))
+            if ctx.proposal_db_path.is_absolute() and ctx.proposal_db_path.is_relative_to(ctx.workspace)
+            else str(ctx.proposal_db_path),
+            create=False,
+        )
+    except Exception:
+        return "_(proposals store unavailable)_"
+
+    try:
+        findings = store.list(kind="lint_finding", state="pending", limit=500)
+    except Exception:
+        return "_(no lint pipeline data)_"
+
+    if not findings:
+        return "_(no pending lint_finding proposals — wiki-lint daily is healthy)_"
+
+    by_rule: dict[str, int] = {}
+    by_severity: dict[str, int] = {}
+    for p in findings:
+        rule = str(p.payload.get("rule", "?"))
+        severity = str(p.payload.get("severity", "?"))
+        by_rule[rule] = by_rule.get(rule, 0) + 1
+        by_severity[severity] = by_severity.get(severity, 0) + 1
+
+    rule_bits = "  ·  ".join(f"`{k}`={v}" for k, v in sorted(by_rule.items()))
+    sev_bits = "  ·  ".join(f"`{k}`={v}" for k, v in sorted(by_severity.items()))
+    return (
+        f"- total pending: **{len(findings)}**\n"
+        f"- by rule: {rule_bits}\n"
+        f"- by severity: {sev_bits}"
+    )
+
+
 def _section_proposals(ctx: ReportContext) -> str:
     """Read pending redundancy proposals from the unified store.
 
@@ -181,6 +258,8 @@ def _render(ctx: ReportContext) -> str:
     )
     body = (
         f"\n## New captures\n\n{_section_new_documents(ctx)}\n"
+        f"\n## Wiki health\n\n{_section_wiki_health(ctx)}\n"
+        f"\n## Lint pipeline\n\n{_section_lint_pipeline(ctx)}\n"
         f"\n## Preference flywheel\n\n{_section_preference_activity(ctx)}\n"
         f"\n## Pending redundancy proposals\n\n{_section_proposals(ctx)}\n"
     )

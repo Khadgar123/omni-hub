@@ -20,13 +20,21 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         help="Export ProposalStore rows as Argilla-ready JSONL records.",
     )
     export.add_argument("--output", required=True)
-    export.add_argument("--state", default="pending", choices=["pending", "approved", "rejected"])
+    export.add_argument(
+        "--state", default="pending",
+        choices=["pending", "approved", "rejected", "all"],
+        help="Filter by proposal state; 'all' includes every state.",
+    )
     export.add_argument("--kind")
     export.add_argument("--limit", type=int, default=100)
     export.add_argument("--dataset", default="omni_proposal_review_v1")
     export.add_argument("--domain", default="general")
     export.add_argument("--skill-id", default="")
     export.add_argument("--skill-version", default="v0")
+    export.add_argument(
+        "--since-days", type=int, default=0,
+        help="Restrict to proposals created within the last N days (0 = no filter).",
+    )
 
     sync = subparsers.add_parser(
         "argilla-sync-feedback",
@@ -45,21 +53,26 @@ def _schema(args, *, runner, workspace) -> int:
 
 
 def _export(args, *, runner, workspace) -> int:
+    # state="all" => don't forward a state filter (ProposalStore.list treats
+    # state=None as "any state").
+    payload = {
+        "output": args.output,
+        "kind": args.kind,
+        "limit": args.limit,
+        "dataset": args.dataset,
+        "domain": args.domain,
+        "skill_id": args.skill_id,
+        "skill_version": args.skill_version,
+        "since_days": args.since_days,
+    }
+    if args.state != "all":
+        payload["state"] = args.state
     return run_and_print(
         runner,
         OperationSpec(
             name="argilla_export_proposals",
             action="export",
-            payload={
-                "output": args.output,
-                "state": args.state,
-                "kind": args.kind,
-                "limit": args.limit,
-                "dataset": args.dataset,
-                "domain": args.domain,
-                "skill_id": args.skill_id,
-                "skill_version": args.skill_version,
-            },
+            payload=payload,
             risk_level=RiskLevel.LOCAL_WRITE,
         ),
     )

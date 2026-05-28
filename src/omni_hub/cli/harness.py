@@ -109,6 +109,35 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     compile_p.add_argument("--max-positive", type=int, default=12)
     compile_p.add_argument("--max-negative", type=int, default=6)
 
+    compile_skill = subparsers.add_parser(
+        "harness-compile-skill",
+        help=(
+            "Compile accepted/rejected preference spans into a SKILL.md file "
+            "loadable by Claude Code / Codex (Anthropic Skills spec)."
+        ),
+    )
+    compile_skill.add_argument("--domain", required=True)
+    compile_skill.add_argument(
+        "--skill-id", default="",
+        help="kebab-case skill id (default: <domain>-wiki)",
+    )
+    compile_skill.add_argument(
+        "--description", default="",
+        help="Override the generated SKILL.md description (≤1024 chars).",
+    )
+    compile_skill.add_argument(
+        "--output-root", default=".agents/skills",
+        help="Where to write <skill-id>/SKILL.md (default: .agents/skills/)",
+    )
+    compile_skill.add_argument("--store-root", default=".omni/preference")
+    compile_skill.add_argument("--from-version", default="v0")
+    compile_skill.add_argument("--max-positive", type=int, default=10)
+    compile_skill.add_argument("--max-negative", type=int, default=4)
+    compile_skill.add_argument(
+        "--backend", default="manual", choices=["auto", "dspy", "manual"],
+        help="Underlying prompt compile backend (default: manual)",
+    )
+
     redund = subparsers.add_parser(
         "harness-redundancy-scan",
         help="Scan memory for duplicate/stale/conflict/low_signal proposals.",
@@ -361,6 +390,28 @@ def _preference_stats(args, *, runner, workspace) -> int:
     return 0
 
 
+def _compile_skill(args, *, runner, workspace) -> int:
+    return run_and_print(
+        runner,
+        OperationSpec(
+            name="harness_compile_skill",
+            action="compile_skill_md",
+            payload={
+                "domain": args.domain,
+                "skill_id": args.skill_id,
+                "description": args.description,
+                "output_root": args.output_root,
+                "store_root": args.store_root,
+                "from_version": args.from_version,
+                "max_positive": args.max_positive,
+                "max_negative": args.max_negative,
+                "backend": args.backend,
+            },
+            risk_level=RiskLevel.LOCAL_WRITE,
+        ),
+    )
+
+
 def _compile(args, *, runner, workspace) -> int:
     return run_and_print(
         runner,
@@ -466,6 +517,7 @@ COMMANDS = {
     "harness-preference-add": _preference_add,
     "harness-preference-stats": _preference_stats,
     "harness-compile": _compile,
+    "harness-compile-skill": _compile_skill,
     "harness-redundancy-scan": _redundancy_scan,
     "harness-domain-list": _domain_list,
     "harness-domain-get": _domain_get,

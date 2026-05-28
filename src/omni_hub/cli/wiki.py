@@ -18,6 +18,16 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     search.add_argument("--include-closed", action="store_true",
                          help="Include pages with review_state=rejected/superseded "
                               "or t_valid_to in the past (default: filter them out).")
+    search.add_argument("--backend", default="auto",
+                         choices=["auto", "fts5", "substring"],
+                         help="Search backend: auto (default), fts5 (force), substring (legacy)")
+
+    reindex = subparsers.add_parser(
+        "wiki-reindex",
+        help="Drop + rebuild the FTS5 sidecar from every page under vault/wiki/.",
+    )
+    reindex.add_argument("--force", action="store_true",
+                          help="No-op for now; reserved for future incremental modes")
 
     propose = subparsers.add_parser("wiki-propose-research")
     propose.add_argument("--source", required=True, choices=["researchflow", "paperbite"])
@@ -130,8 +140,21 @@ def _search(args, *, runner, workspace) -> int:
                 "query": args.query,
                 "limit": args.limit,
                 "include_closed": bool(args.include_closed),
+                "backend": args.backend,
             },
             risk_level=RiskLevel.READ_ONLY,
+        ),
+    )
+
+
+def _reindex(args, *, runner, workspace) -> int:
+    return run_and_print(
+        runner,
+        OperationSpec(
+            name="wiki_reindex",
+            action="reindex",
+            payload={},
+            risk_level=RiskLevel.LOCAL_WRITE,
         ),
     )
 
@@ -277,6 +300,7 @@ COMMANDS = {
     "wiki-ingest": _ingest,
     "wiki-log": _log,
     "wiki-lint": _lint,
+    "wiki-reindex": _reindex,
     "wiki-supersede": _supersede,
     "wiki-conflict-resolve": _conflict_resolve,
     "context-pack-build": _context_pack,
