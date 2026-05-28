@@ -25,9 +25,12 @@ from .base import DEFAULT_TIMEOUT_SEC, RetrievalError, RetrievalRecord, http_get
 
 
 DOC_API = "https://api.gdeltproject.org/api/v2/doc/doc"
-_CACHE_TTL_S = 300                              # 5 minutes
-_RETRY_COUNT = 2
-_RETRY_BACKOFF_S = 1.5
+# v0.43.5: stress test showed only 25% raw success rate; bumped cache
+# to 15 minutes (still well under GDELT's own 15-min refresh cycle)
+# and retry count to 3 to absorb the flaky periods.
+_CACHE_TTL_S = 900                              # 15 minutes (was 5)
+_RETRY_COUNT = 3                                # (was 2)
+_RETRY_BACKOFF_S = 2.0                          # (was 1.5)
 
 
 class GDELTSource:

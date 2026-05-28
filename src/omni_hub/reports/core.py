@@ -38,7 +38,11 @@ def default_output_path(workspace: Path | str, ctx: ReportContext) -> Path:
 
 
 def _context_for(period: str, anchor: date | None) -> ReportContext:
-    anchor = anchor or date.today()
+    # v0.43.5: use UTC "today" to stay aligned with evidence timestamps
+    # (which are always UTC). Previously used local ``date.today()``
+    # which could put today's local docs into yesterday's UTC window in
+    # negative timezones (-PST/PDT/EST/etc.), making them invisible.
+    anchor = anchor or datetime.now(timezone.utc).date()
     if period == "daily":
         start = datetime.combine(anchor, datetime.min.time(), tzinfo=timezone.utc)
         end = start + timedelta(days=1)

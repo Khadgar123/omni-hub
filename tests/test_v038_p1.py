@@ -169,10 +169,13 @@ class FunctionalBuiltinsTests(unittest.TestCase):
         self.assertEqual(out["output"]["task_count"], 0)
 
     def test_finance_screen_registered(self) -> None:
-        # v0.36 stub returns [] until real screening lands.
+        # v0.43.4: finance_screen now actually hits EDGAR cascade,
+        # so count >= 0 (network-dependent; test only that operation
+        # registered and returned succeeded).
         out = self._run("finance_screen", {"tickers": ["NVDA"]})
         self.assertEqual(out["status"], "succeeded")
-        self.assertEqual(out["output"]["count"], 0)
+        self.assertIn("count", out["output"])
+        self.assertGreaterEqual(out["output"]["count"], 0)
 
     def test_order_propose_lands_proposal(self) -> None:
         out = self._run("order_propose", {

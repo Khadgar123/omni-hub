@@ -37,14 +37,24 @@ class ArxivSource:
         limit: int = 5,
         domain: str = "",
     ) -> list[RetrievalRecord]:
-        if not query.strip():
+        q = query.strip()
+        if not q:
             return []
         # arXiv accepts a free-form ``search_query=all:X`` plus category
-        # narrowing for the ``ai_progress`` domain.
-        if domain == "ai_progress":
-            search_query = f"(cat:cs.AI OR cat:cs.LG OR cat:cs.CL) AND all:{query}"
+        # narrowing for the ``ai_progress`` domain.  Callers may also
+        # pass a raw arXiv DSL clause like ``cat:cs.AI`` or
+        # ``ti:transformer`` — in those cases we honour it verbatim
+        # (v0.43.5 fix: previously got wrapped as ``all:cat:cs.AI``
+        # which always returned zero).
+        is_dsl = ":" in q.split(" ", 1)[0] and q.split(":", 1)[0] in {
+            "all", "ti", "abs", "au", "cat", "id", "co", "jr", "rn",
+        }
+        if is_dsl:
+            search_query = q
+        elif domain == "ai_progress":
+            search_query = f"(cat:cs.AI OR cat:cs.LG OR cat:cs.CL) AND all:{q}"
         else:
-            search_query = f"all:{query}"
+            search_query = f"all:{q}"
 
         params = {
             "search_query": search_query,

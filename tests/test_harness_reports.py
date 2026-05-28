@@ -45,7 +45,11 @@ class ReportTests(unittest.TestCase):
     def test_daily_report_includes_today_only(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = self._build_workspace(Path(tmp))
-            text, ctx = build_daily(anchor=date.today(), workspace=root)
+            # v0.43.5: use UTC date for anchor so it aligns with the
+            # evidence timestamps (which are UTC).  Previously this
+            # passed local date and failed in negative timezones.
+            utc_today = datetime.now(timezone.utc).date()
+            text, ctx = build_daily(anchor=utc_today, workspace=root)
             self.assertIn("Daily Brief", text)
             self.assertIn("Today doc", text)
             # yesterday and old must NOT appear in daily window
