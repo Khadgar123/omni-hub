@@ -18,22 +18,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
-from omni_hub.cli import main
 from omni_hub.queue import TaskQueue
-
-
-def _run_cli(workspace: Path, argv: list[str]) -> dict:
-    buffer = StringIO()
-    original = REPO_ROOT
-    try:
-        os.chdir(workspace)
-        with redirect_stdout(buffer):
-            exit_code = main(argv)
-    finally:
-        os.chdir(original)
-    payload = json.loads(buffer.getvalue())
-    payload["__exit"] = exit_code
-    return payload
+from omni_hub.testing import cli_runner as _run_cli
 
 
 class ScheduleTickTests(unittest.TestCase):

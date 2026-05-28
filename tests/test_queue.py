@@ -14,7 +14,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from omni_hub.cli import main
 from omni_hub.queue import (
     CLAIMED,
     DEAD,
@@ -24,20 +23,7 @@ from omni_hub.queue import (
     TaskQueue,
     _now_ms,
 )
-
-
-def _run_cli(workspace: Path, argv: list[str]) -> dict:
-    buffer = StringIO()
-    original = Path(__file__).resolve().parents[1]      # repo root, always safe
-    try:
-        os.chdir(workspace)
-        with redirect_stdout(buffer):
-            exit_code = main(argv)
-    finally:
-        os.chdir(original)
-    payload = json.loads(buffer.getvalue())
-    payload["__exit"] = exit_code
-    return payload
+from omni_hub.testing import cli_runner as _run_cli
 
 
 class TaskQueueTests(unittest.TestCase):

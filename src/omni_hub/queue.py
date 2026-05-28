@@ -424,6 +424,26 @@ class TaskQueue:
                 "SELECT * FROM tasks WHERE id = ?", (task_id,),
             ).fetchone()
 
+
+def _percentiles(sorted_values: list[int]) -> dict[str, int]:
+    """Nearest-rank percentiles + count over a sorted list.  Empty → zeros."""
+
+    n = len(sorted_values)
+    if n == 0:
+        return {"p50": 0, "p95": 0, "p99": 0, "count": 0}
+
+    def _at(p: float) -> int:
+        # nearest-rank: ceil(p * n) - 1
+        idx = max(0, min(n - 1, int(p * n + 0.999) - 1))
+        return int(sorted_values[idx])
+
+    return {
+        "p50": _at(0.50),
+        "p95": _at(0.95),
+        "p99": _at(0.99),
+        "count": n,
+    }
+
     def get(self, task_id: int) -> Task:
         with self._connect() as conn:
             row = conn.execute(
@@ -471,6 +491,84 @@ class TaskQueue:
             out[row["state"]] = int(row["n"])
         return out
 
+    def stats(self) -> dict[str, Any]:
+        """Observability snapshot (derived, no schema changes).
+
+        Returns queue-depth gauges, oldest-pending age, claim-to-done latency
+        percentiles, attempts distribution, and dead count.  All values are
+        absolute counts / ms — no rates (caller computes those from two
+        snapshots).
+        """
+
+        empty: dict[str, Any] = {
+            "counts_by_state": {s: 0 for s in VALID_STATES},
+            "depth_by_lane": {},
+            "depth_by_lane_state": {},
+            "oldest_pending_age_ms": 0,
+            "latency_ms": {"p50": 0, "p95": 0, "p99": 0, "count": 0},
+            "attempts_distribution": {},
+            "dead_count": 0,
+        }
+        if not self.db_path.exists():
+            return empty
+
+        now = _now_ms()
+        with self._connect() as conn:
+            counts_by_state = {
+                row["state"]: int(row["n"])
+                for row in conn.execute(
+                    "SELECT state, COUNT(*) AS n FROM tasks GROUP BY state"
+                ).fetchall()
+            }
+            counts_by_state = {s: counts_by_state.get(s, 0) for s in VALID_STATES}
+
+            depth_by_lane: dict[str, int] = {}
+            for row in conn.execute(
+                "SELECT lane, COUNT(*) AS n FROM tasks "
+                "WHERE state IN ('pending','claimed') GROUP BY lane"
+            ).fetchall():
+                depth_by_lane[row["lane"]] = int(row["n"])
+
+            depth_by_lane_state: dict[str, dict[str, int]] = {}
+            for row in conn.execute(
+                "SELECT lane, state, COUNT(*) AS n FROM tasks GROUP BY lane, state"
+            ).fetchall():
+                depth_by_lane_state.setdefault(row["lane"], {})[row["state"]] = int(row["n"])
+
+            oldest_row = conn.execute(
+                "SELECT MIN(available_at) AS m FROM tasks WHERE state='pending'"
+            ).fetchone()
+            oldest_pending_age_ms = (
+                max(0, now - int(oldest_row["m"]))
+                if oldest_row and oldest_row["m"] is not None else 0
+            )
+
+            latencies = [
+                int(row["latency"])
+                for row in conn.execute(
+                    "SELECT (updated_at - claimed_at) AS latency FROM tasks "
+                    "WHERE state='done' AND claimed_at IS NOT NULL "
+                    "ORDER BY latency"
+                ).fetchall()
+            ]
+            latency_ms = _percentiles(latencies)
+
+            attempts_distribution: dict[str, int] = {}
+            for row in conn.execute(
+                "SELECT attempts, COUNT(*) AS n FROM tasks GROUP BY attempts"
+            ).fetchall():
+                attempts_distribution[str(int(row["attempts"]))] = int(row["n"])
+
+        return {
+            "counts_by_state": counts_by_state,
+            "depth_by_lane": depth_by_lane,
+            "depth_by_lane_state": depth_by_lane_state,
+            "oldest_pending_age_ms": oldest_pending_age_ms,
+            "latency_ms": latency_ms,
+            "attempts_distribution": attempts_distribution,
+            "dead_count": counts_by_state.get(DEAD, 0),
+        }
+
     # ------- internals -----------------------------------------------------
 
     def _init_schema(self) -> None:
@@ -514,14 +612,9 @@ class TaskQueue:
             conn.commit()
 
     def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(str(self.db_path))
-        conn.row_factory = sqlite3.Row
-        return conn
+        from ._storage import connect_sqlite_store
+        return connect_sqlite_store(self.db_path)
 
     def _safe_path(self, relative_path: str) -> Path:
-        target = (self.workspace / relative_path).resolve()
-        try:
-            target.relative_to(self.workspace)
-        except ValueError as exc:
-            raise PermissionError("target path is outside the workspace") from exc
-        return target
+        from ._storage import safe_workspace_path
+        return safe_workspace_path(self.workspace, relative_path)

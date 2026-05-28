@@ -18,7 +18,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from omni_hub.cli import main
 from omni_hub.proposals import (
     APPROVED,
     PENDING,
@@ -28,6 +27,7 @@ from omni_hub.proposals import (
     duplicate_proposal,
     stale_proposal,
 )
+from omni_hub.testing import cli_runner as _run_cli
 
 
 class _Record:
@@ -36,20 +36,6 @@ class _Record:
         self.title = title
         self.summary = summary
         self.updated_at = updated_at
-
-
-def _run_cli(workspace: Path, argv: list[str]) -> dict:
-    buffer = StringIO()
-    original = os.getcwd()
-    try:
-        os.chdir(workspace)
-        with redirect_stdout(buffer):
-            exit_code = main(argv)
-    finally:
-        os.chdir(original)
-    payload = json.loads(buffer.getvalue())
-    payload["__exit"] = exit_code
-    return payload
 
 
 class ProposalStoreTests(unittest.TestCase):

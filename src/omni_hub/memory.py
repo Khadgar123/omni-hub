@@ -356,20 +356,12 @@ class MemoryStore:
             conn.commit()
 
     def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(str(self.db_path))
-        conn.row_factory = sqlite3.Row
-        # PRAGMA busy_timeout applies per-connection; reader-only paths
-        # (search / stats) must also wait through a writer lock.
-        conn.execute("PRAGMA busy_timeout = 30000")
-        return conn
+        from ._storage import connect_sqlite_store
+        return connect_sqlite_store(self.db_path)
 
     def _safe_path(self, relative_path: str) -> Path:
-        target = (self.workspace / relative_path).resolve()
-        try:
-            target.relative_to(self.workspace)
-        except ValueError as exc:
-            raise PermissionError("target path is outside the workspace") from exc
-        return target
+        from ._storage import safe_workspace_path
+        return safe_workspace_path(self.workspace, relative_path)
 
 
 def _query_terms(query: str) -> list[str]:

@@ -72,12 +72,8 @@ class ContentStore:
         )
 
     def _safe_path(self, relative_path: str) -> Path:
-        target = (self.workspace / relative_path).resolve()
-        try:
-            target.relative_to(self.workspace)
-        except ValueError as exc:
-            raise PermissionError("target path is outside the workspace") from exc
-        return target
+        from ._storage import safe_workspace_path
+        return safe_workspace_path(self.workspace, relative_path)
 
     def _content_id(self, resource: CapturedResource) -> str:
         payload = f"{resource.final_url}\n{resource.body}".encode("utf-8")

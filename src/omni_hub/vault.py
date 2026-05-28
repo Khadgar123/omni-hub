@@ -56,12 +56,8 @@ class VaultReader:
         )
 
     def _safe_path(self, relative_path: str) -> Path:
-        target = (self.workspace / relative_path).resolve()
-        try:
-            target.relative_to(self.workspace)
-        except ValueError as exc:
-            raise PermissionError("target path is outside the workspace") from exc
-        return target
+        from ._storage import safe_workspace_path
+        return safe_workspace_path(self.workspace, relative_path)
 
     def _is_hidden_or_runtime_path(self, path: Path) -> bool:
         parts = set(path.relative_to(self.workspace).parts)

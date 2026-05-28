@@ -17,24 +17,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
-from omni_hub.cli import main
 from omni_hub.proposals import ProposalStore
 from omni_hub.queue import LeaseLost, TaskQueue
+from omni_hub.testing import cli_runner as _run_cli
 from omni_hub.workers import Artifact, ClaudeAdapter
-
-
-def _run_cli(workspace: Path, argv: list[str]) -> dict:
-    buffer = StringIO()
-    original = REPO_ROOT
-    try:
-        os.chdir(workspace)
-        with redirect_stdout(buffer):
-            exit_code = main(argv)
-    finally:
-        os.chdir(original)
-    payload = json.loads(buffer.getvalue())
-    payload["__exit"] = exit_code
-    return payload
 
 
 def _fake_emit(payload: dict | str) -> list[str]:

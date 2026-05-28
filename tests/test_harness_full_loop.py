@@ -18,11 +18,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from omni_hub.cli import main
 from omni_hub.harness import dspy_compile, judge_ensemble
 from omni_hub.harness.models import Candidate, GenerationRecord, JudgeRubric
 from omni_hub.harness.preference import PreferenceStore
 from omni_hub.reports import build_daily
+from omni_hub.testing import cli_runner as _run_cli
 
 
 GROUNDED_TEXT = (
@@ -40,20 +40,6 @@ def _build_record(*texts: str) -> GenerationRecord:
     return GenerationRecord(
         candidates=[Candidate(model=f"m{i}", text=t) for i, t in enumerate(texts)],
     )
-
-
-def _run_cli(workspace: Path, argv: list[str]) -> dict:
-    buffer = StringIO()
-    original = os.getcwd()
-    try:
-        os.chdir(workspace)
-        with redirect_stdout(buffer):
-            exit_code = main(argv)
-    finally:
-        os.chdir(original)
-    payload = json.loads(buffer.getvalue())
-    payload["__exit"] = exit_code
-    return payload
 
 
 class FullFlywheelTests(unittest.TestCase):
