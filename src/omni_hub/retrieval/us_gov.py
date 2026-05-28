@@ -100,8 +100,33 @@ class FederalRegisterSource:
 # ---------------------------------------------------------------------------
 
 
+DATA_GOV_SECRET_REF = "local:omni-hub/api/data_gov/default"
+
+
+def _resolve_data_gov_key() -> str:
+    env_key = os.environ.get("DATA_GOV_API_KEY", "").strip()
+    if env_key:
+        return env_key
+    try:
+        from ..secrets import resolve_secret_ref, SecretStoreError
+    except ImportError:
+        return ""
+    try:
+        return resolve_secret_ref(DATA_GOV_SECRET_REF) or ""
+    except SecretStoreError:
+        return ""
+    except Exception:                                            # noqa: BLE001
+        return ""
+
+
 class RegulationsGovSource:
-    """Federal dockets + public comments.  Needs free ``DATA_GOV_API_KEY``."""
+    """Federal dockets + public comments.
+
+    Needs free ``DATA_GOV_API_KEY`` (also unlocks Congress.gov).  Set via
+    env or ``.omni/secrets.json::omni-hub/api/data_gov/default``.
+    Sign up: https://api.data.gov/signup/ (instant, no email confirmation
+    delay for low-volume personal research).
+    """
 
     name = "regulations_gov"
     tier = 1
@@ -112,11 +137,15 @@ class RegulationsGovSource:
         api_key: str | None = None,
         timeout: int = DEFAULT_TIMEOUT_SEC,
     ) -> None:
-        self.api_key = api_key or os.environ.get("DATA_GOV_API_KEY", "")
+        self.api_key = api_key if api_key is not None else _resolve_data_gov_key()
         self.timeout = timeout
 
     def check(self) -> tuple[str, str]:
-        return env_var_probe("DATA_GOV_API_KEY")
+        if self.api_key:
+            return "ok", "DATA_GOV_API_KEY configured (1000/h)"
+        return "warn", (
+            "DATA_GOV_API_KEY not set; free at https://api.data.gov/signup/"
+        )
 
     def retrieve(
         self,
@@ -182,11 +211,15 @@ class CongressGovSource:
         api_key: str | None = None,
         timeout: int = DEFAULT_TIMEOUT_SEC,
     ) -> None:
-        self.api_key = api_key or os.environ.get("DATA_GOV_API_KEY", "")
+        self.api_key = api_key if api_key is not None else _resolve_data_gov_key()
         self.timeout = timeout
 
     def check(self) -> tuple[str, str]:
-        return env_var_probe("DATA_GOV_API_KEY")
+        if self.api_key:
+            return "ok", "DATA_GOV_API_KEY configured (1000/h)"
+        return "warn", (
+            "DATA_GOV_API_KEY not set; free at https://api.data.gov/signup/"
+        )
 
     def retrieve(
         self,

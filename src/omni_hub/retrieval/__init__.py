@@ -77,6 +77,7 @@ def builtin_sources() -> dict[str, RetrievalSource]:
     from .trafilatura_source import TrafilaturaSource
     from .truth_social import TruthSocialSource
     from .ucdp import UCDPSource
+    from .youtube_transcript import YouTubeTranscriptSource
     from .semantic_scholar import SemanticScholarSource
     from .twitterapi_io import TwitterApiIoSource
     from .us_gov import CongressGovSource, FederalRegisterSource, RegulationsGovSource
@@ -98,6 +99,7 @@ def builtin_sources() -> dict[str, RetrievalSource]:
             RSSSource(),                              # generic RSS/Atom, no auth
             TrafilaturaSource(),                      # URL → cleaned article, local
             UCDPSource(),                             # conflict events, CC BY 4.0
+            YouTubeTranscriptSource(),                # long-form audio/video transcripts
             CrossrefSource(),
             EuropePMCSource(),
             FederalRegisterSource(),
