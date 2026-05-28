@@ -25,6 +25,7 @@ from . import (
     command,
     event,
     harness,
+    judge,
     mcp,
     memory,
     optimizer,
@@ -46,6 +47,7 @@ _AREAS = [
     propose, task, worker, harness, reports, optimizer, event, mcp,
     retrieve, research_kb, wiki, claims, command, workflow, projection,
     channel, app,                # v0.19 Interface + Application Plane
+    judge,                       # v0.23 Judge LLM framework
 ]
 
 

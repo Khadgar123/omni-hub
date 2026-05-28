@@ -45,7 +45,16 @@ def builtin_sources() -> dict[str, RetrievalSource]:
 
     from .archive import InternetArchiveSource, WaybackCDXSource
     from .arxiv_api import ArxivSource
+    from .bilibili import BilibiliSource
     from .biomedical import EuropePMCSource, PubMedSource
+    from .business_intel import CrunchbaseSource, LinkedInBrokerSource
+    from .cn_finance import TushareSource
+    from .cn_policy import (
+        CourtGovCnSource,
+        GovCnSource,
+        PBCGovCnSource,
+        StatsGovCnSource,
+    )
     from .crossref import CrossrefSource
     from .datacommons import DataCommonsSource
     from .finance import EdgarSource, FREDSource
@@ -64,12 +73,14 @@ def builtin_sources() -> dict[str, RetrievalSource]:
     from .wikidata import WikidataSource, WikidataSPARQLSource
     from .wikipedia import WikipediaSource
     from .xhs import XiaohongshuSource
+    from .zhihu_weibo import WeiboSource, ZhihuSource
 
     return {
         s.name: s
         for s in (
             # tier 0 — no auth
             ArxivSource(),
+            BilibiliSource(),
             CourtListenerSource(),
             CrossrefSource(),
             EuropePMCSource(),
@@ -88,19 +99,28 @@ def builtin_sources() -> dict[str, RetrievalSource]:
             WikipediaSource(),
             WorldBankSource(),
             EdgarSource(),
-            # tier 1 — free key
+            # tier 1 — free key / self-hosted broker
             ACLEDSource(),
             BraveSearchSource(),
             CongressGovSource(),
+            CourtGovCnSource(),                       # v0.21 (RSSHub)
             DataCommonsSource(),
             FREDSource(),
+            TushareSource(),                          # v0.22 (free token)
+            GovCnSource(),                            # v0.21 (RSSHub)
+            PBCGovCnSource(),                         # v0.21 (RSSHub)
             PexelsSource(),
             RegulationsGovSource(),
+            StatsGovCnSource(),                       # v0.21 (RSSHub)
             UnsplashSource(),
             # tier 2 — paid key / pinned fork / broker
+            CrunchbaseSource(),                       # v0.22 (paid key)
+            LinkedInBrokerSource(),                   # v0.22 (broker)
             TwitterApiIoSource(),
             WeChatMPSource(),
             XiaohongshuSource(),
+            ZhihuSource(),                            # v0.20
+            WeiboSource(),                            # v0.20
         )
     }
 

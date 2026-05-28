@@ -1856,6 +1856,8 @@ def build_default_registry(workspace: Path | str = ".") -> OperationRegistry:
     registry.register("app_report_build", make_app_report_build(workspace_path))
     registry.register("app_route_task", make_app_route_task(workspace_path))
     registry.register("skill_stubs_sync", make_skill_stubs_sync(workspace_path))
+    # v0.23 Judge LLM framework.
+    registry.register("judge_evaluate", make_judge_evaluate(workspace_path))
     return registry
 
 
@@ -1992,3 +1994,60 @@ def make_skill_stubs_sync(workspace: Path):
         }
 
     return skill_stubs_sync
+
+
+def make_judge_evaluate(workspace: Path):
+    """v0.23 — invoke a Judge against a candidate answer.
+
+    Payload contract:
+        domain:     domain slug (required)
+        candidate:  candidate answer text (required)
+        reference:  optional reference / ground-truth context
+        judge:      "heuristic" (default) | "llm"
+        rubric:     optional dict[str, float] dimension weights
+    """
+
+    workspace_root = workspace.resolve()
+
+    def judge_evaluate(spec: OperationSpec) -> dict:
+        from .judge import HeuristicJudge, JudgeRequest, LLMJudge
+
+        domain = str(spec.payload.get("domain", "")).strip()
+        candidate = str(spec.payload.get("candidate", "")).strip()
+        if not domain:
+            raise ValueError("domain is required")
+        if not candidate:
+            raise ValueError("candidate is required")
+        reference_raw = spec.payload.get("reference") or ""
+        if isinstance(reference_raw, str) and reference_raw.startswith("file://"):
+            ref_path = Path(reference_raw[len("file://"):])
+            if not ref_path.is_absolute():
+                ref_path = workspace_root / ref_path
+            reference = ref_path.read_text(encoding="utf-8")
+        else:
+            reference = str(reference_raw)
+
+        rubric = spec.payload.get("rubric") or {}
+        if not isinstance(rubric, dict):
+            rubric = {}
+        rubric = {str(k): float(v) for k, v in rubric.items()}
+
+        request = JudgeRequest(
+            domain=domain,
+            candidate=candidate,
+            reference=reference,
+            rubric=rubric,
+            trace_id=str(spec.trace_id or ""),
+            metadata={"workspace": str(workspace_root)},
+        )
+
+        judge_name = str(spec.payload.get("judge", "heuristic")).lower()
+        if judge_name == "llm":
+            judge = LLMJudge()
+        else:
+            judge = HeuristicJudge()
+
+        verdict = judge.evaluate(request)
+        return verdict.to_dict()
+
+    return judge_evaluate

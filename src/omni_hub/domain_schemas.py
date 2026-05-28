@@ -32,7 +32,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 
-DOMAIN_SCHEMA_VERSION = "v0.19"
+DOMAIN_SCHEMA_VERSION = "v0.20"
 
 
 @dataclass(slots=True)
@@ -477,7 +477,7 @@ DOMAIN_SCHEMAS: dict[str, DomainSchema] = {
             "Bilibili).  High guard against pseudo-science: lint hints require "
             "RCT / meta-analysis citation for any 'do X to achieve Y' claim."
         ),
-        authoritative_sources=["pubmed", "europe_pmc", "wikipedia"],
+        authoritative_sources=["pubmed", "europe_pmc", "bilibili", "wikipedia"],
         frontmatter_optional=[
             ("modality", "strength | hypertrophy | cardio | mobility | nutrition | sleep | mental"),
             ("evidence_grade", "RCT | meta-analysis | observational | expert-opinion | n=1"),
@@ -507,7 +507,7 @@ DOMAIN_SCHEMAS: dict[str, DomainSchema] = {
         ),
         authoritative_sources=["xiaohongshu", "bilibili", "wikipedia"],
         frontmatter_optional=[
-            ("cuisine", "chinese-sichuan | chinese-cantonese | italian | japanese | ..."),
+            ("cuisine", "chinese-sichuan | chinese-cantonese | italian | japanese | thai | ..."),
             ("technique", "braise | stir-fry | bake | ferment | sous-vide | ..."),
             ("difficulty", "beginner | intermediate | advanced"),
             ("time_active_min", "active cooking time in minutes"),
@@ -532,7 +532,7 @@ DOMAIN_SCHEMAS: dict[str, DomainSchema] = {
             "Highly seasonal — Japan cherry-blossom claims valid Mar-Apr only.  "
             "Connectors land in v0.20 (小红书 + 马蜂窝 + TripAdvisor + 携程)."
         ),
-        authoritative_sources=["xiaohongshu", "wikipedia"],
+        authoritative_sources=["xiaohongshu", "bilibili", "wikipedia"],
         frontmatter_optional=[
             ("country_iso", "ISO 3166-1 alpha-3"),
             ("city", "primary city / region"),
@@ -559,7 +559,7 @@ DOMAIN_SCHEMAS: dict[str, DomainSchema] = {
             "trending playbook shifts.  Connectors land in v0.20 (微博热搜 + 抖音 + "
             "营销博主 RSS) + v0.22 (Crunchbase 增长案例)."
         ),
-        authoritative_sources=["brave_search", "gdelt", "wikipedia"],
+        authoritative_sources=["weibo", "brave_search", "gdelt", "zhihu", "wikipedia"],
         frontmatter_optional=[
             ("channel", "social | seo | content | email | paid-ads | influencer"),
             ("industry", "saas | consumer | b2b | retail | fintech | ..."),

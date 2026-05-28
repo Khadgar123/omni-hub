@@ -70,8 +70,10 @@ class DomainExpansionTests(unittest.TestCase):
                 # fitness_wellness, enterprise, marketing all need lint hints.
                 self.assertTrue(DOMAIN_SCHEMAS[new_domain].lint_hints)
 
-    def test_schema_version_bumped_to_v019(self) -> None:
-        self.assertEqual(DOMAIN_SCHEMA_VERSION, "v0.19")
+    def test_schema_version_at_least_v019(self) -> None:
+        # v0.19 introduced the expansion; v0.20 bumps for the bilibili /
+        # weibo / zhihu authoritative-source additions.
+        self.assertGreaterEqual(DOMAIN_SCHEMA_VERSION, "v0.19")
 
     def test_meta_domain_has_no_external_cascade(self) -> None:
         self.assertEqual(DOMAIN_SCHEMAS["meta"].authoritative_sources, [])

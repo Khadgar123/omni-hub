@@ -1968,7 +1968,13 @@ class V10CascadeIntegrationTests(unittest.TestCase):
         self.assertIn("unsplash", DEFAULT_DOMAIN_CASCADES["photography"])
         # Tier-2 socials behind opt-in domains
         self.assertEqual(DEFAULT_DOMAIN_CASCADES["social_en"], ["x_twitter", "gdelt"])
-        self.assertEqual(DEFAULT_DOMAIN_CASCADES["social_zh"], ["xiaohongshu", "wechat_mp"])
+        # v0.20: social_zh expanded with weibo + bilibili in addition to
+        # the original xhs + wechat_mp; assert the head order is stable.
+        self.assertEqual(
+            DEFAULT_DOMAIN_CASCADES["social_zh"][:2], ["xiaohongshu", "wechat_mp"],
+        )
+        self.assertIn("weibo", DEFAULT_DOMAIN_CASCADES["social_zh"])
+        self.assertIn("bilibili", DEFAULT_DOMAIN_CASCADES["social_zh"])
 
 
 class RetrieveDoctorCliTests(unittest.TestCase):
