@@ -30,8 +30,60 @@ class AgentHarnessLayoutTests(unittest.TestCase):
             self.assertIn(f"[submodule \"{path}\"]", gitmodules)
             self.assertIn(f"path = {path}", gitmodules)
 
-        candidates = {item["id"]: item for item in manifest["candidates"]}
-        self.assertEqual(candidates["opik"]["decision"], "evaluate-before-fork")
+        pending = {item["id"]: item for item in manifest.get("pending_forks", [])}
+        # 2026 reassessment promoted these three. They live in pending_forks
+        # until the user creates personal forks on GitHub.
+        for pid in ("dspy", "openhands", "opik"):
+            self.assertIn(pid, pending, f"{pid} missing from pending_forks")
+            self.assertEqual(
+                pending[pid]["decision"],
+                "fork-pending-personal-clone",
+                f"{pid} should be flagged as fork-pending-personal-clone",
+            )
+            self.assertTrue(
+                pending[pid]["upstream"].startswith("https://"),
+                f"{pid} upstream URL missing",
+            )
+            # pending forks must NOT yet be declared as submodules
+            self.assertNotIn(
+                f"[submodule \"{pending[pid]['path']}\"]",
+                gitmodules,
+                f"{pid} should NOT be in .gitmodules until user runs "
+                f"add_pending_harness_forks.sh",
+            )
+
+        # opik used to be a candidate; after promotion the candidates list may
+        # be empty or contain other entries, but opik specifically must NOT be
+        # there anymore.
+        candidates = {item["id"]: item for item in manifest.get("candidates", [])}
+        self.assertNotIn("opik", candidates)
+
+    def test_domain_profiles_cover_first_batch_domains(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        profiles = json.loads(
+            (root / "agent-harness" / "domain-profiles.json").read_text(
+                encoding="utf-8"
+            )
+        )
+
+        expected_domains = {
+            "engineering",
+            "research",
+            "photography",
+            "fashion",
+            "chat_relationships",
+            "finance",
+            "policy",
+            "international_relations",
+        }
+        domains = profiles["domains"]
+
+        self.assertEqual(set(domains), expected_domains)
+        for profile in domains.values():
+            self.assertTrue(profile["goal"])
+            self.assertGreaterEqual(len(profile["required_context"]), 3)
+            self.assertGreaterEqual(len(profile["proposal_rules"]), 3)
+            self.assertGreaterEqual(len(profile["judge_dimensions"]), 3)
 
 
 if __name__ == "__main__":

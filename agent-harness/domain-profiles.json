@@ -1,0 +1,193 @@
+{
+  "version": 1,
+  "domains": {
+    "engineering": {
+      "goal": "Produce safe, tested, maintainable code changes from repository evidence.",
+      "required_context": [
+        "repository map",
+        "current git status",
+        "relevant source files",
+        "tests and failure logs",
+        "local coding conventions"
+      ],
+      "proposal_rules": [
+        "Prefer small scoped changes.",
+        "Preserve user changes and dirty worktree state.",
+        "Treat tests as evidence, not decoration.",
+        "Do not invent dependencies when local patterns solve the problem."
+      ],
+      "judge_dimensions": [
+        "behavioral_correctness",
+        "test_coverage",
+        "maintainability",
+        "blast_radius",
+        "style_consistency"
+      ]
+    },
+    "research": {
+      "goal": "Write claims that are evidence-backed, information-dense, and reviewer-legible.",
+      "required_context": [
+        "paper draft",
+        "related work",
+        "experiment tables",
+        "claim list",
+        "citation sources",
+        "venue expectations"
+      ],
+      "proposal_rules": [
+        "Every strong claim needs source or experiment support.",
+        "Avoid generic contribution phrasing.",
+        "Separate observed evidence from interpretation.",
+        "Preserve uncertainty where evidence is incomplete."
+      ],
+      "judge_dimensions": [
+        "evidence_coverage",
+        "information_density",
+        "citation_support",
+        "novelty_precision",
+        "reviewer_readability"
+      ]
+    },
+    "photography": {
+      "goal": "Give practical visual decisions grounded in light, scene, subject, and output intent.",
+      "required_context": [
+        "shooting goal",
+        "subject",
+        "location",
+        "available light",
+        "gear constraints",
+        "reference style"
+      ],
+      "proposal_rules": [
+        "Prefer concrete camera, lighting, composition, and edit suggestions.",
+        "Distinguish taste preference from technical constraint.",
+        "Keep alternatives for different mood and budget constraints."
+      ],
+      "judge_dimensions": [
+        "visual_specificity",
+        "technical_feasibility",
+        "style_fit",
+        "context_awareness",
+        "actionability"
+      ]
+    },
+    "fashion": {
+      "goal": "Suggest outfits that fit occasion, climate, body constraints, budget, and personal style.",
+      "required_context": [
+        "occasion",
+        "weather",
+        "body/fit constraints",
+        "available wardrobe",
+        "budget",
+        "style references"
+      ],
+      "proposal_rules": [
+        "Do not overfit to a single aesthetic.",
+        "Explain fit, proportion, material, color, and occasion match.",
+        "Offer substitutions when a piece is unavailable."
+      ],
+      "judge_dimensions": [
+        "occasion_fit",
+        "fit_and_proportion",
+        "color_material_coherence",
+        "personal_style_fit",
+        "practicality"
+      ]
+    },
+    "chat_relationships": {
+      "goal": "Organize relationship and message context while preserving privacy, nuance, and agency.",
+      "required_context": [
+        "message thread",
+        "relationship type",
+        "recent events",
+        "user intent",
+        "privacy constraints",
+        "desired tone"
+      ],
+      "proposal_rules": [
+        "Do not over-diagnose people from sparse messages.",
+        "Separate observation, interpretation, and suggested response.",
+        "Preserve emotional nuance and user agency.",
+        "Avoid manipulative scripts."
+      ],
+      "judge_dimensions": [
+        "emotional_accuracy",
+        "privacy_safety",
+        "tone_fit",
+        "non_manipulation",
+        "actionability"
+      ]
+    },
+    "finance": {
+      "goal": "Analyze financial questions with explicit data, uncertainty, risk, and jurisdiction limits.",
+      "required_context": [
+        "instrument or company",
+        "time horizon",
+        "risk tolerance",
+        "source data timestamp",
+        "jurisdiction",
+        "portfolio constraints"
+      ],
+      "proposal_rules": [
+        "Use current data for prices, filings, rates, and laws.",
+        "Separate factual analysis from recommendations.",
+        "State uncertainty, downside, and assumptions.",
+        "Avoid unsupported personalized financial advice."
+      ],
+      "judge_dimensions": [
+        "data_freshness",
+        "risk_disclosure",
+        "assumption_clarity",
+        "jurisdiction_awareness",
+        "decision_usefulness"
+      ]
+    },
+    "policy": {
+      "goal": "Analyze policy questions by jurisdiction, actor incentives, legal text, implementation, and dates.",
+      "required_context": [
+        "jurisdiction",
+        "policy text",
+        "effective dates",
+        "actors",
+        "implementation evidence",
+        "opposing interpretations"
+      ],
+      "proposal_rules": [
+        "Use precise dates and source status.",
+        "Distinguish law, proposal, enforcement, and commentary.",
+        "Represent competing interpretations without flattening them."
+      ],
+      "judge_dimensions": [
+        "source_precision",
+        "jurisdiction_fit",
+        "actor_modeling",
+        "implementation_awareness",
+        "balanced_uncertainty"
+      ]
+    },
+    "international_relations": {
+      "goal": "Explain international events through actors, interests, capabilities, constraints, timelines, and scenarios.",
+      "required_context": [
+        "actors",
+        "timeline",
+        "material capabilities",
+        "public statements",
+        "source reliability",
+        "regional context"
+      ],
+      "proposal_rules": [
+        "Separate confirmed facts from scenario inference.",
+        "Avoid single-cause explanations.",
+        "Track source reliability and propaganda risk.",
+        "Present scenario ranges instead of false certainty."
+      ],
+      "judge_dimensions": [
+        "actor_interest_model",
+        "timeline_accuracy",
+        "source_reliability",
+        "scenario_reasoning",
+        "uncertainty_calibration"
+      ]
+    }
+  }
+}

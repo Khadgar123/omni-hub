@@ -113,6 +113,7 @@ docker compose --env-file api-management/env.example -f api-management/compose.y
 - [Skill Intelligence](docs/skill-intelligence.md)
 - [推荐组合架构](docs/recommended-stack.md)
 - [自进化 Agent Harness](docs/self-evolution-harness.md)
+- [Agent 系统与知识库开发设计](docs/agent-system-development-plan.md)
 - [Roadmap](docs/roadmap.md)
 
 ## 维护原则

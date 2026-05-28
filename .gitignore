@@ -38,3 +38,11 @@ references/
 *.key
 id_rsa
 id_ed25519
+
+# Agent skills — symlinks and any cloned upstreams (recreated by ./install-skills.sh)
+.claude/skills
+.codex/skills
+.agents/skills/*/.git/
+.agents/skills/superpowers/
+.agents/skills/code-review/
+.agents/skills/anthropic-official/

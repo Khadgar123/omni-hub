@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "strategy": "product-orchestrator-with-pinned-service-forks",
   "forks": [
     {
@@ -8,7 +8,7 @@
       "origin": "https://github.com/Khadgar123/SWE-agent.git",
       "upstream": "https://github.com/SWE-agent/SWE-agent.git",
       "branch": "main",
-      "role": "engineering iteration core for issue-to-patch loops",
+      "role": "minimal issue-to-patch CI harness; kept for benchmark-comparable model evaluation (mini-SWE-agent 100 LOC)",
       "decision": "fork"
     },
     {
@@ -39,12 +39,61 @@
       "decision": "fork"
     }
   ],
-  "candidates": [
+  "pending_forks": [
+    {
+      "id": "dspy",
+      "path": "agent-harness/dspy",
+      "upstream": "https://github.com/stanfordnlp/dspy.git",
+      "branch": "main",
+      "role": "declarative prompt-program compiler; BootstrapFewShot + MIPROv2 close the loop from Argilla accepted/rejected back to next-version prompts (the engine for 'next run writes it correctly')",
+      "decision": "fork-pending-personal-clone",
+      "promotion_reason": "2026 reassessment: DSPy is the no-weight self-improvement engine. Argilla data without a compile step is dead data.",
+      "next_step": "Fork stanfordnlp/dspy to Khadgar123/dspy on GitHub, then run scripts/add_pending_harness_forks.sh dspy"
+    },
+    {
+      "id": "openhands",
+      "path": "agent-harness/openhands",
+      "upstream": "https://github.com/All-Hands-AI/OpenHands.git",
+      "branch": "main",
+      "role": "production-grade engineering agent platform (SWE-bench Verified 66-77%, 72k+ stars). Complements swe-agent: openhands for daily product work, swe-agent for CI parity benchmarks.",
+      "decision": "fork-pending-personal-clone",
+      "promotion_reason": "2026 reassessment: SWE-agent alone is research-focused. OpenHands is now the production scaffold of choice.",
+      "next_step": "Fork All-Hands-AI/OpenHands to Khadgar123/OpenHands on GitHub, then run scripts/add_pending_harness_forks.sh openhands"
+    },
     {
       "id": "opik",
-      "repo": "https://github.com/comet-ml/opik",
-      "role": "observability, traces, eval dashboards, and production monitoring",
-      "decision": "evaluate-before-fork"
+      "path": "agent-harness/opik",
+      "upstream": "https://github.com/comet-ml/opik.git",
+      "branch": "main",
+      "role": "trace / cost / latency / eval dashboard; observability backbone for the harness loop",
+      "decision": "fork-pending-personal-clone",
+      "promotion_reason": "Promoted from candidate to fork: 2026 trace+eval dashboard maturity confirmed against Langfuse/Phoenix in landscape review.",
+      "next_step": "Fork comet-ml/opik to Khadgar123/opik on GitHub, then run scripts/add_pending_harness_forks.sh opik"
+    }
+  ],
+  "candidates": [],
+  "decision_log": [
+    {
+      "date": "2026-05-28",
+      "action": "promote",
+      "id": "opik",
+      "from": "evaluate-before-fork",
+      "to": "fork-pending-personal-clone",
+      "reason": "2026 landscape review confirmed trace+eval+cost dashboard maturity"
+    },
+    {
+      "date": "2026-05-28",
+      "action": "add",
+      "id": "dspy",
+      "to": "fork-pending-personal-clone",
+      "reason": "Identified as the missing compile loop for accepted/rejected → next-version prompts (no-weight self-evolution)"
+    },
+    {
+      "date": "2026-05-28",
+      "action": "add",
+      "id": "openhands",
+      "to": "fork-pending-personal-clone",
+      "reason": "Complements swe-agent: production-grade engineering agent (66-77% SWE-bench Verified)"
     }
   ]
 }
