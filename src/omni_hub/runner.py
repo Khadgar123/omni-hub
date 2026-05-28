@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from uuid import uuid4
+
 from .audit import AuditLogger
 from .models import OperationResult, OperationSpec, OperationStatus
 from .policy import PolicyEngine
@@ -21,6 +23,13 @@ class OperationRunner:
         self.sandbox_enabled = sandbox_enabled
 
     def run(self, spec: OperationSpec, *, approved: bool = False) -> OperationResult:
+        # v0.18-C: ensure every Operation carries a trace_id so audit /
+        # proposal / claim / preference / fts5 / skill rows can stitch
+        # back to a single Command later.  In-place mutation is OK — the
+        # spec is owned by the call site, not yet shared cross-thread.
+        if not spec.trace_id:
+            spec.trace_id = str(uuid4())
+
         decision = self.policy.evaluate(spec)
         self.audit.record("policy_evaluated", spec, decision=decision)
 
@@ -29,6 +38,7 @@ class OperationRunner:
                 operation_id=spec.operation_id,
                 status=OperationStatus.WAITING_APPROVAL,
                 policy_reason=decision.reason,
+                trace_id=spec.trace_id,
             )
             event = self.audit.record(
                 "operation_waiting_approval",
@@ -44,6 +54,7 @@ class OperationRunner:
                 operation_id=spec.operation_id,
                 status=OperationStatus.BLOCKED,
                 policy_reason="sandbox is required but not enabled",
+                trace_id=spec.trace_id,
             )
             event = self.audit.record(
                 "operation_blocked",
@@ -61,12 +72,16 @@ class OperationRunner:
                 operation_id=spec.operation_id,
                 status=OperationStatus.FAILED,
                 error=str(exc),
+                trace_id=spec.trace_id,
             )
             event = self.audit.record("operation_failed", spec, result=result)
             result.audit_id = event.event_id
             return result
 
-        self.audit.record("operation_started", spec, decision=decision)
+        # v0.18-A: when dry_run is set, audit uses a distinct event_kind so
+        # log readers can filter previews out from real writes.
+        start_event_kind = "operation_previewed" if spec.dry_run else "operation_started"
+        self.audit.record(start_event_kind, spec, decision=decision)
 
         try:
             output = handler(spec)
@@ -75,6 +90,7 @@ class OperationRunner:
                 operation_id=spec.operation_id,
                 status=OperationStatus.FAILED,
                 error=str(exc),
+                trace_id=spec.trace_id,
             )
             event = self.audit.record("operation_failed", spec, result=result)
             result.audit_id = event.event_id
@@ -84,7 +100,11 @@ class OperationRunner:
             operation_id=spec.operation_id,
             status=OperationStatus.SUCCEEDED,
             output=output,
+            trace_id=spec.trace_id,
         )
-        event = self.audit.record("operation_succeeded", spec, result=result)
+        finish_event_kind = (
+            "operation_preview_succeeded" if spec.dry_run else "operation_succeeded"
+        )
+        event = self.audit.record(finish_event_kind, spec, result=result)
         result.audit_id = event.event_id
         return result

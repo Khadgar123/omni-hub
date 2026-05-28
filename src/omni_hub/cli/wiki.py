@@ -45,6 +45,8 @@ def register(subparsers: argparse._SubParsersAction) -> None:
 
     apply = subparsers.add_parser("wiki-apply-proposal")
     apply.add_argument("--proposal", required=True)
+    apply.add_argument("--preview", action="store_true",
+                       help="Plan-only: return typed ProjectionDiff, write nothing (Pulumi/Terraform pattern)")
 
     ingest = subparsers.add_parser(
         "wiki-ingest",
@@ -107,6 +109,10 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     supersede.add_argument("--new", dest="new_claim_id", required=True)
     supersede.add_argument("--old", dest="old_claim_id", required=True)
     supersede.add_argument("--reason", default="")
+    supersede.add_argument("--expected-version", type=int, default=None,
+                            help="Optimistic concurrency token (claim_ledger_version at read time)")
+    supersede.add_argument("--preview", action="store_true",
+                            help="Plan-only ProjectionDiff (v0.18-A)")
 
     resolve = subparsers.add_parser(
         "wiki-conflict-resolve",
@@ -222,6 +228,7 @@ def _apply_proposal(args, *, runner, workspace) -> int:
             action="apply",
             payload={"proposal": args.proposal},
             risk_level=RiskLevel.LOCAL_WRITE,
+            dry_run=bool(args.preview),
         ),
     )
 
@@ -294,17 +301,21 @@ def _lint(args, *, runner, workspace) -> int:
 
 
 def _supersede(args, *, runner, workspace) -> int:
+    payload: dict[str, object] = {
+        "new_claim_id": args.new_claim_id,
+        "old_claim_id": args.old_claim_id,
+        "reason": args.reason,
+    }
+    if args.expected_version is not None:
+        payload["expected_version"] = args.expected_version
     return run_and_print(
         runner,
         OperationSpec(
             name="wiki_supersede",
             action="supersede",
-            payload={
-                "new_claim_id": args.new_claim_id,
-                "old_claim_id": args.old_claim_id,
-                "reason": args.reason,
-            },
+            payload=payload,
             risk_level=RiskLevel.LOCAL_WRITE,
+            dry_run=bool(args.preview),
         ),
     )
 

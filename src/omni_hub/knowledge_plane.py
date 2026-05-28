@@ -528,9 +528,181 @@ def propose_research_wiki_update(
     return {"proposal": proposal, **paths}
 
 
+def claim_ledger_version(workspace: Path | str = ".") -> int:
+    """Return the current ClaimLedger version (line count).
+
+    Used as the optimistic-concurrency token: read at the start of a
+    mutation, pass back to the mutator as ``expected_version``.  A
+    mismatch on append means another writer landed first (single-user
+    still hits this with concurrent ``omni-hub worker --lane`` invocations).
+    """
+
+    workspace_root = Path(workspace).resolve()
+    ledger = workspace_root / CLAIM_LEDGER_PATH
+    if not ledger.exists():
+        return 0
+    return sum(1 for line in ledger.read_text(encoding="utf-8").splitlines() if line.strip())
+
+
+def preview_apply_wiki_proposal(
+    workspace: Path | str = ".",
+    proposal_id: str = "",
+    *,
+    trace_id: str = "",
+) -> "ProjectionDiff":
+    """v0.18-A: return what apply_wiki_proposal WOULD write, without writing.
+
+    Materialises a ProjectionDiff so policy / Proposal review / MCP
+    clients can see concrete impact on wiki / claims / preference / fts5.
+    Reads only — never mutates.
+    """
+
+    from .models import ProjectionChange, ProjectionDiff
+
+    workspace_root = Path(workspace).resolve()
+    proposal = ProposalStore(workspace_root).load(proposal_id)
+
+    diff = ProjectionDiff(
+        command_name="wiki_apply_proposal",
+        trace_id=trace_id,
+    )
+
+    if proposal.kind != "wiki_update":
+        diff.add(ProjectionChange(
+            projection_name="(no-op)", op="modify",
+            target=proposal_id,
+            detail={"reason": f"kind={proposal.kind!r} is not wiki_update — preview would refuse"},
+        ))
+        return diff
+
+    target_path = str(proposal.payload.get("target_path", "")).strip()
+    body = str(proposal.payload.get("body", ""))
+    claims = list(proposal.payload.get("claims", []))
+    domain = str(proposal.payload.get("domain", "") or "general")
+
+    # Wiki page write
+    target_exists = bool(target_path) and (workspace_root / target_path).exists()
+    diff.add(ProjectionChange(
+        projection_name="wiki",
+        op="modify" if target_exists else "add",
+        target=target_path,
+        detail={"bytes": len(body.encode("utf-8")), "domain": domain},
+    ))
+    diff.affected_size_bytes += len(body.encode("utf-8"))
+
+    # Claim ledger appends
+    for claim in claims:
+        if not isinstance(claim, dict):
+            continue
+        cid = str(claim.get("claim_id", ""))
+        if not cid:
+            continue
+        diff.add(ProjectionChange(
+            projection_name="claims",
+            op="add",
+            target=cid,
+            after={"statement": str(claim.get("statement", ""))[:200], "domain": domain},
+        ))
+
+    # Preference jsonl append (v0.15-B auto-feed)
+    diff.add(ProjectionChange(
+        projection_name="preference",
+        op="add",
+        target=f".omni/preference/{domain}.jsonl",
+        detail={"decision": "accepted", "domain": domain},
+    ))
+
+    # FTS5 incremental reindex
+    diff.add(ProjectionChange(
+        projection_name="fts5",
+        op="add" if not target_exists else "modify",
+        target=target_path,
+    ))
+
+    # log.md append (always)
+    diff.add(ProjectionChange(
+        projection_name="log_md",
+        op="add",
+        target="vault/wiki/log.md",
+        detail={"event_kind": "apply", "title": proposal.title[:80]},
+    ))
+
+    # index.md upsert
+    diff.add(ProjectionChange(
+        projection_name="index_md",
+        op="add",
+        target=target_path,
+    ))
+
+    return diff
+
+
+def preview_supersede_claim(
+    workspace: Path | str = ".",
+    *,
+    new_claim_id: str,
+    old_claim_id: str,
+    trace_id: str = "",
+) -> "ProjectionDiff":
+    """v0.18-A: preview wiki-supersede (Graphiti bitemporal close)."""
+
+    from .models import ProjectionChange, ProjectionDiff
+
+    workspace_root = Path(workspace).resolve()
+    diff = ProjectionDiff(command_name="wiki_supersede", trace_id=trace_id)
+
+    if new_claim_id == old_claim_id:
+        diff.add(ProjectionChange(
+            projection_name="(no-op)", op="modify", target=new_claim_id,
+            detail={"reason": "new and old are identical — preview would refuse"},
+        ))
+        return diff
+
+    ledger_claims = _load_claims_jsonl(workspace_root)
+    by_id = {str(c.get("claim_id", "")): c for c in ledger_claims if c.get("claim_id")}
+    if new_claim_id not in by_id:
+        diff.add(ProjectionChange(
+            projection_name="(error)", op="modify", target=new_claim_id,
+            detail={"reason": f"new_claim_id {new_claim_id!r} not in ledger"},
+        ))
+        return diff
+    if old_claim_id not in by_id:
+        diff.add(ProjectionChange(
+            projection_name="(error)", op="modify", target=old_claim_id,
+            detail={"reason": f"old_claim_id {old_claim_id!r} not in ledger"},
+        ))
+        return diff
+
+    old_claim = by_id[old_claim_id]
+    old_target = str(old_claim.get("target_path", "")).strip()
+
+    diff.add(ProjectionChange(
+        projection_name="claims", op="modify", target=old_claim_id,
+        before={"t_valid_to": old_claim.get("t_valid_to"),
+                "review_state": old_claim.get("review_state")},
+        after={"t_valid_to": "<now>", "review_state": "superseded",
+               "superseded_by": new_claim_id},
+    ))
+    diff.add(ProjectionChange(
+        projection_name="claims", op="modify", target=new_claim_id,
+        detail={"supersedes_append": old_claim_id},
+    ))
+    diff.add(ProjectionChange(
+        projection_name="log_md", op="add", target="vault/wiki/log.md",
+        detail={"event_kind": "supersede"},
+    ))
+    if old_target:
+        diff.add(ProjectionChange(
+            projection_name="index_md", op="remove", target=old_target,
+        ))
+    return diff
+
+
 def apply_wiki_proposal(
     workspace: Path | str = ".",
     proposal_id: str = "",
+    *,
+    trace_id: str = "",
 ) -> dict[str, object]:
     workspace_root = Path(workspace).resolve()
     init_layout(workspace_root)
@@ -588,6 +760,8 @@ def apply_wiki_proposal(
         "log_path": f"{WIKI_ROOT}/log.md",
         "preference_path": preference_path,
         "fts5_indexed": fts5_indexed,
+        "trace_id": trace_id,
+        "new_ledger_version": claim_ledger_version(workspace_root),
     }
 
 
@@ -895,6 +1069,8 @@ def supersede_claim(
     new_claim_id: str,
     old_claim_id: str,
     reason: str = "",
+    expected_version: int | None = None,
+    trace_id: str = "",
 ) -> dict[str, object]:
     """Close the old claim's validity window and link the new claim's
     ``supersedes`` chain.  Bitemporal — old claim is NOT deleted, only
@@ -902,7 +1078,15 @@ def supersede_claim(
 
     Atomically rewrites ``.omni/claims.jsonl`` via temp file + rename.
     Appends a ``supersede`` entry to ``vault/wiki/log.md``.
+
+    v0.18-E: when ``expected_version`` is provided, the rewrite is gated
+    on the ledger row count matching the caller's read snapshot.  A
+    mismatch raises ``ConcurrentModificationError`` (Event Sourcing
+    optimistic-concurrency pattern).  Pass ``None`` to skip the check
+    (legacy callers).
     """
+
+    from .models import ConcurrentModificationError
 
     if new_claim_id == old_claim_id:
         raise ValueError("new_claim_id and old_claim_id must differ")
@@ -912,8 +1096,16 @@ def supersede_claim(
     if not ledger.exists():
         raise FileNotFoundError(f"claim ledger not found at {ledger}")
 
+    raw_lines = ledger.read_text(encoding="utf-8").splitlines()
+    actual_version = sum(1 for line in raw_lines if line.strip())
+    if expected_version is not None and actual_version != expected_version:
+        raise ConcurrentModificationError(
+            f"ClaimLedger expected_version={expected_version} but actual={actual_version}; "
+            "re-read and retry"
+        )
+
     claims: list[dict[str, object]] = []
-    for line in ledger.read_text(encoding="utf-8").splitlines():
+    for line in raw_lines:
         line = line.strip()
         if not line:
             continue
@@ -981,6 +1173,8 @@ def supersede_claim(
         "reason": reason,
         "ledger_path": str(ledger.relative_to(workspace_root)),
         "index_pruned": index_pruned,
+        "trace_id": trace_id,
+        "new_ledger_version": claim_ledger_version(workspace_root),
     }
 
 
@@ -992,6 +1186,8 @@ def resolve_conflict(
     new_claim_id: str = "",
     old_claim_id: str = "",
     reason: str = "",
+    expected_version: int | None = None,
+    trace_id: str = "",
 ) -> dict[str, object]:
     """Apply a resolution to a ``lint_finding`` proposal of rule
     ``contradiction``.  Four decisions:
@@ -1051,6 +1247,8 @@ def resolve_conflict(
             new_claim_id=resolved_new,
             old_claim_id=resolved_old,
             reason=reason or f"conflict-resolve via {proposal_id}",
+            expected_version=expected_version,
+            trace_id=trace_id,
         )
     else:
         raise ValueError(

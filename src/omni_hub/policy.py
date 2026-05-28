@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
+from typing import Any, Literal
 
 from .models import OperationSpec, RiskLevel
 
@@ -13,12 +14,36 @@ class PolicyConfig:
     require_sandbox_from: RiskLevel = RiskLevel.SANDBOX_EXECUTION
 
 
+PolicyDecisionKind = Literal[
+    "allow",
+    "require_approval",
+    "require_sandbox",
+    "deny",
+]
+
+
 @dataclass(slots=True)
 class PolicyDecision:
-    allowed: bool
-    requires_approval: bool
-    requires_sandbox: bool
-    reason: str
+    """v0.18-D: OPA-compat structured output.
+
+    The legacy boolean fields (``allowed``/``requires_approval``/``requires_sandbox``)
+    are preserved so existing callers keep working;  new code should read
+    ``decision`` and ``violations`` instead.
+    """
+
+    decision: PolicyDecisionKind = "allow"
+    reason: str = ""
+    violations: list[str] = field(default_factory=list)
+    budget_consumed: dict[str, Any] = field(default_factory=dict)
+    trace_id: str = ""
+
+    # ---- legacy boolean projection (kept for backward compatibility) -----
+    allowed: bool = True
+    requires_approval: bool = False
+    requires_sandbox: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
 
 
 class PolicyEngine:
@@ -29,6 +54,7 @@ class PolicyEngine:
         risk_level = RiskLevel.parse(spec.risk_level)
         explicit_approval = spec.approval_required
         explicit_sandbox = spec.sandbox_required
+        violations: list[str] = []
 
         requires_sandbox = (
             explicit_sandbox
@@ -42,6 +68,7 @@ class PolicyEngine:
         elif risk_level >= self.config.require_approval_from:
             requires_approval = True
             reason = f"{risk_level.code} operations require human approval"
+            violations.append(f"risk_level={risk_level.code}>=L3 (EXTERNAL_PUBLISH)")
         elif risk_level == RiskLevel.EXTERNAL_SEND:
             key = f"{spec.connector}:{spec.action}"
             requires_approval = (
@@ -53,6 +80,10 @@ class PolicyEngine:
                 if not requires_approval
                 else "external send is not allowlisted"
             )
+            if requires_approval:
+                violations.append(
+                    f"connector={spec.connector!r}:{spec.action!r} not in external_write_allowlist"
+                )
         else:
             requires_approval = risk_level > self.config.auto_approve_until
             reason = (
@@ -60,13 +91,38 @@ class PolicyEngine:
                 if not requires_approval
                 else "risk level exceeds auto-approval threshold"
             )
+            if requires_approval:
+                violations.append(
+                    f"risk_level={risk_level.code} > auto_approve_until={self.config.auto_approve_until.code}"
+                )
 
         if risk_level >= RiskLevel.SANDBOX_EXECUTION:
             requires_sandbox = True
 
+        # v0.18-A: dry-run operations bypass approval gate at the policy
+        # layer (the handler still emits a no-write ProjectionDiff).  This
+        # lets users freely preview side effects without burning a human
+        # review slot.  We DON'T bypass sandbox — sandboxed code shouldn't
+        # run even in preview.
+        if spec.dry_run:
+            requires_approval = False
+            reason = (reason + " · dry_run skips approval gate") if reason else "dry_run"
+
+        # Derive OPA-shape decision from the legacy booleans.
+        if requires_sandbox:
+            decision: PolicyDecisionKind = "require_sandbox"
+        elif requires_approval:
+            decision = "require_approval"
+        else:
+            decision = "allow"
+
         return PolicyDecision(
+            decision=decision,
+            reason=reason,
+            violations=violations,
+            budget_consumed={},
+            trace_id=spec.trace_id,
             allowed=not requires_approval,
             requires_approval=requires_approval,
             requires_sandbox=requires_sandbox,
-            reason=reason,
         )

@@ -813,11 +813,20 @@ def make_wiki_apply_proposal(workspace: Path):
     workspace_root = workspace.resolve()
 
     def wiki_apply_proposal(spec: OperationSpec) -> dict[str, object]:
-        from .knowledge_plane import apply_wiki_proposal
+        from .knowledge_plane import apply_wiki_proposal, preview_apply_wiki_proposal
+
+        if spec.dry_run:
+            diff = preview_apply_wiki_proposal(
+                workspace_root,
+                str(spec.payload["proposal"]),
+                trace_id=spec.trace_id,
+            )
+            return diff.to_dict()
 
         return apply_wiki_proposal(
             workspace_root,
             str(spec.payload["proposal"]),
+            trace_id=spec.trace_id,
         )
 
     return wiki_apply_proposal
@@ -904,14 +913,23 @@ def make_wiki_supersede(workspace: Path):
     workspace_root = workspace.resolve()
 
     def wiki_supersede(spec: OperationSpec) -> dict[str, object]:
-        from .knowledge_plane import supersede_claim
+        from .knowledge_plane import preview_supersede_claim, supersede_claim
 
         payload = spec.payload
+        if spec.dry_run:
+            diff = preview_supersede_claim(
+                workspace_root,
+                new_claim_id=str(payload["new_claim_id"]),
+                old_claim_id=str(payload["old_claim_id"]),
+                trace_id=spec.trace_id,
+            )
+            return diff.to_dict()
         return supersede_claim(
             workspace_root,
             new_claim_id=str(payload["new_claim_id"]),
             old_claim_id=str(payload["old_claim_id"]),
             reason=str(payload.get("reason", "")),
+            expected_version=int(payload["expected_version"]) if "expected_version" in payload else None,
         )
 
     return wiki_supersede
@@ -931,6 +949,8 @@ def make_wiki_conflict_resolve(workspace: Path):
             new_claim_id=str(payload.get("new_claim_id", "")),
             old_claim_id=str(payload.get("old_claim_id", "")),
             reason=str(payload.get("reason", "")),
+            expected_version=int(payload["expected_version"]) if "expected_version" in payload else None,
+            trace_id=spec.trace_id,
         )
 
     return wiki_conflict_resolve
