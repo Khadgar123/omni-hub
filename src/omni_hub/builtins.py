@@ -1891,7 +1891,112 @@ def build_default_registry(workspace: Path | str = ".") -> OperationRegistry:
     registry.register("finance_portfolio_stats", make_finance_portfolio_stats(workspace_path))
     # v0.40 — explicit 2-level AppIntentRouter (intent → domain → tools).
     registry.register("app_intent_route", make_app_intent_route(workspace_path))
+    # v0.41 — eval flywheel
+    registry.register("eval_list", make_eval_list(workspace_path))
+    registry.register("eval_show", make_eval_show(workspace_path))
+    registry.register("eval_run", make_eval_run(workspace_path))
+    registry.register("eval_promote", make_eval_promote(workspace_path))
     return registry
+
+
+# ---------------------------------------------------------------------------
+# v0.41 — Eval flywheel operations
+# ---------------------------------------------------------------------------
+
+
+def make_eval_list(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def eval_list(spec: OperationSpec) -> dict:
+        from .evals import EvalStore
+        store = EvalStore(workspace_root)
+        packs = store.list_packs()
+        return {
+            "count": len(packs),
+            "packs": [p.to_dict() for p in packs],
+        }
+
+    return eval_list
+
+
+def make_eval_show(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def eval_show(spec: OperationSpec) -> dict:
+        from .evals import EvalStore
+        domain = str(spec.payload.get("domain", "")).strip()
+        version = str(spec.payload.get("version", "v0.1"))
+        if not domain:
+            raise ValueError("domain is required")
+        store = EvalStore(workspace_root)
+        pack = store.get_pack(domain, version)
+        if pack is None:
+            return {"domain": domain, "version": version, "found": False}
+        cases = store.list_cases(
+            pack,
+            include_holdout=bool(spec.payload.get("include_holdout", False)),
+        )
+        return {
+            "found": True,
+            "pack": pack.to_dict(),
+            "case_count": len(cases),
+            "cases": [c.to_dict() for c in cases],
+        }
+
+    return eval_show
+
+
+def make_eval_run(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def eval_run(spec: OperationSpec) -> dict:
+        from .evals import EvalRunner, EvalStore
+        domain = str(spec.payload.get("domain", "")).strip()
+        version = str(spec.payload.get("version", "v0.1"))
+        if not domain:
+            raise ValueError("domain is required")
+        store = EvalStore(workspace_root)
+        pack = store.get_pack(domain, version)
+        if pack is None:
+            raise ValueError(f"no pack at {domain}/{version}")
+        runner_ = EvalRunner(
+            workspace=workspace_root,
+            judge=str(spec.payload.get("judge", "heuristic")),
+        )
+        run = runner_.run(
+            pack,
+            skill_version=str(spec.payload.get("skill_version", "")),
+            trace_id=str(spec.trace_id or ""),
+            include_holdout=bool(spec.payload.get("include_holdout", False)),
+        )
+        # Trim per_case_results from CLI payload — full detail lands in
+        # .omni/eval_runs.sqlite3 (use ``omni-hub eval-run-show`` v0.42+).
+        return {
+            "run_id": run.run_id,
+            "pack_id": run.pack_id,
+            "judge_name": run.judge_name,
+            "composite_score": run.composite_score,
+            "pass_rate": run.pass_rate,
+            "pass_rate_by_class": run.pass_rate_by_class,
+            "case_count": len(run.per_case_results),
+        }
+
+    return eval_run
+
+
+def make_eval_promote(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def eval_promote(spec: OperationSpec) -> dict:
+        from .evals import propose_pack_upgrade
+        domain = str(spec.payload.get("domain", "")).strip()
+        new_version = str(spec.payload.get("new_version", "v0.2"))
+        if not domain:
+            raise ValueError("domain is required")
+        candidate = propose_pack_upgrade(workspace_root, domain, new_version)
+        return candidate.to_dict()
+
+    return eval_promote
 
 
 def make_app_intent_route(workspace: Path):

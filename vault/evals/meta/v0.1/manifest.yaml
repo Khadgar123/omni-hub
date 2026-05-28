@@ -1,0 +1,12 @@
+pack_id: meta/v0.1
+domain: meta
+version: v0.1
+source: v0.41 hand-curated (BUILD/USE/PIN/DEFER decisions)
+rubric_ref: domain_profiles.meta
+seed_path: vault/evals/meta/v0.1/seed.jsonl
+holdout_path: vault/evals/meta/v0.1/holdout-private.jsonl
+superseded_by: 
+created_at: 2026-05-28T11:55:37.266932+00:00
+eval_class_counts:
+  capability: 2
+  regression: 1

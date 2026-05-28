@@ -1,0 +1,83 @@
+{
+  "research/v0.1": {
+    "pack_id": "research/v0.1",
+    "domain": "research",
+    "version": "v0.1",
+    "eval_class_counts": {
+      "capability": 2,
+      "regression": 1,
+      "calibration": 1
+    },
+    "source": "v0.41 hand-curated (LongMemEval-S-inspired)",
+    "rubric_ref": "domain_profiles.research",
+    "seed_path": "vault/evals/research/v0.1/seed.jsonl",
+    "holdout_path": "vault/evals/research/v0.1/holdout-private.jsonl",
+    "notes_path": "vault/evals/research/v0.1/notes.md",
+    "superseded_by": "",
+    "created_at": "2026-05-28T11:55:37.262966+00:00"
+  },
+  "engineering/v0.1": {
+    "pack_id": "engineering/v0.1",
+    "domain": "engineering",
+    "version": "v0.1",
+    "eval_class_counts": {
+      "capability": 2,
+      "regression": 1
+    },
+    "source": "v0.41 hand-curated (SWE-bench Verified Lite-inspired)",
+    "rubric_ref": "domain_profiles.engineering",
+    "seed_path": "vault/evals/engineering/v0.1/seed.jsonl",
+    "holdout_path": "vault/evals/engineering/v0.1/holdout-private.jsonl",
+    "notes_path": "vault/evals/engineering/v0.1/notes.md",
+    "superseded_by": "",
+    "created_at": "2026-05-28T11:55:37.264369+00:00"
+  },
+  "finance/v0.1": {
+    "pack_id": "finance/v0.1",
+    "domain": "finance",
+    "version": "v0.1",
+    "eval_class_counts": {
+      "capability": 1,
+      "regression": 1,
+      "calibration": 1
+    },
+    "source": "v0.41 hand-curated (FinanceBench-inspired stubs)",
+    "rubric_ref": "domain_profiles.finance",
+    "seed_path": "vault/evals/finance/v0.1/seed.jsonl",
+    "holdout_path": "vault/evals/finance/v0.1/holdout-private.jsonl",
+    "notes_path": "vault/evals/finance/v0.1/notes.md",
+    "superseded_by": "",
+    "created_at": "2026-05-28T11:55:37.265513+00:00"
+  },
+  "meta/v0.1": {
+    "pack_id": "meta/v0.1",
+    "domain": "meta",
+    "version": "v0.1",
+    "eval_class_counts": {
+      "capability": 2,
+      "regression": 1
+    },
+    "source": "v0.41 hand-curated (BUILD/USE/PIN/DEFER decisions)",
+    "rubric_ref": "domain_profiles.meta",
+    "seed_path": "vault/evals/meta/v0.1/seed.jsonl",
+    "holdout_path": "vault/evals/meta/v0.1/holdout-private.jsonl",
+    "notes_path": "vault/evals/meta/v0.1/notes.md",
+    "superseded_by": "",
+    "created_at": "2026-05-28T11:55:37.266932+00:00"
+  },
+  "chat-relationships/v0.1": {
+    "pack_id": "chat-relationships/v0.1",
+    "domain": "chat-relationships",
+    "version": "v0.1",
+    "eval_class_counts": {
+      "calibration": 2
+    },
+    "source": "v0.41 hand-curated (MT-Bench-inspired multi-turn)",
+    "rubric_ref": "domain_profiles.chat-relationships",
+    "seed_path": "vault/evals/chat-relationships/v0.1/seed.jsonl",
+    "holdout_path": "vault/evals/chat-relationships/v0.1/holdout-private.jsonl",
+    "notes_path": "vault/evals/chat-relationships/v0.1/notes.md",
+    "superseded_by": "",
+    "created_at": "2026-05-28T11:55:37.268759+00:00"
+  }
+}

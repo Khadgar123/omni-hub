@@ -1,0 +1,1 @@
+Five capability cases probing memory + citation discipline.  Inspired by LongMemEval-S session shapes.  Calibration rubric: evidence_coverage + citation_support are the most weighted dimensions per finance/policy peers.

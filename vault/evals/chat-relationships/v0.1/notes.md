@@ -1,0 +1,1 @@
+Calibration-only seed: relationship advice is subjective. Rubric weights uncertainty_calibration + style_fit higher; evidence_coverage low (no citations expected).

@@ -1,0 +1,1 @@
+Meta-skill seed: cases about omni-hub's own architecture decisions.  Source is the project's commit history + review responses (docs/review-2026-05-28-response.md).

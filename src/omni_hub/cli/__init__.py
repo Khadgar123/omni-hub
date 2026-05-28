@@ -24,6 +24,7 @@ from . import (
     channel,
     claims,
     command,
+    evals,
     event,
     finance,
     harness,
@@ -60,6 +61,7 @@ _AREAS = [
     ab,                          # v0.29 A/B test framework
     users, scheduling, inbox,    # v0.39 — expose v0.31-v0.33 to CLI
     projects, pptx, finance,     # v0.39 — expose v0.34-v0.36 to CLI
+    evals,                       # v0.41 — eval flywheel
 ]
 
 

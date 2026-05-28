@@ -1,0 +1,1 @@
+Capability cases on Python stdlib idioms + a regression case ensuring the skill refuses to fabricate APIs.  Fuller SWE-bench seed lands in v0.42 (needs CI hookup).

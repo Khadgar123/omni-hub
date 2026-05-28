@@ -1,0 +1,1 @@
+Two filings-grounded capability cases + one regression ensuring the skill refuses unsupported personalized advice. Real ConvFinQA + EDGAR seed lands v0.42.

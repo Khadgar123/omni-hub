@@ -98,6 +98,15 @@ v0.11 起 `vault/wiki/` + `.omni/claims.jsonl` 是 Karpathy LLM-Wiki 母模板�
 - **wiki-lint 六规则的域 override 写在 `DomainSchema.rule_overrides`**。新增/改 override = 改代码,不要在 finding 端 patch severity。
 - **`.omni/preference/<domain>.jsonl` 是飞轮真源**。`wiki-apply-proposal` 自动 append `decision=accepted` 一条;不要在其他路径直写 preference,确保 `harness-compile` / `harness-compile-skill` 能稳定消费。
 
+### 5.5 Eval Flywheel (v0.41+) 数据飞轮
+
+`vault/evals/<domain>/v0.X/` 是 benchmark 真源 — capability / regression / calibration 三类 EvalCase JSONL。详见 [docs/eval-flywheel-v0.41.md](docs/eval-flywheel-v0.41.md)。
+
+- **HR #11 — Eval pack 不可手编辑 v0.X**。一旦 freeze (写入 `vault/evals/<domain>/v0.X/`),只能新建 v0.X+1。`EvalStore.create_pack(existing version)` 主动 raise。审核失误的 case → 在 v0.X+1 修;原 v0.X 保留作历史回归。
+- **HR #12 — Holdout 不进 git**。`vault/evals/*/v*/holdout-private.jsonl` 加 `.gitignore`。Burn (已被公开评分) 后强制 rotate,不允许重用同一 holdout 评 prod。
+- **HR #13 — Graduation 必经 Proposal**。`PreferenceStore[domain].accepted_count >= 100` 触发候选 → `propose_pack_upgrade` emit `Proposal(kind=eval_pack_upgrade)` → 人审 → 写 v0.X+1。**不允许自动 promotion** (Anthropic 2026-01 + UC Berkeley 反 reward-hacking 共识)。
+- **HR #14 — `eval_class` 必填**。每个 EvalCase 必须显式标 `capability | regression | calibration` (Anthropic 2026-01 taxonomy);capability 通过阈值 0.55,regression 0.85,calibration 0.70 (rubric)。混类 = 反模式。
+
 ### 6. Interface + Application Plane (v0.19)
 
 - **新 Channel adapter 必须实现 `omni_hub.channels.Channel` Protocol** (`listen` / `reply` / `health_check` / `shutdown`)。
