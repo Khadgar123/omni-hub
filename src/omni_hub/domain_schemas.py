@@ -39,6 +39,12 @@ class DomainSchema:
     pinned_refs: list[str] = field(default_factory=list)
     lint_hints: list[str] = field(default_factory=list)
     notes: str = ""
+    # Per-rule severity overrides — empty means "use the rule's default".
+    # Keys are wiki_lint rule names (contradiction / stale_fact / orphan_page /
+    # missing_concept / broken_cross_ref / data_gap).  Values are
+    # ``high`` / ``medium`` / ``low`` / ``skip`` (skip = don't emit this rule
+    # for pages whose ``domain`` matches this schema).
+    rule_overrides: dict[str, str] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -80,6 +86,10 @@ DOMAIN_SCHEMAS: dict[str, DomainSchema] = {
             "broken_cross_ref severity=high: missing paper citations break academic trust.",
             "missing_concept findings on method/algorithm slugs SHOULD become new method pages.",
         ],
+        rule_overrides={
+            "broken_cross_ref": "high",
+            "missing_concept": "medium",
+        },
     ),
     "engineering": DomainSchema(
         slug="engineering",
@@ -101,6 +111,9 @@ DOMAIN_SCHEMAS: dict[str, DomainSchema] = {
             "engineering pages tagged confidence: low for > 180d SHOULD trigger a re-ingest.",
             "github_repo links should be checked against current default branch.",
         ],
+        rule_overrides={
+            "data_gap": "medium",          # framework churn matters more
+        },
     ),
     "photography": DomainSchema(
         slug="photography",
@@ -125,6 +138,10 @@ DOMAIN_SCHEMAS: dict[str, DomainSchema] = {
             "missing attribution = automatic broken_cross_ref severity high.",
             "low data-gap pressure — photography knowledge ages slowly.",
         ],
+        rule_overrides={
+            "broken_cross_ref": "high",
+            "data_gap": "low",
+        },
     ),
     "fashion": DomainSchema(
         slug="fashion",
@@ -145,6 +162,10 @@ DOMAIN_SCHEMAS: dict[str, DomainSchema] = {
         lint_hints=[
             "season pages SHOULD be superseded each cycle; flag stale_fact aggressively.",
         ],
+        rule_overrides={
+            "stale_fact": "high",
+            "data_gap": "skip",            # reactive, not gap-driven
+        },
     ),
     "chat_relationships": DomainSchema(
         slug="chat_relationships",
@@ -165,6 +186,10 @@ DOMAIN_SCHEMAS: dict[str, DomainSchema] = {
             "data_gap is informational only — chat context decays naturally.",
             "missing_concept findings here often map to entity pages (people / roles).",
         ],
+        rule_overrides={
+            "data_gap": "skip",            # purely reactive
+            "stale_fact": "low",
+        },
     ),
     "finance": DomainSchema(
         slug="finance",
@@ -189,6 +214,11 @@ DOMAIN_SCHEMAS: dict[str, DomainSchema] = {
             "stale_fact severity=high: outdated financial data is dangerous.",
             "broken_cross_ref on cik/ticker MUST be repaired before next ingest.",
         ],
+        rule_overrides={
+            "stale_fact": "high",
+            "broken_cross_ref": "high",
+            "data_gap": "high",
+        },
     ),
     "policy": DomainSchema(
         slug="policy",
@@ -213,6 +243,10 @@ DOMAIN_SCHEMAS: dict[str, DomainSchema] = {
             "missing_concept on bill_id / regulation_id SHOULD become an event page.",
             "contradiction severity=high — policy positions across sources require resolution.",
         ],
+        rule_overrides={
+            "contradiction": "high",
+            "missing_concept": "high",
+        },
     ),
     "international_relations": DomainSchema(
         slug="international_relations",
@@ -235,6 +269,11 @@ DOMAIN_SCHEMAS: dict[str, DomainSchema] = {
             "stale_fact severity=high — IR pages decay in days.",
             "contradiction frequent and EXPECTED — multiple narrative sources are the norm.",
         ],
+        rule_overrides={
+            "stale_fact": "high",
+            "contradiction": "low",        # noise floor; multi-narrative is normal
+            "data_gap": "high",
+        },
     ),
     "ai_progress": DomainSchema(
         slug="ai_progress",
@@ -256,6 +295,10 @@ DOMAIN_SCHEMAS: dict[str, DomainSchema] = {
             "stale threshold = 14d (AI progress moves faster than classic research).",
             "missing_concept on model_family slugs SHOULD become entity pages.",
         ],
+        rule_overrides={
+            "data_gap": "medium",
+            "missing_concept": "high",
+        },
     ),
     "agent_systems": DomainSchema(
         slug="agent_systems",
@@ -282,6 +325,10 @@ DOMAIN_SCHEMAS: dict[str, DomainSchema] = {
             "decision field MUST be one of the BUILD-vs-USE template enum values.",
             "broken_cross_ref severity=high — pinned forks must exist as submodules.",
         ],
+        rule_overrides={
+            "broken_cross_ref": "high",    # missing submodule = build break risk
+            "data_gap": "medium",
+        },
     ),
     "social_en": DomainSchema(
         slug="social_en",
@@ -303,6 +350,10 @@ DOMAIN_SCHEMAS: dict[str, DomainSchema] = {
             "data_gap is expected — social pages reflect a moment, not a process.",
             "missing attribution / post_id = broken_cross_ref severity=medium.",
         ],
+        rule_overrides={
+            "data_gap": "skip",            # social posts are snapshots
+            "broken_cross_ref": "medium",
+        },
     ),
     "social_zh": DomainSchema(
         slug="social_zh",
@@ -325,6 +376,10 @@ DOMAIN_SCHEMAS: dict[str, DomainSchema] = {
             "DO NOT propose pages from auto-scrape; only manual share-link parse.",
             "broken_cross_ref severity=medium when post is deleted upstream (expected).",
         ],
+        rule_overrides={
+            "data_gap": "skip",
+            "broken_cross_ref": "medium",
+        },
     ),
 }
 
@@ -450,3 +505,20 @@ def get_stale_after_days(domain: str, *, default: int = 30) -> int:
 
     schema = DOMAIN_SCHEMAS.get(domain) or DOMAIN_SCHEMAS.get(domain.replace("-", "_"))
     return schema.stale_after_days if schema else default
+
+
+def get_rule_override(domain: str, rule: str) -> str | None:
+    """Return the domain's severity override for a lint rule, or None.
+
+    Special value ``"skip"`` means the rule should be suppressed entirely
+    for pages in this domain (Karpathy gist: "data_gap is informational
+    only" — chat_relationships / fashion / social_* skip data_gap by
+    construction).
+    """
+
+    if not domain:
+        return None
+    schema = DOMAIN_SCHEMAS.get(domain) or DOMAIN_SCHEMAS.get(domain.replace("-", "_"))
+    if schema is None:
+        return None
+    return schema.rule_overrides.get(rule) or None

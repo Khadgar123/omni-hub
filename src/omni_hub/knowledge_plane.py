@@ -481,12 +481,63 @@ def apply_wiki_proposal(
         target_path=str(target.relative_to(workspace_root)),
     )
 
+    # Feed the DSPy/GEPA flywheel without depending on Argilla: an approved
+    # wiki_update is by definition a positive demonstration of the
+    # synthesis-page schema, so record it as an accepted PreferenceRecord.
+    # Failures here are non-fatal — the apply step already succeeded.
+    preference_path = ""
+    try:
+        preference_path = _record_wiki_preference(
+            workspace_root, proposal=proposal, body=body, claims_written=claims_written,
+        )
+    except Exception:                                           # noqa: BLE001
+        # Preference flywheel is opportunistic; never block apply.
+        preference_path = ""
+
     return {
         "proposal_id": proposal.proposal_id,
         "target_path": str(target.relative_to(workspace_root)),
         "claims_written": claims_written,
         "log_path": f"{WIKI_ROOT}/log.md",
+        "preference_path": preference_path,
     }
+
+
+def _record_wiki_preference(
+    workspace: Path,
+    *,
+    proposal: Proposal,
+    body: str,
+    claims_written: int,
+) -> str:
+    """Append a PreferenceRecord(decision='accepted') for an approved wiki_update.
+
+    Closes the DSPy/GEPA loop locally — Argilla is the upstream UI, but a
+    local-user approve already counts as a positive demonstration.  Stored
+    under ``.omni/preference/<domain>.jsonl`` (one file per domain).
+    """
+
+    from .harness.preference import PreferenceRecord, PreferenceStore
+
+    payload = proposal.payload
+    domain = str(payload.get("domain", "") or "general")
+    store = PreferenceStore(workspace / ".omni" / "preference")
+    record = PreferenceRecord(
+        task_id=proposal.source_task_id or proposal.proposal_id,
+        domain=domain,
+        prompt_version=str(payload.get("prompt_version", "v0")),
+        candidate_text=body,
+        decision="accepted",
+        accepted_spans=[body] if body else [],
+        rejected_spans=[],
+        reason=f"wiki_update applied; {claims_written} claim(s) recorded",
+        reviewer=proposal.decided_by or "local-user",
+        judge_summary={
+            "claims_written": float(claims_written),
+            "confidence": float(proposal.confidence),
+        },
+    )
+    return str(store.append(record).relative_to(workspace))
 
 
 def ingest_retrieval_evidence(

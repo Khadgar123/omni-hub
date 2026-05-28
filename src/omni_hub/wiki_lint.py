@@ -143,6 +143,11 @@ def lint_wiki(
             _rule_data_gap(pages, workspace=workspace_root, now=now, stale_after_days=stale_after_days)
         )
 
+    # Apply per-domain severity overrides + skip filters declared in
+    # `DomainSchema.rule_overrides`.  This runs AFTER rule emission so the
+    # detection logic stays domain-agnostic.
+    findings = _apply_domain_rule_overrides(findings, pages=pages, claims=claims)
+
     proposal_ids: list[str] = []
     if persist_proposals and findings:
         store = ProposalStore(workspace_root)
@@ -410,6 +415,72 @@ def _rule_data_gap(
             )
         )
     return findings
+
+
+# ---------------------------------------------------------------------------
+# Domain override layer
+# ---------------------------------------------------------------------------
+
+
+def _apply_domain_rule_overrides(
+    findings: list[LintFinding],
+    *,
+    pages: list[_Page],
+    claims: list[dict[str, Any]],
+) -> list[LintFinding]:
+    """Re-stamp severity (or drop entirely) per `DomainSchema.rule_overrides`.
+
+    Resolution order for the domain attached to a finding:
+
+    1. If the finding has `affected_paths`, take the domain from the first
+       page's frontmatter.
+    2. Otherwise, if it has `affected_claim_ids`, take the claim's domain.
+    3. Otherwise treat as "default" (no override applies).
+    """
+
+    from .domain_schemas import get_rule_override
+
+    page_by_path = {p.relative_path: p for p in pages}
+    claim_by_id = {str(c.get("claim_id", "")): c for c in claims if c.get("claim_id")}
+
+    kept: list[LintFinding] = []
+    for finding in findings:
+        domain = _domain_for_finding(finding, page_by_path, claim_by_id)
+        override = get_rule_override(domain, finding.rule) if domain else None
+        if not override:
+            kept.append(finding)
+            continue
+        if override.lower() == "skip":
+            # Domain says don't emit this rule.
+            continue
+        if override in {"low", "medium", "high"}:
+            finding.severity = override
+            finding.detail = dict(finding.detail)
+            # Record the override even when it equals the rule's default —
+            # the domain explicitly opted in, so the audit trail benefits.
+            finding.detail["domain_override"] = domain
+        kept.append(finding)
+    return kept
+
+
+def _domain_for_finding(
+    finding: LintFinding,
+    page_by_path: dict[str, _Page],
+    claim_by_id: dict[str, dict[str, Any]],
+) -> str:
+    for path in finding.affected_paths:
+        page = page_by_path.get(path)
+        if page is not None:
+            domain = str(page.frontmatter.get("domain", "")).strip()
+            if domain:
+                return domain
+    for cid in finding.affected_claim_ids:
+        claim = claim_by_id.get(str(cid))
+        if claim is not None:
+            domain = str(claim.get("domain", "")).strip()
+            if domain:
+                return domain
+    return ""
 
 
 # ---------------------------------------------------------------------------

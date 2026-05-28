@@ -323,11 +323,59 @@ def _read_jsonl(path: Path) -> Iterator[dict[str, Any]]:
 
 
 def _candidate_text(proposal: Proposal) -> str:
+    """Pick the reviewable text for an Argilla record.
+
+    Generic keys win first (text / candidate_text / answer / content /
+    edited_text — the keys agent workers populate).  Then kind-specific
+    fallbacks: ``wiki_update`` carries the synthesis page body, and
+    ``lint_finding`` carries a structured rule + finding summary.
+    """
+
     payload = proposal.payload
     for key in ("text", "candidate_text", "answer", "content", "edited_text"):
         value = payload.get(key)
         if isinstance(value, str) and value.strip():
             return value
+
+    if proposal.kind == "wiki_update":
+        body = payload.get("body")
+        if isinstance(body, str) and body.strip():
+            return body
+        # Older shape: claims-only payload, no rendered body.
+        claims = payload.get("claims") or []
+        if isinstance(claims, list) and claims:
+            lines = ["## Candidate claims", ""]
+            for claim in claims:
+                if not isinstance(claim, dict):
+                    continue
+                lines.append(
+                    f"- `{claim.get('claim_id', '?')}` ({claim.get('confidence', 0)}) "
+                    f"{claim.get('statement', '')}"
+                )
+            return "\n".join(lines)
+
+    if proposal.kind == "lint_finding":
+        rule = str(payload.get("rule", "")).strip() or "unknown_rule"
+        severity = str(payload.get("severity", "")).strip() or "unknown"
+        affected_paths = payload.get("affected_paths") or []
+        affected_claims = payload.get("affected_claim_ids") or []
+        lines = [
+            f"## Lint finding ({rule}, severity={severity})",
+            "",
+            proposal.summary,
+            "",
+        ]
+        if affected_paths:
+            lines.append("### Affected pages")
+            for path in affected_paths:
+                lines.append(f"- `{path}`")
+            lines.append("")
+        if affected_claims:
+            lines.append("### Affected claims")
+            for cid in affected_claims:
+                lines.append(f"- `{cid}`")
+        return "\n".join(lines).rstrip()
+
     if proposal.summary.strip():
         return proposal.summary
     return proposal.title
@@ -347,6 +395,13 @@ def _suggested_decision(proposal: Proposal) -> str:
         return "reject"
     if proposal.kind in {"low_signal", "stale"}:
         return "reject"
+    if proposal.kind == "lint_finding":
+        # Lint findings default to approve = "fix this": the human acknowledges
+        # the rule and will act.  reject = "ignore this finding".
+        severity = str(proposal.payload.get("severity", "")).lower()
+        if severity == "low":
+            return "approve"           # still actionable but low priority
+        return "approve"
     return "approve"
 
 
