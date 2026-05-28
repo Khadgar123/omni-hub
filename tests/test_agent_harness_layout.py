@@ -15,18 +15,20 @@ class AgentHarnessLayoutTests(unittest.TestCase):
         gitmodules = (root / ".gitmodules").read_text(encoding="utf-8")
 
         expected = {
-            "swe-agent": ("agent-harness/swe-agent", "main"),
-            "promptfoo": ("agent-harness/promptfoo", "main"),
-            "argilla": ("agent-harness/argilla", "develop"),
-            "graphiti": ("agent-harness/graphiti", "main"),
+            "swe-agent": ("agent-harness/swe-agent", "main", "fork"),
+            "promptfoo": ("agent-harness/promptfoo", "main", "fork"),
+            "argilla": ("agent-harness/argilla", "develop", "fork"),
+            "graphiti": ("agent-harness/graphiti", "main", "fork"),
+            "researchflow": ("agent-harness/researchflow", "main", "upstream-direct"),
+            "paperbite": ("agent-harness/paperbite", "main", "upstream-direct"),
         }
         forks = {item["id"]: item for item in manifest["forks"]}
 
         self.assertEqual(set(forks), set(expected))
-        for fork_id, (path, branch) in expected.items():
+        for fork_id, (path, branch, decision) in expected.items():
             self.assertEqual(forks[fork_id]["path"], path)
             self.assertEqual(forks[fork_id]["branch"], branch)
-            self.assertEqual(forks[fork_id]["decision"], "fork")
+            self.assertEqual(forks[fork_id]["decision"], decision)
             self.assertIn(f"[submodule \"{path}\"]", gitmodules)
             self.assertIn(f"path = {path}", gitmodules)
 

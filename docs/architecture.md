@@ -49,7 +49,8 @@
 辅助层（项目编排但不在主仓核心）：
 
 ```
-agent-harness/    4 pinned forks（SWE-agent / promptfoo / argilla / graphiti）
+agent-harness/    pinned modules（SWE-agent / promptfoo / argilla / graphiti）
+                  + RipeMangoBox upstream modules（ResearchFlow / PaperBite）
                   + 3 pending（DSPy / OpenHands / Opik，由 manifest.json 管理）
 api-management/   metapi（上游账号/余额/路由）+ ccLoad（本地协议转换/限流）
                   Docker compose 启停
@@ -109,7 +110,7 @@ scripts/launchd/  macOS launchd plist 模板（daily/weekly/monthly/worker）
 1. 新 CLI 子命令必须在 `src/omni_hub/cli/<area>.py`，写操作必须过 `OperationRunner`。
 2. 后台任务过 `TaskQueue`；agent worker 成功输出必经 `Proposal[T]`，不允许直接写 vault/memory。
 3. 删 / 改公共类必须同步 `__init__.py` 的 export 和测试。
-4. 新 fork 必须先入 `agent-harness/manifest.json::pending_forks`，由 `scripts/add_pending_harness_forks.sh` 转 submodule。
+4. 新第三方 fork 必须先入 `agent-harness/manifest.json::pending_forks`，由 `scripts/add_pending_harness_forks.sh` 转 submodule；用户有上游协作权限的一方模块可登记为 `upstream-direct`，直接 pin 上游 gitlink。
 
 ## 设计文档导航
 

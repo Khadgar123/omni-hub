@@ -57,6 +57,7 @@ Codex / Claude Code 在这套架构里是 **headless worker**，不是项目本�
 ### 4. Fork / Submodule 流程
 
 - 新增第三方 fork 必须**先**写进 `agent-harness/manifest.json::pending_forks`（带 upstream / role / next_step），**再**由 `scripts/add_pending_harness_forks.sh <id>` 转 submodule。
+- 如果用户对上游仓库有协作权限（例如 `RipeMangoBox/ResearchFlow`、`RipeMangoBox/PaperBite`），可以登记为 `decision=upstream-direct` 并直接 pin 上游 gitlink，不要绕到个人 fork。
 - **禁止**手动 `git submodule add` 跳过这条流程。理由：manifest 是 `make harness-status` 的源、fork 决策有 `decision_log` 留痕。
 
 ## 本地检查

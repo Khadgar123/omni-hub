@@ -502,18 +502,56 @@ def make_retrieve_cascade(workspace: Path):
     workspace_root = workspace.resolve()
 
     def retrieve_cascade(spec: OperationSpec) -> dict[str, object]:
-        from .retrieval import Cascade, builtin_sources
+        from .retrieval import (
+            Cascade,
+            EvidenceStore,
+            HeuristicGrader,
+            TTLCache,
+            builtin_sources,
+        )
 
         payload = spec.payload
-        cascade = Cascade(builtin_sources())
+        cache: TTLCache | None = None
+        if bool(payload.get("use_cache", False)):
+            cache = TTLCache(workspace_root)
+
+        cascade = Cascade(builtin_sources(), cache=cache)
+
+        fusion = str(payload.get("fusion", "concat"))
+        if fusion not in ("rrf", "concat"):
+            fusion = "concat"
+
+        grader = None
+        grader_name = str(payload.get("grader", "")).strip().lower()
+        if grader_name == "heuristic":
+            grader = HeuristicGrader()
+        # `llm` grader is intentionally not wireable from CLI yet — the
+        # callable needs a model client the operator pins themselves.
+
         result = cascade.retrieve(
             str(payload["query"]),
             domain=str(payload.get("domain", "default")),
             per_source_limit=int(payload.get("per_source_limit", 5)),
             total_limit=int(payload.get("total_limit", 20)),
             sources=list(payload["sources"]) if payload.get("sources") else None,
+            fusion=fusion,                # type: ignore[arg-type]
+            grader=grader,
         )
-        return result.to_dict()
+
+        result_dict = result.to_dict()
+
+        if bool(payload.get("persist_evidence", False)):
+            evidence_store = EvidenceStore(workspace_root)
+            extra = {"operation": "retrieve_cascade"}
+            run_id = str(payload.get("run_id", "")).strip()
+            artifact = evidence_store.write(
+                result_dict,
+                run_id=run_id or None,
+                extra_manifest=extra,
+            )
+            result_dict["evidence"] = artifact.to_dict()
+
+        return result_dict
 
     return retrieve_cascade
 
@@ -559,6 +597,70 @@ def make_fetch_url_reader(workspace: Path):
         }
 
     return fetch_url_reader
+
+
+def make_research_kb_status(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def research_kb_status(spec: OperationSpec) -> dict[str, object]:
+        from .research_assets import status
+
+        return status(workspace_root)
+
+    return research_kb_status
+
+
+def make_research_kb_search(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def research_kb_search(spec: OperationSpec) -> dict[str, object]:
+        from .research_assets import search
+
+        payload = spec.payload
+        results = search(
+            str(payload["query"]),
+            workspace=workspace_root,
+            source_id=str(payload.get("source", "all")),
+            limit=int(payload.get("limit", 10)),
+        )
+        return {
+            "count": len(results),
+            "results": [result.to_dict() for result in results],
+        }
+
+    return research_kb_search
+
+
+def make_research_kb_read(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def research_kb_read(spec: OperationSpec) -> dict[str, object]:
+        from .research_assets import read_analysis
+
+        payload = spec.payload
+        return read_analysis(
+            str(payload["path"]),
+            workspace=workspace_root,
+            source_id=str(payload["source"]),
+            max_chars=int(payload.get("max_chars", 4000)),
+        )
+
+    return research_kb_read
+
+
+def make_researchflow_skill_inventory(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def researchflow_skill_inventory(spec: OperationSpec) -> dict[str, object]:
+        from .research_assets import list_researchflow_skills
+
+        skills = list_researchflow_skills(workspace_root)
+        return {
+            "count": len(skills),
+            "skills": [skill.to_dict() for skill in skills],
+        }
+
+    return researchflow_skill_inventory
 
 
 def make_event_log_dump(workspace: Path):
@@ -1044,6 +1146,13 @@ def build_default_registry(workspace: Path | str = ".") -> OperationRegistry:
     registry.register("event_log_list", make_event_log_list(workspace_path))
     registry.register("retrieve_cascade", make_retrieve_cascade(workspace_path))
     registry.register("fetch_url_reader", make_fetch_url_reader(workspace_path))
+    registry.register("research_kb_status", make_research_kb_status(workspace_path))
+    registry.register("research_kb_search", make_research_kb_search(workspace_path))
+    registry.register("research_kb_read", make_research_kb_read(workspace_path))
+    registry.register(
+        "researchflow_skill_inventory",
+        make_researchflow_skill_inventory(workspace_path),
+    )
     registry.register("memory_remember_core", make_memory_remember_core(workspace_path))
     registry.register("memory_forget_core", make_memory_forget_core(workspace_path))
     registry.register("memory_recall", make_memory_recall(workspace_path))

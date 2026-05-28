@@ -67,12 +67,19 @@ class OpenAlexSource:
                 item.get("abstract_inverted_index") or {}
             )
 
+            # DOI is the strongest canonical_id for scholarly works; fall
+            # back to the openalex_id when DOI is missing (some grey lit).
+            canonical = (
+                _normalise_doi(doi)
+                or (item.get("id", "") or "").replace("https://openalex.org/", "openalex:")
+            )
             records.append(RetrievalRecord(
                 source=self.name,
                 title=item.get("display_name", ""),
                 url=item.get("id", "") or doi,
                 snippet=abstract[:500] if abstract else venue,
                 score=float(item.get("cited_by_count", 0)),
+                canonical_id=canonical,
                 metadata={
                     "authors": [a for a in authors if a],
                     "year": year,
@@ -96,3 +103,18 @@ def _reconstruct_abstract(inverted: dict[str, list[int]]) -> str:
         for p in positions:
             pos[p] = word
     return " ".join(pos[i] for i in sorted(pos))
+
+
+def _normalise_doi(doi: str) -> str:
+    """OpenAlex returns DOIs in mixed form (https://doi.org/10.x, doi:10.x,
+    raw 10.x).  Strip to a canonical ``doi:10.<rest>`` shape so two records
+    citing the same DOI in different formats hash to one canonical_id."""
+
+    if not doi:
+        return ""
+    s = doi.strip().lower()
+    for prefix in ("https://doi.org/", "http://doi.org/", "doi.org/", "doi:"):
+        if s.startswith(prefix):
+            s = s[len(prefix):]
+            break
+    return f"doi:{s}" if s else ""

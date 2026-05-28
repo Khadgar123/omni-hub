@@ -43,20 +43,30 @@ update_fork() {
   echo "Updated $path to $(git -C "$path" rev-parse --short HEAD)"
 }
 
-git submodule update --init --recursive \
-  agent-harness/swe-agent \
-  agent-harness/promptfoo \
-  agent-harness/argilla \
-  agent-harness/graphiti
+manifest_entries() {
+  python3 -c "
+import json
+m = json.load(open('agent-harness/manifest.json'))
+for fork in m.get('forks', []):
+    print('\t'.join([
+        fork['path'], fork['origin'], fork['upstream'], fork['branch'],
+    ]))
+"
+}
 
-ensure_remote "agent-harness/swe-agent" "upstream" "https://github.com/SWE-agent/SWE-agent.git"
-ensure_remote "agent-harness/promptfoo" "upstream" "https://github.com/promptfoo/promptfoo.git"
-ensure_remote "agent-harness/argilla" "upstream" "https://github.com/argilla-io/argilla.git"
-ensure_remote "agent-harness/graphiti" "upstream" "https://github.com/getzep/graphiti.git"
+mapfile -t HARNESS_PATHS < <(python3 -c "
+import json
+m = json.load(open('agent-harness/manifest.json'))
+for fork in m.get('forks', []):
+    print(fork['path'])
+")
 
-update_fork "agent-harness/swe-agent" "main"
-update_fork "agent-harness/promptfoo" "main"
-update_fork "agent-harness/argilla" "develop"
-update_fork "agent-harness/graphiti" "main"
+git submodule update --init --recursive "${HARNESS_PATHS[@]}"
+
+while IFS=$'\t' read -r path origin upstream branch; do
+  ensure_remote "$path" "origin" "$origin"
+  ensure_remote "$path" "upstream" "$upstream"
+  update_fork "$path" "$branch"
+done < <(manifest_entries)
 
 echo "Review changes, run tests, then commit the updated agent harness pointers."

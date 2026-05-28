@@ -24,6 +24,7 @@
 | R10 | skill/agent/harness 执行一致性 | skill 负责确定性动作，agent 负责计划执行，harness 负责评测和飞轮 | Omni Hub 主仓库 |
 | R11 | 日常关系和消息整理 | 转发总结、关系上下文、日报/周报/月报、待办和情绪线索 | chat_relationships profile + capture/memory |
 | R12 | 科研写作质量迭代 | 强制检索和引用只是输入条件，真正要保存 accepted/rejected 句子和 claim/evidence map | research profile + Argilla |
+| R13 | 科研论文知识库 | 论文 PDF/分析/索引/idea/review 形成可回放 evidence vault | ResearchFlow + PaperBite |
 
 ## GitHub 项目分层
 
@@ -37,6 +38,13 @@
 | promptfoo | 已 fork | 仍是 eval CI 主流；将内嵌 RAGAS（faithfulness ≥ 0.9 作为硬 gate） |
 | Argilla | 已 fork | 偏好飞轮主流；accepted/rejected → DSPy compile 的输入端 |
 | Graphiti | 已 fork | LongMemEval 2026 实测 71.2%（GPT-4o），仍领先 Mem0 (49%)；商业 OMEGA 95.4% 闭源不可选 |
+
+### RipeMangoBox 上游直连（2 个）
+
+| 项目 | 决策 | 原因 |
+| --- | --- | --- |
+| **ResearchFlow** | upstream-direct | 用户是 RipeMangoBox/ResearchFlow contributor，直接 pin 上游；作为科研论文分析 workflow、skill 和 Research Memory 能力层 |
+| **PaperBite** | upstream-direct | ResearchFlow 产出的公开 evidence vault；当前含 951 条 ICLR 2026 论文分析索引，作为 omni-hub 只读科研知识源 |
 
 ### 升格为 fork（3 个 pending-personal-clone）
 
@@ -328,6 +336,8 @@ CLI 子命令已注册：
 - `propose-list` / `propose-approve` / `propose-reject`：统一人工审批出口
 - `optimizer-skill-*` / `optimizer-run-*`：记录 DSPy/GEPA-ready skill 版本和优化运行
 - `schedule-tick --period daily|weekly|monthly`：入队例行扫描和报表任务
+- `research-kb-status` / `research-kb-search` / `research-kb-read`：把 ResearchFlow + PaperBite 作为只读科研知识源
+- `researchflow-skills`：列出 ResearchFlow 当前 pinned skills
 
 Makefile 目标已加：`make harness-status`、`make harness-add-pending dspy openhands opik`、`make schedule-install-dry`、`make worker-python`。
 

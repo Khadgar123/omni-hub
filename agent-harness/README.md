@@ -4,13 +4,15 @@ This workspace is the self-evolution harness for Omni Hub.
 
 It follows the same large-project model as `api-management`: the main repository owns the product contract, test fixtures, decision records, and pinned service revisions; each major subsystem stays in its own fork with its own upstream history.
 
-## Active forks
+## Active modules
 
 ```text
 agent-harness/swe-agent -> https://github.com/Khadgar123/SWE-agent
 agent-harness/promptfoo -> https://github.com/Khadgar123/promptfoo
 agent-harness/argilla   -> https://github.com/Khadgar123/argilla
 agent-harness/graphiti  -> https://github.com/Khadgar123/graphiti
+agent-harness/researchflow -> https://github.com/RipeMangoBox/ResearchFlow
+agent-harness/paperbite    -> https://github.com/RipeMangoBox/PaperBite
 ```
 
 Roles:
@@ -19,6 +21,12 @@ Roles:
 - `promptfoo`: evaluation, prompt regression, RAG/agent CI, red-team checks.
 - `argilla`: human preference capture, accepted/rejected sentence datasets, domain feedback.
 - `graphiti`: temporal knowledge graph, provenance, redundancy detection, memory evolution.
+- `researchflow`: local-first structured paper analysis and Research Memory workflow. It owns the paper-analysis skills, MinerU-backed analysis chain, JSONL index builder, query, ideation, focus, review, and export flow.
+- `paperbite`: read-only public evidence vault derived from ResearchFlow. It provides the large-scale Markdown/index/manifests layer for ICLR 2026 paper analysis assets.
+
+`researchflow` and `paperbite` intentionally track the RipeMangoBox upstream
+repositories directly because the user is a ResearchFlow contributor; they are
+not routed through a Khadgar123 personal fork.
 
 ## Pending forks (2026-05 reassessment)
 
@@ -52,7 +60,7 @@ Bootstrap after clone:
 make harness-setup
 ```
 
-Fast-forward maintained forks from upstream:
+Fast-forward maintained modules from upstream:
 
 ```bash
 make harness-update

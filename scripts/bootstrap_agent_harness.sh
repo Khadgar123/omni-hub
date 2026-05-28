@@ -16,22 +16,34 @@ ensure_remote() {
   fi
 }
 
+manifest_paths() {
+  python3 -c "
+import json
+m = json.load(open('agent-harness/manifest.json'))
+for fork in m.get('forks', []):
+    print(fork['path'])
+"
+}
+
+manifest_remotes() {
+  python3 -c "
+import json
+m = json.load(open('agent-harness/manifest.json'))
+for fork in m.get('forks', []):
+    print('\t'.join([fork['path'], fork['origin'], fork['upstream']]))
+"
+}
+
+mapfile -t HARNESS_PATHS < <(manifest_paths)
+
 git submodule sync --recursive
-git submodule update --init --recursive \
-  agent-harness/swe-agent \
-  agent-harness/promptfoo \
-  agent-harness/argilla \
-  agent-harness/graphiti
+git submodule update --init --recursive "${HARNESS_PATHS[@]}"
 
-ensure_remote "agent-harness/swe-agent" "upstream" "https://github.com/SWE-agent/SWE-agent.git"
-ensure_remote "agent-harness/promptfoo" "upstream" "https://github.com/promptfoo/promptfoo.git"
-ensure_remote "agent-harness/argilla" "upstream" "https://github.com/argilla-io/argilla.git"
-ensure_remote "agent-harness/graphiti" "upstream" "https://github.com/getzep/graphiti.git"
+while IFS=$'\t' read -r path origin upstream; do
+  ensure_remote "$path" "origin" "$origin"
+  ensure_remote "$path" "upstream" "$upstream"
+done < <(manifest_remotes)
 
-git submodule status --recursive \
-  agent-harness/swe-agent \
-  agent-harness/promptfoo \
-  agent-harness/argilla \
-  agent-harness/graphiti
+git submodule status --recursive "${HARNESS_PATHS[@]}"
 
 echo "Agent harness forks are ready."

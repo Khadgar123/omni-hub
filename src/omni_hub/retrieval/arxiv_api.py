@@ -65,14 +65,19 @@ class ArxivSource:
             ]
             arxiv_id = entry_id.rsplit("/", 1)[-1]
 
+            # arXiv IDs are versioned (2510.01234v1).  Strip the version
+            # suffix so v1 and v2 of the same paper collapse to one record.
+            base_id = arxiv_id.rsplit("v", 1)[0] if "v" in arxiv_id else arxiv_id
             records.append(RetrievalRecord(
                 source=self.name,
                 title=title,
                 url=entry_id,
                 snippet=summary[:500],
                 score=1.0,                  # arXiv has no popularity field
+                canonical_id=f"arxiv:{base_id}",
                 metadata={
                     "arxiv_id": arxiv_id,
+                    "arxiv_base_id": base_id,
                     "authors": authors,
                     "published": published,
                     "categories": categories,

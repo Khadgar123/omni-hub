@@ -37,10 +37,18 @@ def _utcnow() -> str:
 class RetrievalRecord:
     """One snippet returned by a retrieval source.
 
-    ``score`` is source-relative — Brave's score isn't comparable to
-    OpenAlex's, so the cascade dispatcher normalises only within a single
-    source.  ``metadata`` is the kitchen sink: per-source extras (authors,
-    DOI, venue, publication date) that the harness ensemble can read.
+    ``score`` is source-relative when emitted by a single connector; after
+    ``Cascade.retrieve(fusion="rrf")`` it carries the fused Reciprocal
+    Rank Fusion score so cross-source comparison is meaningful.
+
+    ``canonical_id`` is the strong identity used for semantic dedup —
+    DOI for papers, arxiv_id for preprints, page_id+lang for Wikipedia,
+    URL hash for news.  Lets the cascade fold "same paper on arXiv +
+    OpenAlex with different URLs" into one record.
+
+    ``cite_id`` is assigned by the cascade post-fusion (``R1``/``R2``/…)
+    so downstream output formatters can render inline ``[1][2]`` citations
+    that link back to records.
     """
 
     source: str                           # connector name (e.g. "openalex")
@@ -51,6 +59,8 @@ class RetrievalRecord:
     fetched_at: str = field(default_factory=_utcnow)
     domain: str = ""                      # which domain_profile this was for
     metadata: dict[str, Any] = field(default_factory=dict)
+    canonical_id: str = ""                # DOI / arxiv_id / wp:<lang>:<pid> / ...
+    cite_id: str = ""                     # cascade-assigned "R1"/"R2"/... post-fusion
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

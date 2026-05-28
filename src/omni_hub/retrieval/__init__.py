@@ -22,7 +22,12 @@ from .base import (
     RetrievalSource,
     normalize_records,
 )
+from .cache import TTLCache
 from .cascade import Cascade, CascadeResult, DEFAULT_DOMAIN_CASCADES
+from .citations import RenderResult, render_to_structured_citations, render_with_citations
+from .evidence import EvidenceArtifact, EvidenceStore
+from .graders import HeuristicGrader, LLMJudgeGrader
+from .planner import RetrievalPlan, plan
 
 
 def builtin_sources() -> dict[str, RetrievalSource]:
@@ -56,9 +61,19 @@ __all__ = [
     "Cascade",
     "CascadeResult",
     "DEFAULT_DOMAIN_CASCADES",
+    "EvidenceArtifact",
+    "EvidenceStore",
+    "HeuristicGrader",
+    "LLMJudgeGrader",
+    "RenderResult",
     "RetrievalError",
+    "RetrievalPlan",
     "RetrievalRecord",
     "RetrievalSource",
+    "TTLCache",
     "builtin_sources",
     "normalize_records",
+    "plan",
+    "render_to_structured_citations",
+    "render_with_citations",
 ]

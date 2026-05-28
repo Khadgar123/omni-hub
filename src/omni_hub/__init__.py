@@ -24,6 +24,11 @@ from .optimizer import (
 from .policy import PolicyConfig, PolicyDecision, PolicyEngine
 from .proposals import EntityProposal, Proposal, ProposalStore, RelationProposal
 from .queue import LeaseLost, Task, TaskQueue
+from .research_assets import (
+    ResearchAssetRecord,
+    ResearchAssetSource,
+    ResearchFlowSkill,
+)
 from .workers import Artifact, WorkerAdapter, WorkerError, WorkerTimeout
 from .reports import (
     ReportContext,
@@ -70,6 +75,9 @@ __all__ = [
     "Proposal",
     "ProposalStore",
     "RelationProposal",
+    "ResearchAssetRecord",
+    "ResearchAssetSource",
+    "ResearchFlowSkill",
     "ReportContext",
     "Task",
     "TaskQueue",

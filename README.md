@@ -17,7 +17,7 @@ TaskPacket
 
 - **Control Plane**：Operation、Policy、Audit、TaskPacket 契约、`TaskQueue`、`ProposalStore`、Skill Registry。
 - **Worker Pool**：可替换 adapter；Codex / Claude Code / OpenHands 在这里是 *headless worker*，不是项目本体。常驻进程是 `omni-hub worker --lane <lane>`，由 launchd 拉起。
-- **Eval/Memory Flywheel**：harness（ensemble → judge → preference → DSPy compile → 日/周/月报），外加 4 个 pinned fork（SWE-agent / promptfoo / Argilla / Graphiti）+ 3 个待升格（DSPy / OpenHands / Opik）。
+- **Eval/Memory Flywheel**：harness（ensemble → judge → preference → DSPy compile → 日/周/月报），外加 4 个 pinned fork（SWE-agent / promptfoo / Argilla / Graphiti）、2 个 RipeMangoBox 上游直连研究资产（ResearchFlow / PaperBite）+ 3 个待升格（DSPy / OpenHands / Opik）。
 - **API 管理与网关**：`api-management/metapi` 和 `api-management/ccLoad` 两个 fork 承接余额、额度、模型、路由、协议转换和监控。
 
 工程硬约束写在 [AGENTS.md](AGENTS.md)（4 条），主仓库 `pyproject.toml: dependencies = []` 是 stdlib-only 硬约束。
@@ -122,8 +122,9 @@ docker compose --env-file api-management/env.example -f api-management/compose.y
 ```text
 .
 ├── api-management/         # Metapi + ccLoad fork + compose 入口
-├── agent-harness/          # 4 个 pinned fork（SWE-agent / promptfoo / argilla / graphiti）
-│                           # + pending forks 清单（DSPy / OpenHands / Opik）
+├── agent-harness/          # pinned harness modules：SWE-agent / promptfoo / argilla / graphiti
+│                           # + RipeMangoBox 上游直连：ResearchFlow / PaperBite
+│                           # + pending forks 清单：DSPy / OpenHands / Opik
 ├── .agents/skills/         # 业务 skill：Claude Code 和 Codex CLI 都通过 symlink 读
 ├── docs/                   # 架构、权限、提案模型、路线图
 ├── registry/               # 机器可读 skill 注册表

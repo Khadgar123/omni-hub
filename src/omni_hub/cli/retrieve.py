@@ -38,6 +38,36 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     )
     retrieve.add_argument("--per-source-limit", type=int, default=5)
     retrieve.add_argument("--total-limit", type=int, default=20)
+    retrieve.add_argument(
+        "--fusion", choices=["concat", "rrf"], default="concat",
+        help=(
+            "Cross-source ranking. ``rrf`` = Reciprocal Rank Fusion; "
+            "``concat`` = cascade-order (legacy default)."
+        ),
+    )
+    retrieve.add_argument(
+        "--grader", choices=["heuristic"], default=None,
+        help=(
+            "CRAG-style grader applied post-fusion. ``heuristic`` drops "
+            "obvious junk (paywall stubs, 404 pages, zero-overlap)."
+        ),
+    )
+    retrieve.add_argument(
+        "--cache", action="store_true",
+        help="Use the SQLite TTL cache under .omni/retrieval_cache.sqlite3.",
+    )
+    retrieve.add_argument(
+        "--persist-evidence", action="store_true",
+        help=(
+            "Write evidence.jsonl + sources.json + run_manifest.json under "
+            ".omni/retrieval/<run_id>/ for replay/HITL review."
+        ),
+    )
+    retrieve.add_argument(
+        "--run-id", default="",
+        help="Pin a custom run_id (default: timestamp + hex) — useful for "
+             "linking evidence to a queue task.",
+    )
 
     fetch = subparsers.add_parser(
         "fetch-url",
@@ -56,9 +86,16 @@ def _retrieve(args, *, runner, workspace) -> int:
         "domain": args.domain,
         "per_source_limit": args.per_source_limit,
         "total_limit": args.total_limit,
+        "fusion": args.fusion,
+        "use_cache": bool(args.cache),
+        "persist_evidence": bool(args.persist_evidence),
     }
     if args.sources:
         payload["sources"] = [s.strip() for s in args.sources.split(",") if s.strip()]
+    if args.grader:
+        payload["grader"] = args.grader
+    if args.run_id:
+        payload["run_id"] = args.run_id
     return run_and_print(
         runner,
         OperationSpec(

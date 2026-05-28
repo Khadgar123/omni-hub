@@ -11,6 +11,7 @@ the BigQuery dance.
 
 from __future__ import annotations
 
+import hashlib
 import urllib.parse
 
 from .base import DEFAULT_TIMEOUT_SEC, RetrievalRecord, http_get_json
@@ -49,12 +50,21 @@ class GDELTSource:
 
         records: list[RetrievalRecord] = []
         for art in articles[:limit]:
+            art_url = art.get("url", "")
+            # News articles often have ?utm_*= query strings appended by
+            # republishers; canonical_id strips the query so reposts of
+            # the same article merge.
+            canonical = ""
+            if art_url:
+                base = art_url.split("?", 1)[0].split("#", 1)[0]
+                canonical = "gdelt:" + hashlib.sha1(base.encode("utf-8")).hexdigest()[:16]
             records.append(RetrievalRecord(
                 source=self.name,
                 title=art.get("title", ""),
-                url=art.get("url", ""),
+                url=art_url,
                 snippet=(art.get("seendate") or "") + " · " + art.get("domain", ""),
                 score=1.0,
+                canonical_id=canonical,
                 metadata={
                     "seendate": art.get("seendate", ""),
                     "language": art.get("language", ""),

@@ -22,3 +22,11 @@
 	path = agent-harness/graphiti
 	url = https://github.com/Khadgar123/graphiti.git
 	branch = main
+[submodule "agent-harness/researchflow"]
+	path = agent-harness/researchflow
+	url = https://github.com/RipeMangoBox/ResearchFlow.git
+	branch = main
+[submodule "agent-harness/paperbite"]
+	path = agent-harness/paperbite
+	url = https://github.com/RipeMangoBox/PaperBite.git
+	branch = main

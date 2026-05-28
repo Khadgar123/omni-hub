@@ -31,7 +31,7 @@ harness-update:
 harness-status:
 	@$(PYTHON) -c "import json; m=json.load(open('agent-harness/manifest.json')); \
 ready=m.get('forks',[]); pending=m.get('pending_forks',[]); \
-print('ready forks (' + str(len(ready)) + '): ' + ', '.join(f['id'] for f in ready)); \
+print('ready modules (' + str(len(ready)) + '): ' + ', '.join(f['id'] for f in ready)); \
 print('pending forks (' + str(len(pending)) + '): ' + (', '.join(f['id'] for f in pending) or '(none)')); \
 print(); \
 [print('  ' + f['id'].ljust(10) + ' <- ' + f['upstream'] + '\n    ' + f['role']) for f in pending]"

@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "strategy": "product-orchestrator-with-pinned-service-forks",
+  "strategy": "product-orchestrator-with-pinned-service-forks-and-upstream-research-assets",
   "forks": [
     {
       "id": "swe-agent",
@@ -37,6 +37,24 @@
       "branch": "main",
       "role": "temporal knowledge graph, provenance, redundancy detection, and memory evolution",
       "decision": "fork"
+    },
+    {
+      "id": "researchflow",
+      "path": "agent-harness/researchflow",
+      "origin": "https://github.com/RipeMangoBox/ResearchFlow.git",
+      "upstream": "https://github.com/RipeMangoBox/ResearchFlow.git",
+      "branch": "main",
+      "role": "local-first structured paper analysis and Research Memory workflow; converts PDFs and MinerU outputs into anchored analysis notes, JSONL indexes, query/ideation/review skills, and reusable research evidence assets",
+      "decision": "upstream-direct"
+    },
+    {
+      "id": "paperbite",
+      "path": "agent-harness/paperbite",
+      "origin": "https://github.com/RipeMangoBox/PaperBite.git",
+      "upstream": "https://github.com/RipeMangoBox/PaperBite.git",
+      "branch": "main",
+      "role": "public evidence vault produced from the ResearchFlow analysis framework; provides large-scale paper analysis assets (about 950 notes) as a read-only knowledge source for retrieval, judging, and ideation",
+      "decision": "upstream-direct"
     }
   ],
   "pending_forks": [
@@ -73,6 +91,20 @@
   ],
   "candidates": [],
   "decision_log": [
+    {
+      "date": "2026-05-28",
+      "action": "promote",
+      "id": "researchflow",
+      "to": "upstream-direct",
+      "reason": "User is a RipeMangoBox/ResearchFlow contributor, so omni-hub pins the upstream repository directly instead of creating or depending on a Khadgar123 fork"
+    },
+    {
+      "date": "2026-05-28",
+      "action": "add",
+      "id": "paperbite",
+      "to": "upstream-direct",
+      "reason": "PaperBite contains the large public evidence vault generated from ResearchFlow and should be imported as a read-only knowledge source"
+    },
     {
       "date": "2026-05-28",
       "action": "promote",

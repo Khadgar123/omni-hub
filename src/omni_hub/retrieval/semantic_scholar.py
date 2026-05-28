@@ -59,18 +59,27 @@ class SemanticScholarSource:
         records: list[RetrievalRecord] = []
         for item in items[:limit]:
             authors = [a.get("name", "") for a in item.get("authors", [])][:5]
+            ext_ids = item.get("externalIds", {}) or {}
+            canonical = ""
+            if ext_ids.get("DOI"):
+                canonical = f"doi:{str(ext_ids['DOI']).lower()}"
+            elif ext_ids.get("ArXiv"):
+                canonical = f"arxiv:{ext_ids['ArXiv']}"
+            elif ext_ids.get("PubMed"):
+                canonical = f"pmid:{ext_ids['PubMed']}"
             records.append(RetrievalRecord(
                 source=self.name,
                 title=item.get("title", ""),
                 url=item.get("url", "") or item.get("openAccessPdf", {}).get("url", ""),
                 snippet=(item.get("abstract") or "")[:500],
                 score=float(item.get("citationCount", 0)),
+                canonical_id=canonical,
                 metadata={
                     "authors": [a for a in authors if a],
                     "year": item.get("year"),
                     "venue": item.get("venue", ""),
                     "citation_count": item.get("citationCount", 0),
-                    "external_ids": item.get("externalIds", {}),
+                    "external_ids": ext_ids,
                     "open_access_pdf": (item.get("openAccessPdf") or {}).get("url", ""),
                 },
             ))

@@ -55,15 +55,18 @@ class WikipediaSource:
             title = page.get("title", "")
             slug = title.replace(" ", "_")
             url = f"https://{lang}.wikipedia.org/wiki/{urllib.parse.quote(slug)}"
+            page_id = page.get("id")
+            canonical = f"wp:{lang}:{page_id}" if page_id is not None else ""
             records.append(RetrievalRecord(
                 source=self.name,
                 title=title,
                 url=url,
                 snippet=(page.get("excerpt") or page.get("description") or "")[:500],
                 score=1.0,
+                canonical_id=canonical,
                 metadata={
                     "lang": lang,
-                    "page_id": page.get("id"),
+                    "page_id": page_id,
                     "description": page.get("description", ""),
                 },
             ))
