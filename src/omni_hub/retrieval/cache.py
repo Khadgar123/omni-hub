@@ -32,7 +32,10 @@ from .base import RetrievalRecord
 #   * GDELT: 15-min refresh, but queries about "recent X" want hourly
 #   * Jina Reader: URL contents can change; 5 min is generous
 DEFAULT_TTL_SEC: dict[str, int] = {
+    "brave_search":      3600,
+    "crossref":          24 * 3600,
     "wikipedia":         7 * 24 * 3600,
+    "wikidata":          7 * 24 * 3600,
     "openalex":          24 * 3600,
     "semantic_scholar":  24 * 3600,
     "arxiv":             12 * 3600,

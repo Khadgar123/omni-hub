@@ -44,6 +44,7 @@ def builtin_sources() -> dict[str, RetrievalSource]:
     """
 
     from .arxiv_api import ArxivSource
+    from .crossref import CrossrefSource
     from .finance import EdgarSource, FREDSource
     from .gdelt import GDELTSource
     from .hf_daily_papers import HFDailyPapersSource
@@ -54,7 +55,9 @@ def builtin_sources() -> dict[str, RetrievalSource]:
     from .semantic_scholar import SemanticScholarSource
     from .twitterapi_io import TwitterApiIoSource
     from .us_gov import CongressGovSource, FederalRegisterSource, RegulationsGovSource
+    from .web_search import BraveSearchSource
     from .wechat_mp import WeChatMPSource
+    from .wikidata import WikidataSource
     from .wikipedia import WikipediaSource
     from .xhs import XiaohongshuSource
 
@@ -63,6 +66,7 @@ def builtin_sources() -> dict[str, RetrievalSource]:
         for s in (
             # tier 0 — no auth
             ArxivSource(),
+            CrossrefSource(),
             FederalRegisterSource(),
             GDELTSource(),
             HFDailyPapersSource(),
@@ -70,11 +74,13 @@ def builtin_sources() -> dict[str, RetrievalSource]:
             JinaReaderFetcher(),
             OpenAlexSource(),
             SemanticScholarSource(),
+            WikidataSource(),
             WikipediaSource(),
             WorldBankSource(),
             EdgarSource(),
             # tier 1 — free key
             ACLEDSource(),
+            BraveSearchSource(),
             CongressGovSource(),
             FREDSource(),
             PexelsSource(),

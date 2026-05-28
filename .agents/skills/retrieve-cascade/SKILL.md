@@ -28,8 +28,8 @@ fused `RetrievalRecord`s.
 
 1. Pick the source list (from `domain` argument, or override via
    `--sources a,b,c`).
-2. Cache lookup per source (SQLite TTL: Wikipedia 7d, OpenAlex/S2 24h,
-   arXiv 12h, GDELT 1h, Jina 5min).
+2. Cache lookup per source (SQLite TTL: Wikidata/Wikipedia 7d,
+   OpenAlex/S2/Crossref 24h, arXiv 12h, Brave/GDELT 1h, Jina 5min).
 3. `ThreadPoolExecutor` fan-out over cache-misses with a 15s wall-clock cap.
    Per-source failures are captured into `errors[]`, never aborting.
 4. Per-source result lists are fused:
@@ -50,7 +50,7 @@ PYTHONPATH=src python3 -m omni_hub.cli retrieve \
   --fusion  rrf|concat \
   --per-source-limit 5 \
   --total-limit 20 \
-  [--sources openalex,arxiv,wikipedia]    # override domain default
+  [--sources wikidata,brave_search,crossref,wikipedia]  # override domain default
   [--cache]                                # use SQLite TTL cache
   [--grader heuristic]                     # CRAG drop
 ```
@@ -77,6 +77,8 @@ Output is JSON:
 ## Anti-patterns
 
 - **Do not** call this with no `--domain` if the query is domain-specific.
-  The `default` cascade only covers Wikipedia + OpenAlex + GDELT.
+  The `default` cascade is broad (Wikidata + Wikipedia + Brave + Crossref
+  + OpenAlex + GDELT), but domain cascades still encode better authority
+  ordering.
 - **Do not** retry on errors silently. The `errors[]` array is the
   audit trail — surface it.

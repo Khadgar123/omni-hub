@@ -80,6 +80,107 @@ class JinaReaderTests(unittest.TestCase):
         self.assertIn("r.jina.ai", mock.call_args[0][0])
 
 
+class BraveSearchTests(unittest.TestCase):
+    def test_requires_api_key(self) -> None:
+        from omni_hub.retrieval.web_search import BraveSearchSource
+
+        self.assertEqual(BraveSearchSource(api_key="").check()[0], "off")
+
+    def test_parses_web_results(self) -> None:
+        from omni_hub.retrieval.web_search import BraveSearchSource
+
+        fake = {
+            "web": {
+                "results": [{
+                    "title": "Source Title",
+                    "url": "https://example.com/page?utm_source=x",
+                    "description": "Useful source snippet.",
+                    "age": "May 27, 2026",
+                    "profile": {"name": "Example"},
+                }],
+            },
+        }
+        adapter = BraveSearchSource(api_key="secret-token")
+        with patch(
+            "omni_hub.retrieval.web_search.http_get_json",
+            return_value=fake,
+        ) as mock:
+            records = adapter.retrieve("source query", limit=1)
+        self.assertEqual(len(records), 1)
+        rec = records[0]
+        self.assertEqual(rec.source, "brave_search")
+        self.assertEqual(rec.title, "Source Title")
+        self.assertEqual(rec.url, "https://example.com/page?utm_source=x")
+        self.assertTrue(rec.canonical_id.startswith("web:"))
+        self.assertEqual(rec.metadata["age"], "May 27, 2026")
+        self.assertEqual(mock.call_args.kwargs["headers"]["X-Subscription-Token"], "secret-token")
+
+
+class CrossrefTests(unittest.TestCase):
+    def test_parses_work_metadata(self) -> None:
+        from omni_hub.retrieval.crossref import CrossrefSource
+
+        fake = {
+            "message": {
+                "items": [{
+                    "title": ["A Verified Knowledge Paper"],
+                    "DOI": "10.1234/ABC",
+                    "URL": "https://doi.org/10.1234/ABC",
+                    "abstract": "<jats:p>Structured abstract text.</jats:p>",
+                    "is-referenced-by-count": 17,
+                    "published-print": {"date-parts": [[2024, 5, 1]]},
+                    "container-title": ["Journal of Tests"],
+                    "author": [
+                        {"given": "Ada", "family": "Lovelace"},
+                        {"name": "Collective Author"},
+                    ],
+                }],
+            },
+        }
+        with patch(
+            "omni_hub.retrieval.crossref.http_get_json",
+            return_value=fake,
+        ) as mock:
+            records = CrossrefSource().retrieve("verified knowledge", limit=1)
+        self.assertEqual(len(records), 1)
+        rec = records[0]
+        self.assertEqual(rec.source, "crossref")
+        self.assertEqual(rec.canonical_id, "doi:10.1234/abc")
+        self.assertEqual(rec.score, 17.0)
+        self.assertEqual(rec.metadata["year"], 2024)
+        self.assertEqual(rec.metadata["venue"], "Journal of Tests")
+        self.assertEqual(rec.metadata["authors"], ["Ada Lovelace", "Collective Author"])
+        self.assertIn("Structured abstract text.", rec.snippet)
+        self.assertEqual(mock.call_args.kwargs["params"]["query"], "verified knowledge")
+
+
+class WikidataTests(unittest.TestCase):
+    def test_entity_search_parses_qids(self) -> None:
+        from omni_hub.retrieval.wikidata import WikidataSource
+
+        fake = {
+            "search": [{
+                "id": "Q42",
+                "title": "Q42",
+                "label": "Douglas Adams",
+                "description": "English writer and humorist",
+                "concepturi": "http://www.wikidata.org/entity/Q42",
+            }],
+        }
+        with patch(
+            "omni_hub.retrieval.wikidata.http_get_json",
+            return_value=fake,
+        ) as mock:
+            records = WikidataSource().retrieve("Douglas Adams", limit=1)
+        self.assertEqual(len(records), 1)
+        rec = records[0]
+        self.assertEqual(rec.source, "wikidata")
+        self.assertEqual(rec.title, "Douglas Adams")
+        self.assertEqual(rec.canonical_id, "wikidata:Q42")
+        self.assertEqual(rec.metadata["qid"], "Q42")
+        self.assertEqual(mock.call_args.kwargs["params"]["action"], "wbsearchentities")
+
+
 class OpenAlexTests(unittest.TestCase):
     def test_search_parses_inverted_abstract(self) -> None:
         adapter = OpenAlexSource()
@@ -1570,6 +1671,7 @@ class V10CascadeIntegrationTests(unittest.TestCase):
     def test_builtin_sources_registers_all_v10_connectors(self) -> None:
         sources = builtin_sources()
         for expected in (
+            "brave_search", "crossref", "wikidata",
             "edgar", "fred", "hf_daily_papers",
             "federal_register", "regulations_gov", "congress_gov",
             "acled", "world_bank", "imf",
@@ -1579,6 +1681,9 @@ class V10CascadeIntegrationTests(unittest.TestCase):
             self.assertIn(expected, sources, f"missing {expected}")
 
     def test_default_domain_cascades_extended(self) -> None:
+        self.assertIn("wikidata", DEFAULT_DOMAIN_CASCADES["default"])
+        self.assertIn("brave_search", DEFAULT_DOMAIN_CASCADES["default"])
+        self.assertIn("crossref", DEFAULT_DOMAIN_CASCADES["research"])
         self.assertIn("hf_daily_papers", DEFAULT_DOMAIN_CASCADES["ai_progress"])
         self.assertIn("edgar", DEFAULT_DOMAIN_CASCADES["finance"])
         self.assertIn("fred", DEFAULT_DOMAIN_CASCADES["finance"])

@@ -40,7 +40,7 @@ from omni_hub.retrieval import DEFAULT_DOMAIN_CASCADES
 cascade_order = DEFAULT_DOMAIN_CASCADES.get(domain, DEFAULT_DOMAIN_CASCADES["default"])
 ```
 
-## Domain → cascade table (2026-Q2, will evolve in v0.10)
+## Domain → cascade table (2026-Q2, v0.11)
 
 See the `retrieve` router skill's source-map table for the canonical list.
 Domains added in v0.10:
@@ -49,6 +49,12 @@ Domains added in v0.10:
 - `policy` gains federal_register + regulations_gov + congress_gov
 - `international_relations` gains acled + world_bank + imf
 - `ai_progress` gains hf_daily_papers
+Domains expanded in v0.11 for global-truth coverage:
+- `default` gains wikidata + brave_search + crossref
+- `research` gains crossref + wikidata
+- `engineering` gains brave_search + crossref + wikidata
+- `policy` and `international_relations` gain brave_search + wikidata
+- `finance` gains crossref + wikidata
 
 ## When to use
 

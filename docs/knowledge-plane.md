@@ -82,6 +82,23 @@ PYTHONPATH=src python -m omni_hub.cli context-pack-build \
 Agent-written wiki updates do not write directly to `vault/wiki`.  They create
 `Proposal(kind="wiki_update")`; only approved proposals can be applied.
 
+## Retrieval Sources
+
+The live retrieval cascade is the upstream ingest path for claim evidence.  The
+global/default profile now combines structured entity anchors, encyclopedia
+grounding, optional broad-web discovery, scholarly DOI metadata, scholarly work
+search, and recent-news discovery:
+
+```text
+default -> wikidata -> wikipedia -> brave_search -> crossref -> openalex -> gdelt
+```
+
+Domain profiles can override the order.  For example, `research` leads with
+Crossref/OpenAlex/Semantic Scholar/arXiv, while `policy` leads with federal
+primary sources before Brave/GDELT/Wikidata.  `brave_search` is key-gated via
+`BRAVE_SEARCH_API_KEY`; `crossref` and `wikidata` work anonymously, with
+`CROSSREF_MAILTO` recommended for polite Crossref traffic.
+
 ## ResearchFlow Role
 
 ResearchFlow and PaperBite feed the research domain:

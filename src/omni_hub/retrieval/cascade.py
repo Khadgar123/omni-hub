@@ -49,22 +49,34 @@ DEFAULT_DOMAIN_CASCADES: dict[str, list[str]] = {
     # the SOTA scan (Anthropic financial-services lift, ACLED, HF Daily
     # Papers, defuddle-pattern Tier 0/1 sources).  Sources requiring auth
     # are listed; the cascade fail-soft-skips when their env vars unset.
-    "engineering":           ["openalex", "arxiv", "wikipedia"],
-    "research":              ["openalex", "semantic_scholar", "arxiv", "wikipedia"],
+    "engineering": [
+        "brave_search", "crossref", "openalex", "arxiv", "wikidata", "wikipedia",
+    ],
+    "research": [
+        "crossref", "openalex", "semantic_scholar", "arxiv", "wikidata", "wikipedia",
+    ],
     "photography":           ["unsplash", "pexels", "wikipedia"],
     "fashion":               ["wikipedia"],            # snapshot-only via vault
     "chat_relationships":    [],                       # purely reactive
-    "finance":               ["edgar", "fred", "openalex", "wikipedia"],
+    "finance": [
+        "edgar", "fred", "crossref", "wikidata", "openalex", "wikipedia",
+    ],
     "policy":                [
         "federal_register", "regulations_gov", "congress_gov",
-        "gdelt", "wikipedia",
+        "brave_search", "gdelt", "wikidata", "wikipedia",
     ],
     "international_relations": [
-        "acled", "gdelt", "world_bank", "imf", "wikipedia",
+        "acled", "gdelt", "world_bank", "imf",
+        "brave_search", "wikidata", "wikipedia",
     ],
     # Synthetic
-    "ai_progress":           ["hf_daily_papers", "arxiv", "openalex", "wikipedia"],
-    "default":               ["wikipedia", "openalex", "gdelt"],
+    "ai_progress": [
+        "hf_daily_papers", "arxiv", "crossref", "openalex",
+        "brave_search", "wikidata", "wikipedia",
+    ],
+    "default": [
+        "wikidata", "wikipedia", "brave_search", "crossref", "openalex", "gdelt",
+    ],
     # Tier-2 social-media domains (paid/broker/pinned-fork) — opt-in via
     # `--domain` rather than appearing in `default`, so casual queries
     # don't burn budget or hit Chinese platforms unintentionally.
