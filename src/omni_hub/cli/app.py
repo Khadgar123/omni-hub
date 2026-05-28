@@ -31,6 +31,14 @@ def register(subparsers: argparse._SubParsersAction) -> None:
                           choices=["daily", "weekly", "monthly"])
     report.add_argument("--persist", action="store_true",
                           help="Write to vault/40_Reports/app/<period>-<stamp>.md")
+    report.add_argument("--narrate", action="store_true",
+                          help="v0.26: enqueue a claude-lane report_narrate task "
+                               "that lands a Proposal(kind=generation) with "
+                               "trend analysis + decisions.")
+    report.add_argument("--audience", default="self",
+                          help="Narrative audience hint (default: self)")
+    report.add_argument("--notes", default="",
+                          help="Extra notes appended to the narrative task")
 
     route = subparsers.add_parser(
         "app-route-task",
@@ -62,8 +70,15 @@ def _app_report_build(args, *, runner, workspace) -> int:
             payload={
                 "period": args.period,
                 "persist": bool(args.persist),
+                "narrate": bool(args.narrate),
+                "audience": args.audience,
+                "notes": args.notes,
             },
-            risk_level=RiskLevel.LOCAL_WRITE if args.persist else RiskLevel.READ_ONLY,
+            risk_level=(
+                RiskLevel.LOCAL_WRITE
+                if (args.persist or args.narrate)
+                else RiskLevel.READ_ONLY
+            ),
         ),
     )
 

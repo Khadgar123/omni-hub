@@ -137,6 +137,26 @@
       "decision": "upstream-direct",
       "promotion_reason": "v0.10: only viable open-source fashion runway data path (no official Vogue API). Selenium-based and DOM-brittle, so used in snapshot mode behind a manual ritual — not in retrieve cascade.",
       "next_step": "cd agent-harness && git submodule add https://github.com/TonyAssi/Vogue-Runway-Scraper.git forks/vogue-runway-scraper; document quarterly snapshot ritual in docs/retrieval-snapshots.md"
+    },
+    {
+      "id": "feishu-oapi",
+      "path": "agent-harness/integrations/feishu/lark-oapi",
+      "upstream": "https://github.com/larksuite/oapi-sdk-python.git",
+      "branch": "main",
+      "role": "v0.24 Feishu / Lark Channel adapter SDK. Wrapped by a ~150 LOC CLI shim (`feishu listen|reply|status --json`) so the omni-hub channel stub at src/omni_hub/channels/external_stubs.py::FeishuChannel calls via subprocess — main repo stays stdlib-only.",
+      "decision": "fork-pending-personal-clone",
+      "promotion_reason": "v0.24: Interface Plane needs a 飞书 lane; lark-oapi is the official SDK, Apache-2.0, actively maintained.  Pin as submodule, wrap with CLI.",
+      "next_step": "Fork larksuite/oapi-sdk-python to Khadgar123/lark-oapi; scripts/add_pending_harness_forks.sh feishu-oapi; implement agent-harness/integrations/feishu/cli/feishu.py; pipx install -e ./cli; verify with `omni-hub channel-health --name feishu`."
+    },
+    {
+      "id": "discord-py",
+      "path": "agent-harness/integrations/discord/discord.py",
+      "upstream": "https://github.com/Rapptz/discord.py.git",
+      "branch": "master",
+      "role": "v0.24 Discord Channel adapter SDK.  Wrapped by ~200 LOC CLI shim (`discord-omni listen|reply|status --json`) per the broker contract in agent-harness/integrations/discord/README.md.  Default --mention-only mode to stay inside Discord's unprivileged intent set.",
+      "decision": "fork-pending-personal-clone",
+      "promotion_reason": "v0.24: Interface Plane needs a Discord lane; discord.py is the standard MIT lib.  Binary renamed to discord-omni to avoid clashing with the upstream module name.",
+      "next_step": "Fork Rapptz/discord.py to Khadgar123/discord.py; scripts/add_pending_harness_forks.sh discord-py; implement agent-harness/integrations/discord/cli/discord_omni.py; pipx install -e ./cli; update DiscordChannel.binary in src/omni_hub/channels/external_stubs.py to 'discord-omni'."
     }
   ],
   "candidates": [],

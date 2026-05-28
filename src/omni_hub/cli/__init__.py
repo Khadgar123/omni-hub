@@ -16,6 +16,7 @@ from pathlib import Path
 from ..builtins import build_default_registry
 from ..runner import OperationRunner
 from . import (
+    ab,
     api_management,
     app,
     argilla,
@@ -28,6 +29,7 @@ from . import (
     judge,
     mcp,
     memory,
+    meta,
     optimizer,
     policy,
     propose,
@@ -48,6 +50,8 @@ _AREAS = [
     retrieve, research_kb, wiki, claims, command, workflow, projection,
     channel, app,                # v0.19 Interface + Application Plane
     judge,                       # v0.23 Judge LLM framework
+    meta,                        # v0.28 Cross-skill transfer
+    ab,                          # v0.29 A/B test framework
 ]
 
 

@@ -24,6 +24,7 @@ boundary.
 from __future__ import annotations
 
 from .report_orchestrator import (
+    NarrativeRequest,
     ReportOrchestrator,
     ReportPeriod,
     ReportSection,
@@ -35,6 +36,7 @@ from .task_router import (
 )
 
 __all__ = [
+    "NarrativeRequest",
     "ReportOrchestrator",
     "ReportPeriod",
     "ReportSection",

@@ -1,4 +1,4 @@
-"""Cross-skill report orchestrator (v0.19).
+"""Cross-skill report orchestrator (v0.19 + v0.26 narrative).
 
 Aggregates the four primary signal sources omni-hub already maintains and
 renders a Markdown summary suitable for daily / weekly / monthly digest:
@@ -8,10 +8,12 @@ renders a Markdown summary suitable for daily / weekly / monthly digest:
 * PreferenceStore deltas (accepted / rejected)
 * WorkflowKernel runs (completed / failed / suspended)
 
-No LLM call.  Pure aggregation + Markdown.  The Eval flywheel surfaces
-**what happened**; humans decide what it means.  When a user later wants
-narrative summarisation they enqueue a ``report-narrate`` Task that runs
-through the claude/codex lane and lands as a ``Proposal``.
+No LLM call in the **aggregation** path — pure Markdown rollup.  v0.26
+adds an opt-in **narrative** mode that enqueues a ``report_narrate``
+TaskPacket on the claude lane; the agent reads the markdown summary +
+context and writes a ``Proposal(kind=generation)`` carrying the trend
+analysis.  The narrative step never bypasses Proposal[T] — humans approve
+before the narrative reaches ``vault/40_Reports/``.
 """
 
 from __future__ import annotations
@@ -53,6 +55,7 @@ class ReportSummary:
     window_end: str
     sections: list[ReportSection] = field(default_factory=list)
     markdown: str = ""
+    narrative_task_id: str = ""           # v0.26: set when --narrate enqueues a task
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -61,6 +64,38 @@ class ReportSummary:
             "window_end": self.window_end,
             "sections": [s.to_dict() for s in self.sections],
             "markdown": self.markdown,
+            "narrative_task_id": self.narrative_task_id,
+        }
+
+
+@dataclass(slots=True)
+class NarrativeRequest:
+    """v0.26 — packet for the claude-lane narrative task."""
+
+    period: str
+    markdown_summary: str
+    target_audience: str = "self"
+    additional_notes: str = ""
+    trace_id: str = ""
+
+    def to_packet(self) -> dict[str, Any]:
+        """Map to a TaskPacket-compatible dict for task_enqueue."""
+
+        return {
+            "task_type": "report_narrate",
+            "domain_profile": "meta",
+            "goal": (
+                f"Write a {self.period} narrative summary for the user. "
+                "Highlight 3 trends, 2 decisions to make, and 1 follow-up "
+                "for next period.  Cite specific stats from the markdown "
+                "below.  Output a markdown body (no frontmatter)."
+            ),
+            "audience": self.target_audience,
+            "notes": self.additional_notes,
+            "context": {
+                "report_markdown": self.markdown_summary,
+                "period": self.period,
+            },
         }
 
 
@@ -89,6 +124,30 @@ class ReportOrchestrator:
             sections=sections,
             markdown=markdown,
         )
+
+    def build_with_narrative(
+        self,
+        period: ReportPeriod,
+        *,
+        target_audience: str = "self",
+        additional_notes: str = "",
+        trace_id: str = "",
+    ) -> tuple[ReportSummary, NarrativeRequest]:
+        """v0.26 — build the data summary AND a NarrativeRequest ready to
+        enqueue on the claude lane.  The caller decides whether to
+        actually enqueue (e.g. via TaskQueue) — this keeps the
+        orchestrator stdlib-only.
+        """
+
+        summary = self.build(period)
+        narrative = NarrativeRequest(
+            period=period.value,
+            markdown_summary=summary.markdown,
+            target_audience=target_audience,
+            additional_notes=additional_notes,
+            trace_id=trace_id,
+        )
+        return summary, narrative
 
     # ---- sections ------------------------------------------------
 

@@ -1858,6 +1858,13 @@ def build_default_registry(workspace: Path | str = ".") -> OperationRegistry:
     registry.register("skill_stubs_sync", make_skill_stubs_sync(workspace_path))
     # v0.23 Judge LLM framework.
     registry.register("judge_evaluate", make_judge_evaluate(workspace_path))
+    # v0.28 Cross-skill transfer (meta).
+    registry.register("meta_cross_skill_scan", make_meta_cross_skill_scan(workspace_path))
+    # v0.29 A/B test framework.
+    registry.register("ab_test_run", make_ab_test_run(workspace_path))
+    registry.register("ab_test_list", make_ab_test_list(workspace_path))
+    registry.register("ab_test_show", make_ab_test_show(workspace_path))
+    registry.register("ab_test_stats", make_ab_test_stats(workspace_path))
     return registry
 
 
@@ -1928,7 +1935,18 @@ def make_app_report_build(workspace: Path):
                 f"unknown period {period_raw!r}; expected daily|weekly|monthly"
             ) from exc
         orchestrator = ReportOrchestrator(workspace_root)
-        summary = orchestrator.build(period)
+        narrate = bool(spec.payload.get("narrate", False))
+        if narrate:
+            summary, narrative_req = orchestrator.build_with_narrative(
+                period,
+                target_audience=str(spec.payload.get("audience", "self")),
+                additional_notes=str(spec.payload.get("notes", "")),
+                trace_id=str(spec.trace_id or ""),
+            )
+        else:
+            summary = orchestrator.build(period)
+            narrative_req = None
+
         persist = bool(spec.payload.get("persist", False))
         persisted_path: str | None = None
         if persist:
@@ -1939,9 +1957,28 @@ def make_app_report_build(workspace: Path):
             target = reports_dir / f"{period.value}-{stamp}.md"
             target.write_text(summary.markdown, encoding="utf-8")
             persisted_path = str(target.relative_to(workspace_root))
+
+        narrative_task_id = ""
+        if narrate and narrative_req is not None:
+            # v0.26 — enqueue a claude-lane task carrying the markdown
+            # summary; the worker writes Proposal(kind=generation) which
+            # the human approves to land the narrative.
+            from .queue import TaskQueue
+
+            queue = TaskQueue(workspace_root)
+            task = queue.enqueue(
+                lane="claude",
+                packet=narrative_req.to_packet(),
+                idempotency_key=f"report-narrate-{period.value}-{summary.window_end}",
+            )
+            narrative_task_id = task.task_id
+            summary.narrative_task_id = narrative_task_id
+
         out = summary.to_dict()
         if persisted_path:
             out["persisted_path"] = persisted_path
+        if narrative_task_id:
+            out["narrative_task_id"] = narrative_task_id
         return out
 
     return app_report_build
@@ -2051,3 +2088,133 @@ def make_judge_evaluate(workspace: Path):
         return verdict.to_dict()
 
     return judge_evaluate
+
+
+# ---------------------------------------------------------------------------
+# v0.28 — Meta cross-skill knowledge transfer
+# ---------------------------------------------------------------------------
+
+
+def make_meta_cross_skill_scan(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def meta_cross_skill_scan(spec: OperationSpec) -> dict:
+        from .meta import CrossSkillTransfer
+
+        threshold = float(spec.payload.get("signal_threshold", 0.4))
+        min_domains = int(spec.payload.get("min_strong_domains", 3))
+        min_accepted = int(spec.payload.get("min_accepted_in_strong", 2))
+        max_findings = int(spec.payload.get("max_findings", 50))
+        transfer = CrossSkillTransfer(
+            workspace=workspace_root,
+            signal_threshold=threshold,
+            min_strong_domains=min_domains,
+            min_accepted_in_strong=min_accepted,
+        )
+        findings = transfer.find_transfers()[:max_findings]
+        return {
+            "signal_threshold": threshold,
+            "min_strong_domains": min_domains,
+            "total_findings": len(findings),
+            "findings": [f.to_dict() for f in findings],
+        }
+
+    return meta_cross_skill_scan
+
+
+# ---------------------------------------------------------------------------
+# v0.29 — A/B test framework
+# ---------------------------------------------------------------------------
+
+
+def make_ab_test_run(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def ab_test_run(spec: OperationSpec) -> dict:
+        from .ab import ABTestRunner, ABTestStore, Variant
+
+        domain = str(spec.payload.get("domain", "")).strip()
+        if not domain:
+            raise ValueError("domain is required")
+        candidate_a = str(spec.payload.get("candidate_a", "")).strip()
+        candidate_b = str(spec.payload.get("candidate_b", "")).strip()
+        if not candidate_a or not candidate_b:
+            raise ValueError("candidate_a and candidate_b are required")
+        a = Variant(
+            label=str(spec.payload.get("label_a", "A")),
+            candidate=candidate_a,
+            notes=str(spec.payload.get("notes_a", "")),
+        )
+        b = Variant(
+            label=str(spec.payload.get("label_b", "B")),
+            candidate=candidate_b,
+            notes=str(spec.payload.get("notes_b", "")),
+        )
+        reference = str(spec.payload.get("reference", ""))
+        rubric = spec.payload.get("rubric") or {}
+        if not isinstance(rubric, dict):
+            rubric = {}
+        rubric = {str(k): float(v) for k, v in rubric.items()}
+        judge = str(spec.payload.get("judge", "heuristic")).lower()
+
+        store = ABTestStore(workspace_root)
+        run_id = store.new_run_id()
+        runner = ABTestRunner(judge_name=judge)
+        verdict = runner.run(
+            run_id=run_id, domain=domain, a=a, b=b,
+            reference=reference, rubric=rubric,
+            trace_id=str(spec.trace_id or ""),
+        )
+        store.record(verdict)
+        return verdict.to_dict()
+
+    return ab_test_run
+
+
+def make_ab_test_list(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def ab_test_list(spec: OperationSpec) -> dict:
+        from .ab import ABTestStore
+
+        domain = spec.payload.get("domain")
+        limit = int(spec.payload.get("limit", 50))
+        store = ABTestStore(workspace_root)
+        rows = store.list(
+            domain=str(domain) if domain else None,
+            limit=limit,
+        )
+        return {"count": len(rows), "runs": rows}
+
+    return ab_test_list
+
+
+def make_ab_test_show(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def ab_test_show(spec: OperationSpec) -> dict:
+        from .ab import ABTestStore
+
+        run_id = str(spec.payload.get("run_id", "")).strip()
+        if not run_id:
+            raise ValueError("run_id is required")
+        store = ABTestStore(workspace_root)
+        verdict = store.get(run_id)
+        if verdict is None:
+            return {"run_id": run_id, "found": False}
+        return {"found": True, **verdict.to_dict()}
+
+    return ab_test_show
+
+
+def make_ab_test_stats(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def ab_test_stats(spec: OperationSpec) -> dict:
+        from .ab import ABTestStore
+
+        domain = spec.payload.get("domain")
+        store = ABTestStore(workspace_root)
+        return store.win_rate(domain=str(domain) if domain else None)
+
+    return ab_test_stats
