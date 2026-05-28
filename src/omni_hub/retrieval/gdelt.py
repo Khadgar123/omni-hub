@@ -22,9 +22,13 @@ DOC_API = "https://api.gdeltproject.org/api/v2/doc/doc"
 
 class GDELTSource:
     name = "gdelt"
+    tier = 0
 
     def __init__(self, timeout: int = DEFAULT_TIMEOUT_SEC) -> None:
         self.timeout = timeout
+
+    def check(self) -> tuple[str, str]:
+        return "ok", "anonymous, 15-min refresh (api.gdeltproject.org)"
 
     def retrieve(
         self,

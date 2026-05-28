@@ -556,6 +556,23 @@ def make_retrieve_cascade(workspace: Path):
     return retrieve_cascade
 
 
+def make_retrieve_doctor(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def retrieve_doctor(spec: OperationSpec) -> dict[str, object]:
+        from .retrieval import builtin_sources
+        from .retrieval.health import probe_all, summarise
+
+        sources = list(builtin_sources().values())
+        reports = probe_all(sources)
+        return {
+            "rows": [r.to_dict() for r in reports],
+            "summary": summarise(reports),
+        }
+
+    return retrieve_doctor
+
+
 def make_fetch_url_reader(workspace: Path):
     workspace_root = workspace.resolve()
 
@@ -578,23 +595,47 @@ def make_fetch_url_reader(workspace: Path):
 
         # urllib fallback / parallel capture — gives us the raw HTML even
         # when Jina worked, so the caller has both views.
+        urllib_result: dict[str, object]
+        raw_html_for_fallback = ""
         try:
             resource = fetch_url(url)
-            urllib_result: dict[str, object] = {
+            urllib_result = {
                 "title": resource.title,
                 "text": resource.text[:4000],
                 "content_type": resource.content_type,
                 "source_kind": resource.source_kind,
                 "metadata": dict(resource.metadata),
             }
+            if "html" in resource.content_type.lower():
+                raw_html_for_fallback = resource.body
         except Exception as exc:                            # noqa: BLE001
             urllib_result = {"error": f"{type(exc).__name__}: {exc}"}
 
-        return {
+        # trafilatura fallback — opt-in; runs when reader empty/failed AND
+        # urllib retrieved HTML.  Silent no-op if trafilatura binary missing.
+        trafilatura_result: dict[str, object] | None = None
+        if bool(payload.get("use_trafilatura", False)) and raw_html_for_fallback:
+            from .connectors.trafilatura_bridge import extract_with_metadata
+
+            payload_dict, status = extract_with_metadata(
+                raw_html_for_fallback, url,
+            )
+            trafilatura_result = {
+                "status": status,
+                "title": payload_dict.get("title", ""),
+                "text": str(payload_dict.get("text", ""))[:4000],
+                "author": payload_dict.get("author", ""),
+                "date": payload_dict.get("date", ""),
+            }
+
+        out: dict[str, object] = {
             "url": url,
             "reader": reader_result,
             "urllib": urllib_result,
         }
+        if trafilatura_result is not None:
+            out["trafilatura"] = trafilatura_result
+        return out
 
     return fetch_url_reader
 
@@ -661,6 +702,105 @@ def make_researchflow_skill_inventory(workspace: Path):
         }
 
     return researchflow_skill_inventory
+
+
+def make_wiki_init(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def wiki_init(spec: OperationSpec) -> dict[str, object]:
+        from .knowledge_plane import init_layout
+
+        return init_layout(workspace_root)
+
+    return wiki_init
+
+
+def make_wiki_status(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def wiki_status(spec: OperationSpec) -> dict[str, object]:
+        from .knowledge_plane import status
+
+        return status(workspace_root)
+
+    return wiki_status
+
+
+def make_wiki_search(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def wiki_search(spec: OperationSpec) -> dict[str, object]:
+        from .knowledge_plane import search_wiki
+
+        payload = spec.payload
+        query = str(payload["query"])
+        results = search_wiki(
+            query,
+            workspace=workspace_root,
+            limit=int(payload.get("limit", 10)),
+        )
+        return {
+            "query": query,
+            "count": len(results),
+            "results": [result.to_dict() for result in results],
+        }
+
+    return wiki_search
+
+
+def make_wiki_propose_research(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def wiki_propose_research(spec: OperationSpec) -> dict[str, object]:
+        from .knowledge_plane import propose_research_wiki_update
+
+        payload = spec.payload
+        result = propose_research_wiki_update(
+            workspace_root,
+            source_id=str(payload["source"]),
+            analysis_path=str(payload["path"]),
+            target_domain=str(payload.get("domain", "research")),
+        )
+        proposal = result.get("proposal")
+        if hasattr(proposal, "to_dict"):
+            result["proposal"] = proposal.to_dict()
+        return result
+
+    return wiki_propose_research
+
+
+def make_wiki_apply_proposal(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def wiki_apply_proposal(spec: OperationSpec) -> dict[str, object]:
+        from .knowledge_plane import apply_wiki_proposal
+
+        return apply_wiki_proposal(
+            workspace_root,
+            str(spec.payload["proposal"]),
+        )
+
+    return wiki_apply_proposal
+
+
+def make_context_pack_build(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def context_pack_build(spec: OperationSpec) -> dict[str, object]:
+        from .knowledge_plane import build_context_pack
+
+        payload = spec.payload
+        pack = build_context_pack(
+            workspace_root,
+            query=str(payload["query"]),
+            domain=str(payload.get("domain", "research")),
+            wiki_limit=int(payload.get("wiki_limit", 6)),
+            research_limit=int(payload.get("research_limit", 6)),
+            persist=bool(payload.get("persist", False)),
+        )
+        return pack.to_dict()
+
+    return context_pack_build
 
 
 def make_event_log_dump(workspace: Path):
@@ -1145,6 +1285,7 @@ def build_default_registry(workspace: Path | str = ".") -> OperationRegistry:
     registry.register("event_log_dump", make_event_log_dump(workspace_path))
     registry.register("event_log_list", make_event_log_list(workspace_path))
     registry.register("retrieve_cascade", make_retrieve_cascade(workspace_path))
+    registry.register("retrieve_doctor", make_retrieve_doctor(workspace_path))
     registry.register("fetch_url_reader", make_fetch_url_reader(workspace_path))
     registry.register("research_kb_status", make_research_kb_status(workspace_path))
     registry.register("research_kb_search", make_research_kb_search(workspace_path))
@@ -1153,6 +1294,12 @@ def build_default_registry(workspace: Path | str = ".") -> OperationRegistry:
         "researchflow_skill_inventory",
         make_researchflow_skill_inventory(workspace_path),
     )
+    registry.register("wiki_init", make_wiki_init(workspace_path))
+    registry.register("wiki_status", make_wiki_status(workspace_path))
+    registry.register("wiki_search", make_wiki_search(workspace_path))
+    registry.register("wiki_propose_research", make_wiki_propose_research(workspace_path))
+    registry.register("wiki_apply_proposal", make_wiki_apply_proposal(workspace_path))
+    registry.register("context_pack_build", make_context_pack_build(workspace_path))
     registry.register("memory_remember_core", make_memory_remember_core(workspace_path))
     registry.register("memory_forget_core", make_memory_forget_core(workspace_path))
     registry.register("memory_recall", make_memory_recall(workspace_path))

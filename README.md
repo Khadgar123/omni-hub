@@ -17,6 +17,7 @@ TaskPacket
 
 - **Control Plane**：Operation、Policy、Audit、TaskPacket 契约、`TaskQueue`、`ProposalStore`、Skill Registry。
 - **Worker Pool**：可替换 adapter；Codex / Claude Code / OpenHands 在这里是 *headless worker*，不是项目本体。常驻进程是 `omni-hub worker --lane <lane>`，由 launchd 拉起。
+- **Knowledge Plane**：Karpathy-style compiled wiki（`vault/raw` / `vault/evidence` / `vault/wiki` / `.omni/claims.jsonl`），把 evidence 编译成可审计、可链接、可持续维护的 Markdown 知识库。
 - **Eval/Memory Flywheel**：harness（ensemble → judge → preference → DSPy compile → 日/周/月报），外加 4 个 pinned fork（SWE-agent / promptfoo / Argilla / Graphiti）、2 个 RipeMangoBox 上游直连研究资产（ResearchFlow / PaperBite）+ 3 个待升格（DSPy / OpenHands / Opik）。
 - **API 管理与网关**：`api-management/metapi` 和 `api-management/ccLoad` 两个 fork 承接余额、额度、模型、路由、协议转换和监控。
 
@@ -47,6 +48,8 @@ make setup
 
 ```bash
 PYTHONPATH=src python3.12 -m omni_hub.cli capture-url --url "https://example.com"
+PYTHONPATH=src python3.12 -m omni_hub.cli wiki-init
+PYTHONPATH=src python3.12 -m omni_hub.cli context-pack-build --query "context engineering" --domain research --persist
 PYTHONPATH=src python3.12 -m omni_hub.cli vault-list --limit 20
 PYTHONPATH=src python3.12 -m omni_hub.cli memory-search --query "Graphiti"
 PYTHONPATH=src python3.12 -m omni_hub.cli skill-list
@@ -126,7 +129,7 @@ docker compose --env-file api-management/env.example -f api-management/compose.y
 │                           # + RipeMangoBox 上游直连：ResearchFlow / PaperBite
 │                           # + pending forks 清单：DSPy / OpenHands / Opik
 ├── .agents/skills/         # 业务 skill：Claude Code 和 Codex CLI 都通过 symlink 读
-├── docs/                   # 架构、权限、提案模型、路线图
+├── docs/                   # 架构、知识平面、权限、提案模型、路线图
 ├── registry/               # 机器可读 skill 注册表
 ├── scripts/                # 工具脚本
 │   ├── launchd/            # macOS launchd plist 模板（daily/weekly/monthly/worker）
@@ -142,7 +145,7 @@ docker compose --env-file api-management/env.example -f api-management/compose.y
 │   ├── builtins.py         # Operation handlers（policy + audit 通道）
 │   ├── memory.py / vault.py / skills.py / api_management.py / ...
 ├── tests/                  # 单元 + 集成测试
-├── vault/                  # 本地 Markdown / Obsidian 知识库
+├── vault/                  # raw / evidence / compiled wiki / Obsidian 知识库
 ├── AGENTS.md               # Codex / 其他 agent 入口（含工程硬约束）
 ├── CLAUDE.md               # Claude Code 入口（指向 AGENTS.md）
 └── README.md
@@ -158,6 +161,7 @@ docker compose --env-file api-management/env.example -f api-management/compose.y
 - [Argilla 反馈数据集](docs/argilla-feedback-datasets.md)
 - [Optimizer 模型](docs/optimizer-model.md)
 - [记忆层模型](docs/memory-model.md)
+- [知识平面模型](docs/knowledge-plane.md)
 - [Skill Registry](docs/skill-registry.md)
 - [Skill Intelligence](docs/skill-intelligence.md)
 - [推荐组合架构](docs/recommended-stack.md)

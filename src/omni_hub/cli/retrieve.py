@@ -78,6 +78,19 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         "--no-reader", action="store_true",
         help="Skip Jina Reader; use only the urllib path (capture-url behaviour).",
     )
+    fetch.add_argument(
+        "--use-trafilatura", action="store_true",
+        help=(
+            "Also run trafilatura over the fetched HTML for boilerplate-"
+            "stripped extraction. Requires trafilatura on PATH (see "
+            "src/omni_hub/connectors/trafilatura_bridge.py for install)."
+        ),
+    )
+
+    subparsers.add_parser(
+        "retrieve-doctor",
+        help="Probe every registered retrieval source's health (Agent-Reach pattern).",
+    )
 
 
 def _retrieve(args, *, runner, workspace) -> int:
@@ -113,7 +126,23 @@ def _fetch(args, *, runner, workspace) -> int:
         OperationSpec(
             name="fetch_url_reader",
             action="fetch",
-            payload={"url": args.url, "use_reader": not args.no_reader},
+            payload={
+                "url": args.url,
+                "use_reader": not args.no_reader,
+                "use_trafilatura": bool(args.use_trafilatura),
+            },
+            risk_level=RiskLevel.READ_ONLY,
+        ),
+    )
+
+
+def _doctor(args, *, runner, workspace) -> int:
+    return run_and_print(
+        runner,
+        OperationSpec(
+            name="retrieve_doctor",
+            action="health",
+            payload={},
             risk_level=RiskLevel.READ_ONLY,
         ),
     )
@@ -122,4 +151,5 @@ def _fetch(args, *, runner, workspace) -> int:
 COMMANDS = {
     "retrieve": _retrieve,
     "fetch-url": _fetch,
+    "retrieve-doctor": _doctor,
 }

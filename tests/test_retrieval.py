@@ -1009,5 +1009,602 @@ class PlannerTests(unittest.TestCase):
         json.dumps(p.to_dict())   # must not raise
 
 
+# ===========================================================================
+# v0.10 — Channel ABC + doctor (V10-6)
+# ===========================================================================
+
+
+class HealthProbeTests(unittest.TestCase):
+    def test_probe_default_when_no_check_method(self) -> None:
+        from omni_hub.retrieval.health import probe_source
+
+        class Bare:
+            name = "bare"
+
+        report = probe_source(Bare())
+        self.assertEqual(report.status, "ok")
+        self.assertIn("no probe", report.detail)
+        self.assertEqual(report.tier, 0)
+
+    def test_probe_calls_check_when_present(self) -> None:
+        from omni_hub.retrieval.health import probe_source
+
+        class WithProbe:
+            name = "wp"
+            tier = 1
+            def check(self): return ("warn", "missing key")
+
+        report = probe_source(WithProbe())
+        self.assertEqual(report.status, "warn")
+        self.assertEqual(report.detail, "missing key")
+        self.assertEqual(report.tier, 1)
+
+    def test_probe_collapses_exceptions_to_error(self) -> None:
+        from omni_hub.retrieval.health import probe_source
+
+        class Boom:
+            name = "boom"
+            def check(self):
+                raise RuntimeError("rate limited")
+
+        report = probe_source(Boom())
+        self.assertEqual(report.status, "error")
+        self.assertIn("rate limited", report.detail)
+
+    def test_probe_rejects_malformed_return(self) -> None:
+        from omni_hub.retrieval.health import probe_source
+
+        class Bad:
+            name = "bad"
+            def check(self): return "not a tuple"
+
+        report = probe_source(Bad())
+        self.assertEqual(report.status, "error")
+
+    def test_env_var_probe_masks_secret(self) -> None:
+        import os
+        from omni_hub.retrieval.health import env_var_probe
+        os.environ["__TEST_KEY__"] = "sk-deadbeef1234"
+        try:
+            status, detail = env_var_probe("__TEST_KEY__")
+            self.assertEqual(status, "ok")
+            self.assertIn("sk-d", detail)
+            self.assertNotIn("deadbeef", detail)  # masked
+        finally:
+            del os.environ["__TEST_KEY__"]
+
+    def test_env_var_probe_reports_unset(self) -> None:
+        from omni_hub.retrieval.health import env_var_probe
+        status, _detail = env_var_probe("__NEVER_SET_VAR_XYZ__")
+        self.assertEqual(status, "off")
+
+    def test_probe_all_runs_in_order(self) -> None:
+        from omni_hub.retrieval.health import probe_all, summarise
+        class A: name, tier = "a", 0
+        class B: name, tier = "b", 1
+        reports = probe_all([A(), B()])
+        self.assertEqual([r.name for r in reports], ["a", "b"])
+        s = summarise(reports)
+        self.assertEqual(s["ok"], 2)
+
+    def test_builtin_sources_all_have_tier_and_check(self) -> None:
+        for name, source in builtin_sources().items():
+            self.assertTrue(hasattr(source, "tier"), f"{name} missing tier")
+            self.assertIn(source.tier, (0, 1, 2), f"{name} bad tier {source.tier}")
+            self.assertTrue(callable(getattr(source, "check", None)),
+                            f"{name} missing check()")
+
+
+# ===========================================================================
+# v0.10 — HF Daily Papers (V10-4)
+# ===========================================================================
+
+
+class HFDailyPapersTests(unittest.TestCase):
+    def test_parses_daily_papers_response(self) -> None:
+        from omni_hub.retrieval.hf_daily_papers import HFDailyPapersSource
+
+        fake = [{
+            "paper": {
+                "id": "2510.01234",
+                "title": "A Cool Anthropic Paper",
+                "summary": "Anthropic released Claude Agent SDK.",
+                "authors": [{"name": "Vaswani"}, {"name": "Shazeer"}],
+                "upvotes": 42,
+                "numModels": 2,
+                "numDatasets": 1,
+            },
+        }, {"paper": {
+            "id": "2510.05678", "title": "Unrelated", "summary": "",
+            "authors": [], "upvotes": 1,
+        }}]
+        with patch(
+            "omni_hub.retrieval.hf_daily_papers.http_get_json",
+            return_value=fake,
+        ):
+            records = HFDailyPapersSource(days_window=1).retrieve("Anthropic")
+        self.assertEqual(len(records), 1)
+        rec = records[0]
+        self.assertEqual(rec.canonical_id, "arxiv:2510.01234")
+        self.assertEqual(rec.score, 42.0)
+        self.assertEqual(rec.metadata["upvotes"], 42)
+        self.assertEqual(rec.metadata["num_models"], 2)
+
+
+# ===========================================================================
+# v0.10 — Photo (V10-9)
+# ===========================================================================
+
+
+class PhotoTests(unittest.TestCase):
+    def test_unsplash_uses_client_id_header(self) -> None:
+        from omni_hub.retrieval.photo import UnsplashSource
+        fake = {"results": [{
+            "id": "abc123",
+            "description": "Mountain at dawn",
+            "user": {"name": "Ansel"},
+            "links": {"html": "https://unsplash.com/photos/abc123"},
+            "urls": {"regular": "https://images.unsplash.com/x"},
+            "likes": 200, "width": 4000, "height": 3000, "color": "#aabbcc",
+        }]}
+        with patch(
+            "omni_hub.retrieval.photo.http_get_json", return_value=fake,
+        ) as mock:
+            records = UnsplashSource(api_key="key123").retrieve("dawn")
+        self.assertEqual(mock.call_args.kwargs["headers"]["Authorization"],
+                         "Client-ID key123")
+        self.assertEqual(records[0].canonical_id, "unsplash:abc123")
+        self.assertEqual(records[0].score, 200.0)
+
+    def test_unsplash_raises_when_key_missing(self) -> None:
+        from omni_hub.retrieval.photo import UnsplashSource
+        from omni_hub.retrieval.base import RetrievalError
+        src = UnsplashSource(api_key="")
+        with self.assertRaises(RetrievalError):
+            src.retrieve("anything")
+
+    def test_pexels_uses_authorization_header(self) -> None:
+        from omni_hub.retrieval.photo import PexelsSource
+        fake = {"photos": [{
+            "id": 99, "alt": "Sunset", "url": "https://pexels.com/p/99",
+            "photographer": "Ansel", "photographer_url": "https://...",
+            "src": {"large": "https://...x.jpg"},
+            "width": 1000, "height": 600, "avg_color": "#ffaa00",
+        }]}
+        with patch(
+            "omni_hub.retrieval.photo.http_get_json", return_value=fake,
+        ) as mock:
+            records = PexelsSource(api_key="pkey").retrieve("sun")
+        self.assertEqual(mock.call_args.kwargs["headers"]["Authorization"], "pkey")
+        self.assertEqual(records[0].canonical_id, "pexels:99")
+
+
+# ===========================================================================
+# v0.10 — US Gov three-piece (V10-5)
+# ===========================================================================
+
+
+class USGovTests(unittest.TestCase):
+    def test_federal_register_parses_results(self) -> None:
+        from omni_hub.retrieval.us_gov import FederalRegisterSource
+        fake = {"results": [{
+            "title": "Final Rule on X",
+            "document_number": "2026-12345",
+            "abstract": "EPA finalises the rule.",
+            "publication_date": "2026-05-01",
+            "type": "Rule",
+            "html_url": "https://federalregister.gov/d/2026-12345",
+            "agencies": [{"name": "Environmental Protection Agency"}],
+        }]}
+        with patch(
+            "omni_hub.retrieval.us_gov.http_get_json", return_value=fake,
+        ):
+            records = FederalRegisterSource().retrieve("EPA rule")
+        self.assertEqual(records[0].canonical_id, "fedreg:2026-12345")
+        self.assertEqual(records[0].metadata["document_type"], "Rule")
+
+    def test_regulations_gov_uses_x_api_key(self) -> None:
+        from omni_hub.retrieval.us_gov import RegulationsGovSource
+        fake = {"data": [{
+            "id": "EPA-HQ-OAR-2026-0001",
+            "attributes": {
+                "title": "Comment period notice",
+                "documentType": "Notice", "agencyId": "EPA",
+                "postedDate": "2026-05-01", "docketId": "EPA-HQ-OAR-2026",
+                "subject": "Public input.",
+            },
+        }]}
+        with patch(
+            "omni_hub.retrieval.us_gov.http_get_json", return_value=fake,
+        ) as mock:
+            records = RegulationsGovSource(api_key="datakey").retrieve("EPA")
+        self.assertEqual(mock.call_args.kwargs["headers"]["X-Api-Key"], "datakey")
+        self.assertEqual(records[0].canonical_id, "regulations:EPA-HQ-OAR-2026-0001")
+
+    def test_congress_gov_passes_api_key_in_params(self) -> None:
+        from omni_hub.retrieval.us_gov import CongressGovSource
+        fake = {"bills": [{
+            "congress": 119, "type": "HR", "number": 42,
+            "title": "Bill to do X",
+            "updateDate": "2026-05-01",
+            "latestAction": {"text": "Passed the House."},
+        }]}
+        with patch(
+            "omni_hub.retrieval.us_gov.http_get_json", return_value=fake,
+        ) as mock:
+            records = CongressGovSource(api_key="datakey").retrieve("X")
+        self.assertEqual(mock.call_args.kwargs["params"]["api_key"], "datakey")
+        self.assertEqual(records[0].canonical_id, "congress:119-hr-42")
+
+
+# ===========================================================================
+# v0.10 — twitterapi.io (V10-7)
+# ===========================================================================
+
+
+class TwitterApiIoTests(unittest.TestCase):
+    def test_parses_advanced_search(self) -> None:
+        from omni_hub.retrieval.twitterapi_io import TwitterApiIoSource
+        fake = {"tweets": [{
+            "id": "12345",
+            "text": "Anthropic just released Claude Agent SDK!",
+            "author": {"userName": "anthropicai", "name": "Anthropic"},
+            "createdAt": "2026-05-01T10:00:00Z",
+            "lang": "en",
+            "likeCount": 100, "retweetCount": 50, "replyCount": 5, "viewCount": 1000,
+        }]}
+        with patch(
+            "omni_hub.retrieval.twitterapi_io.http_get_json", return_value=fake,
+        ) as mock:
+            records = TwitterApiIoSource(api_key="tw-key").retrieve("Anthropic")
+        self.assertEqual(
+            mock.call_args.kwargs["headers"]["Authorization"], "Bearer tw-key",
+        )
+        rec = records[0]
+        self.assertEqual(rec.canonical_id, "x:tweet:12345")
+        self.assertEqual(rec.url, "https://x.com/anthropicai/status/12345")
+        # like + 2*retweet = 100 + 100 = 200
+        self.assertEqual(rec.score, 200.0)
+
+
+# ===========================================================================
+# v0.10 — International (ACLED + WB + IMF) (V10-8)
+# ===========================================================================
+
+
+class IntlTests(unittest.TestCase):
+    def test_acled_parses_events(self) -> None:
+        from omni_hub.retrieval.intl import ACLEDSource
+        fake = {"data": [{
+            "data_id": "777",
+            "event_date": "2026-05-20",
+            "event_type": "Protests",
+            "actor1": "Protesters (Country)",
+            "actor2": "Police Forces",
+            "country": "Country",
+            "fatalities": 3,
+            "notes": "Demonstration in capital.",
+            "source_scale": "https://news.example/article",
+        }]}
+        with patch(
+            "omni_hub.retrieval.intl.http_get_json", return_value=fake,
+        ):
+            records = ACLEDSource(
+                email="u@x.com", api_key="k",
+            ).retrieve("Protesters")
+        self.assertEqual(records[0].canonical_id, "acled:777")
+        self.assertEqual(records[0].score, 3.0)
+
+    def test_world_bank_filters_indicators_by_substring(self) -> None:
+        from omni_hub.retrieval.intl import WorldBankSource
+        fake_resp = [
+            {"page": 1, "pages": 1, "total": 2},
+            [
+                {"id": "NY.GDP.MKTP.CD", "name": "GDP (current US$)",
+                 "sourceNote": "Gross domestic product...",
+                 "source": {"value": "World Development Indicators"},
+                 "topics": [{"value": "Economy"}]},
+                {"id": "SP.POP.TOTL", "name": "Population, total",
+                 "sourceNote": "Total population...",
+                 "source": {"value": "World Development Indicators"},
+                 "topics": [{"value": "Health"}]},
+            ],
+        ]
+        with patch(
+            "omni_hub.retrieval.intl.http_get_json", return_value=fake_resp,
+        ):
+            records = WorldBankSource().retrieve("GDP")
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0].canonical_id, "wb:indicator:NY.GDP.MKTP.CD")
+
+    def test_imf_walks_sdmx_dataflows(self) -> None:
+        from omni_hub.retrieval.intl import IMFSource
+        fake = {
+            "Structure": {
+                "Dataflows": {
+                    "Dataflow": [
+                        {
+                            "@id": "WEO",
+                            "Name": [{"@xml:lang": "en", "#text": "World Economic Outlook"}],
+                        },
+                        {
+                            "@id": "IFS",
+                            "Name": {"@xml:lang": "en", "#text": "International Financial Statistics"},
+                        },
+                    ],
+                },
+            },
+        }
+        with patch(
+            "omni_hub.retrieval.intl.http_get_json", return_value=fake,
+        ):
+            records = IMFSource().retrieve("Outlook")
+        self.assertEqual(records[0].canonical_id, "imf:WEO")
+
+
+# ===========================================================================
+# v0.10 — Finance (V10-2)
+# ===========================================================================
+
+
+class FinanceTests(unittest.TestCase):
+    def test_edgar_parses_full_text_search(self) -> None:
+        from omni_hub.retrieval.finance import EdgarSource
+        fake = {"hits": {"hits": [{
+            "_id": "0001193125-26-123456",
+            "_source": {
+                "form": "10-K", "file_date": "2026-04-15",
+                "display_names": ["Anthropic, PBC"],
+                "ciks": ["0001990000"],
+                "adsh": "0001193125-26-123456",
+            },
+        }]}}
+        with patch(
+            "omni_hub.retrieval.finance.http_get_json", return_value=fake,
+        ):
+            records = EdgarSource().retrieve("Anthropic")
+        rec = records[0]
+        self.assertEqual(rec.canonical_id, "edgar:0001193125-26-123456")
+        self.assertEqual(rec.metadata["form"], "10-K")
+        self.assertIn("Anthropic", rec.title)
+        # URL must use the accession-number-without-dashes form
+        self.assertIn("000119312526123456", rec.url)
+
+    def test_fred_orders_by_popularity(self) -> None:
+        from omni_hub.retrieval.finance import FREDSource
+        fake = {"seriess": [{
+            "id": "UNRATE", "title": "Unemployment Rate", "popularity": 99,
+            "frequency": "Monthly", "units": "Percent", "seasonal_adjustment": "SA",
+            "observation_start": "1948-01-01", "observation_end": "2026-04-01",
+            "notes": "Civilian unemployment rate.",
+        }]}
+        with patch(
+            "omni_hub.retrieval.finance.http_get_json", return_value=fake,
+        ) as mock:
+            records = FREDSource(api_key="fkey").retrieve("unemployment")
+        self.assertEqual(mock.call_args.kwargs["params"]["api_key"], "fkey")
+        self.assertEqual(mock.call_args.kwargs["params"]["order_by"], "popularity")
+        self.assertEqual(records[0].canonical_id, "fred:UNRATE")
+        self.assertEqual(records[0].score, 99.0)
+
+
+# ===========================================================================
+# v0.10 — trafilatura bridge (V10-3)
+# ===========================================================================
+
+
+class TrafilaturaBridgeTests(unittest.TestCase):
+    def test_returns_not_installed_when_missing(self) -> None:
+        from omni_hub.connectors import trafilatura_bridge
+        with patch.object(trafilatura_bridge.shutil, "which", return_value=None):
+            text, status = trafilatura_bridge.extract_main_content(
+                "<html></html>", "https://x",
+            )
+        self.assertEqual(status, "not_installed")
+        self.assertEqual(text, "")
+
+    def test_returns_empty_on_blank_input(self) -> None:
+        from omni_hub.connectors import trafilatura_bridge
+        with patch.object(trafilatura_bridge.shutil, "which", return_value="/usr/bin/trafilatura"):
+            text, status = trafilatura_bridge.extract_main_content(
+                "", "https://x",
+            )
+        self.assertEqual(status, "empty")
+
+    def test_invokes_subprocess_with_markdown_flag(self) -> None:
+        from omni_hub.connectors import trafilatura_bridge
+
+        class FakeResult:
+            returncode = 0
+            stdout = "# Title\n\nBody text.\n"
+            stderr = ""
+
+        with patch.object(trafilatura_bridge.shutil, "which", return_value="/x/trafilatura"), \
+             patch.object(trafilatura_bridge.subprocess, "run", return_value=FakeResult()) as mock_run:
+            text, status = trafilatura_bridge.extract_main_content(
+                "<html>...</html>", "https://x",
+            )
+        self.assertEqual(status, "ok")
+        self.assertIn("Body text.", text)
+        cmd = mock_run.call_args.args[0]
+        self.assertIn("--output", cmd)
+        self.assertIn("markdown", cmd)
+        self.assertIn("-u", cmd)
+
+    def test_json_metadata_path(self) -> None:
+        from omni_hub.connectors import trafilatura_bridge
+
+        class FakeResult:
+            returncode = 0
+            stdout = json.dumps({"title": "T", "text": "body", "author": "A"})
+            stderr = ""
+
+        with patch.object(trafilatura_bridge.shutil, "which", return_value="/x/trafilatura"), \
+             patch.object(trafilatura_bridge.subprocess, "run", return_value=FakeResult()):
+            payload, status = trafilatura_bridge.extract_with_metadata(
+                "<html>...</html>", "https://x",
+            )
+        self.assertEqual(status, "ok")
+        self.assertEqual(payload["title"], "T")
+        self.assertEqual(payload["author"], "A")
+
+
+# ===========================================================================
+# v0.10 — defuddle patterns (V10-12)
+# ===========================================================================
+
+
+class ExtractorsTests(unittest.TestCase):
+    def test_schema_org_extracts_article_body(self) -> None:
+        from omni_hub.connectors.extractors import extract_schema_org_article_body
+        html = """
+        <html><head>
+        <script type="application/ld+json">
+        {"@type": "NewsArticle", "articleBody": "Full article body here. " }
+        </script>
+        </head><body><div>Stub.</div></body></html>
+        """
+        body = extract_schema_org_article_body(html)
+        self.assertIn("Full article body", body)
+
+    def test_schema_org_picks_longest_across_multiple_blocks(self) -> None:
+        from omni_hub.connectors.extractors import extract_schema_org_article_body
+        html = """
+        <script type="application/ld+json">{"articleBody": "short"}</script>
+        <script type="application/ld+json">
+        {"@graph": [{"articleBody": "the much longer body wins"}]}
+        </script>
+        """
+        body = extract_schema_org_article_body(html)
+        self.assertEqual(body, "the much longer body wins")
+
+    def test_schema_org_sanity_trust_dom_when_close(self) -> None:
+        from omni_hub.connectors.extractors import schema_org_sanity_check
+        verdict, _longer = schema_org_sanity_check(
+            "A reasonably long extracted DOM article body here.",
+            '<script type="application/ld+json">{"articleBody": "short"}</script>',
+        )
+        self.assertEqual(verdict, "trust_dom")
+
+    def test_schema_org_sanity_trust_schema_when_dom_short(self) -> None:
+        from omni_hub.connectors.extractors import schema_org_sanity_check
+        long_body = "Word " * 100   # 500 chars
+        verdict, longer = schema_org_sanity_check(
+            "tiny stub",
+            f'<script type="application/ld+json">{{"articleBody": "{long_body}"}}</script>',
+        )
+        self.assertEqual(verdict, "trust_schema")
+        self.assertIn("Word", longer)
+
+    def test_schema_org_no_schema_returns_no_schema(self) -> None:
+        from omni_hub.connectors.extractors import schema_org_sanity_check
+        verdict, _ = schema_org_sanity_check("anything", "<html></html>")
+        self.assertEqual(verdict, "no_schema")
+
+    def test_site_extractor_picks_substack(self) -> None:
+        from omni_hub.connectors.extractors import site_extractor_for
+        extractor = site_extractor_for("https://someauthor.substack.com/p/post")
+        self.assertIsNotNone(extractor)
+
+    def test_site_extractor_picks_linkedin(self) -> None:
+        from omni_hub.connectors.extractors import site_extractor_for
+        extractor = site_extractor_for("https://www.linkedin.com/pulse/x")
+        self.assertIsNotNone(extractor)
+
+    def test_extract_with_site_override_no_override_for_random_host(self) -> None:
+        from omni_hub.connectors.extractors import extract_with_site_override
+        text, status = extract_with_site_override("<html></html>", "https://random.example.com/x")
+        self.assertEqual(status, "no_override")
+
+
+# ===========================================================================
+# v0.10 — XHS bridge (V10-10) — subprocess mocked
+# ===========================================================================
+
+
+class XHSBridgeTests(unittest.TestCase):
+    def test_check_reports_off_when_binary_missing(self) -> None:
+        from omni_hub.retrieval.xhs import XiaohongshuSource
+        src = XiaohongshuSource()
+        with patch("omni_hub.retrieval.xhs.shutil.which", return_value=None):
+            status, detail = src.check()
+        self.assertEqual(status, "off")
+        self.assertIn("xhs", detail)
+
+    def test_retrieve_returns_empty_when_binary_missing(self) -> None:
+        from omni_hub.retrieval.xhs import XiaohongshuSource
+        src = XiaohongshuSource()
+        with patch("omni_hub.retrieval.xhs.shutil.which", return_value=None):
+            self.assertEqual(src.retrieve("anything"), [])
+
+    def test_retrieve_parses_json_subprocess_output(self) -> None:
+        from omni_hub.retrieval.xhs import XiaohongshuSource
+
+        class FakeProc:
+            returncode = 0
+            stdout = json.dumps({"results": [{
+                "note_id": "abc",
+                "title": "好物分享",
+                "desc": "测试笔记内容",
+                "user": {"nickname": "alice"},
+                "url": "https://xiaohongshu.com/notes/abc",
+                "liked_count": 99,
+            }]})
+            stderr = ""
+
+        src = XiaohongshuSource()
+        with patch("omni_hub.retrieval.xhs.shutil.which", return_value="/x/xhs"), \
+             patch("omni_hub.retrieval.xhs.subprocess.run", return_value=FakeProc()):
+            records = src.retrieve("好物")
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0].canonical_id, "xhs:note:abc")
+        self.assertEqual(records[0].metadata["lang"], "zh")
+
+
+# ===========================================================================
+# v0.10 — Cascade integration with new domains + builtin_sources extension
+# ===========================================================================
+
+
+class V10CascadeIntegrationTests(unittest.TestCase):
+    def test_builtin_sources_registers_all_v10_connectors(self) -> None:
+        sources = builtin_sources()
+        for expected in (
+            "edgar", "fred", "hf_daily_papers",
+            "federal_register", "regulations_gov", "congress_gov",
+            "acled", "world_bank", "imf",
+            "unsplash", "pexels", "x_twitter",
+            "xiaohongshu", "wechat_mp",
+        ):
+            self.assertIn(expected, sources, f"missing {expected}")
+
+    def test_default_domain_cascades_extended(self) -> None:
+        self.assertIn("hf_daily_papers", DEFAULT_DOMAIN_CASCADES["ai_progress"])
+        self.assertIn("edgar", DEFAULT_DOMAIN_CASCADES["finance"])
+        self.assertIn("fred", DEFAULT_DOMAIN_CASCADES["finance"])
+        self.assertIn("acled", DEFAULT_DOMAIN_CASCADES["international_relations"])
+        self.assertIn("federal_register", DEFAULT_DOMAIN_CASCADES["policy"])
+        self.assertIn("unsplash", DEFAULT_DOMAIN_CASCADES["photography"])
+        # Tier-2 socials behind opt-in domains
+        self.assertEqual(DEFAULT_DOMAIN_CASCADES["social_en"], ["x_twitter", "gdelt"])
+        self.assertEqual(DEFAULT_DOMAIN_CASCADES["social_zh"], ["xiaohongshu", "wechat_mp"])
+
+
+class RetrieveDoctorCliTests(unittest.TestCase):
+    def test_doctor_returns_per_source_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            result = _run_cli(Path(tmp), ["retrieve-doctor"])
+        self.assertEqual(result["status"], "succeeded")
+        out = result["output"]
+        self.assertIn("rows", out)
+        # Every registered source should produce one row
+        names = {row["name"] for row in out["rows"]}
+        self.assertIn("openalex", names)
+        self.assertIn("edgar", names)
+        self.assertIn("xiaohongshu", names)
+        # Summary should cover all of ok / warn / off / error
+        self.assertIn("ok", out["summary"])
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

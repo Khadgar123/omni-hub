@@ -31,6 +31,13 @@ class JinaReaderFetcher:
     """URL→markdown.  Not a query source — call :meth:`fetch` directly."""
 
     name = "jina_reader"
+    tier = 0          # works without key (1M tok free); JINA_API_KEY upgrades
+
+    def check(self) -> tuple[str, str]:
+        import os as _os
+        if _os.environ.get("JINA_API_KEY", "").strip():
+            return "ok", "JINA_API_KEY set"
+        return "ok", "anonymous ~50k calls/mo (no key)"
 
     def __init__(
         self,

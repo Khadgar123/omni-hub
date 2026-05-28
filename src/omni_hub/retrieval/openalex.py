@@ -23,6 +23,7 @@ class OpenAlexSource:
     (~10x rate limit + exempt from anonymous credit cap)."""
 
     name = "openalex"
+    tier = 0          # works out of the box; mailto is optional polite-pool upgrade
 
     def __init__(
         self,
@@ -32,6 +33,11 @@ class OpenAlexSource:
     ) -> None:
         self.mailto = mailto or os.environ.get("OPENALEX_MAILTO", "")
         self.timeout = timeout
+
+    def check(self) -> tuple[str, str]:
+        if self.mailto:
+            return "ok", f"polite-pool: mailto={self.mailto}"
+        return "warn", "anonymous tier ($1/day credit cap since Feb 2026); set OPENALEX_MAILTO"
 
     def retrieve(
         self,

@@ -31,13 +31,14 @@ from . import (
     retrieve,
     skill,
     task,
+    wiki,
     worker,
 )
 
 _AREAS = [
     capture, memory, skill, api_management, policy, argilla,
     propose, task, worker, harness, reports, optimizer, event, mcp,
-    retrieve, research_kb,
+    retrieve, research_kb, wiki,
 ]
 
 

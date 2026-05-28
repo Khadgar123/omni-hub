@@ -45,18 +45,31 @@ RRF_K = 60                    # Cormack 2009 + LangChain EnsembleRetriever defau
 # the registered set land in ``CascadeResult.errors`` so the caller can
 # see what wasn't tried.
 DEFAULT_DOMAIN_CASCADES: dict[str, list[str]] = {
-    # The harness's 8 canonical domains
+    # The harness's 8 canonical domains — v0.10 expanded source maps per
+    # the SOTA scan (Anthropic financial-services lift, ACLED, HF Daily
+    # Papers, defuddle-pattern Tier 0/1 sources).  Sources requiring auth
+    # are listed; the cascade fail-soft-skips when their env vars unset.
     "engineering":           ["openalex", "arxiv", "wikipedia"],
     "research":              ["openalex", "semantic_scholar", "arxiv", "wikipedia"],
-    "photography":           ["wikipedia"],            # mostly reactive, forwarded links
-    "fashion":               ["wikipedia"],            # same
+    "photography":           ["unsplash", "pexels", "wikipedia"],
+    "fashion":               ["wikipedia"],            # snapshot-only via vault
     "chat_relationships":    [],                       # purely reactive
-    "finance":               ["gdelt", "wikipedia"],
-    "policy":                ["gdelt", "wikipedia"],
-    "international_relations": ["gdelt", "wikipedia"],
+    "finance":               ["edgar", "fred", "openalex", "wikipedia"],
+    "policy":                [
+        "federal_register", "regulations_gov", "congress_gov",
+        "gdelt", "wikipedia",
+    ],
+    "international_relations": [
+        "acled", "gdelt", "world_bank", "imf", "wikipedia",
+    ],
     # Synthetic
-    "ai_progress":           ["arxiv", "openalex", "wikipedia"],
+    "ai_progress":           ["hf_daily_papers", "arxiv", "openalex", "wikipedia"],
     "default":               ["wikipedia", "openalex", "gdelt"],
+    # Tier-2 social-media domains (paid/broker/pinned-fork) — opt-in via
+    # `--domain` rather than appearing in `default`, so casual queries
+    # don't burn budget or hit Chinese platforms unintentionally.
+    "social_en":             ["x_twitter", "gdelt"],
+    "social_zh":             ["xiaohongshu", "wechat_mp"],
 }
 
 

@@ -22,6 +22,7 @@ SUMMARY_URL_TMPL = "https://{lang}.wikipedia.org/api/rest_v1/page/summary/{title
 
 class WikipediaSource:
     name = "wikipedia"
+    tier = 0
 
     def __init__(
         self,
@@ -31,6 +32,9 @@ class WikipediaSource:
     ) -> None:
         self.lang = lang
         self.timeout = timeout
+
+    def check(self) -> tuple[str, str]:
+        return "ok", f"anonymous 50k/h ({self.lang}.wikipedia.org)"
 
     def retrieve(
         self,

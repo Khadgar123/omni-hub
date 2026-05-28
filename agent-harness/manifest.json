@@ -87,6 +87,56 @@
       "decision": "fork-pending-personal-clone",
       "promotion_reason": "Promoted from candidate to fork: 2026 trace+eval dashboard maturity confirmed against Langfuse/Phoenix in landscape review.",
       "next_step": "Fork comet-ml/opik to Khadgar123/opik on GitHub, then run scripts/add_pending_harness_forks.sh opik"
+    },
+    {
+      "id": "trafilatura",
+      "path": "agent-harness/forks/trafilatura",
+      "upstream": "https://github.com/adbar/trafilatura.git",
+      "branch": "master",
+      "role": "F1 0.883 heuristic boilerplate-stripped HTML→markdown extractor used as fallback when Jina Reader returns empty / offline; bridged via stdlib subprocess in src/omni_hub/connectors/trafilatura_bridge.py — main repo stays dependency-free",
+      "decision": "upstream-direct",
+      "promotion_reason": "v0.10 SOTA scan: trafilatura is Apache-2.0 and the strongest 2026 Python heuristic extractor (used by HuggingFace/IBM/MS Research). PIN as fork; install via pipx or editable submodule.",
+      "next_step": "cd agent-harness && git submodule add https://github.com/adbar/trafilatura.git forks/trafilatura; then pipx install ./forks/trafilatura"
+    },
+    {
+      "id": "xiaohongshu-cli",
+      "path": "agent-harness/forks/xiaohongshu-cli",
+      "upstream": "https://github.com/jackwener/xiaohongshu-cli.git",
+      "branch": "main",
+      "role": "Xiaohongshu (RED) CLI via camoufox anti-fingerprint Firefox + paste-cookie auth; signing isolated to upstream xhshow library so XHS server rotations only require xhshow patch — omni-hub stays signing-free",
+      "decision": "upstream-direct",
+      "promotion_reason": "v0.10 SOTA reversal of prior XHS rejection: 2k stars, 2026-03-21 active, signing factored out to Cloxl/xhshow upstream lib — Tier B PIN (not Tier C reject). Wrap via stdlib subprocess; absolutely no reverse signing code in main repo.",
+      "next_step": "cd agent-harness && git submodule add https://github.com/jackwener/xiaohongshu-cli.git forks/xiaohongshu-cli; pipx install ./forks/xiaohongshu-cli; then `xhs login` to paste-cookie auth"
+    },
+    {
+      "id": "xhshow",
+      "path": "agent-harness/forks/xhshow",
+      "upstream": "https://github.com/Cloxl/xhshow.git",
+      "branch": "main",
+      "role": "isolated Xiaohongshu x-s / x-s-common / xsc signing library; transitive dep of xiaohongshu-cli pinned separately so signing patches land in one place when XHS rotates",
+      "decision": "upstream-direct",
+      "promotion_reason": "Pinned alongside xiaohongshu-cli per dev.to 2026 writeup recommendation: keep signing in dedicated upstream so blast radius of XHS server changes is days-not-weeks.",
+      "next_step": "Installed as a transitive dependency of xiaohongshu-cli; no manual action unless XHS rotates and the cli upstream lags."
+    },
+    {
+      "id": "we-mp-rss",
+      "path": "agent-harness/forks/we-mp-rss",
+      "upstream": "https://github.com/rachelos/we-mp-rss.git",
+      "branch": "main",
+      "role": "WeChat 公众号 RSS broker (Docker self-host); replaces archived cooderl/wewe-rss as the only 2026-active option for non-msgalbum 公众号 ingest",
+      "decision": "upstream-direct",
+      "promotion_reason": "v0.10: cooderl/wewe-rss archived 2026-05-11; rachelos/we-mp-rss is the active fork with same broker pattern (QR-auth + RSS endpoint). Docker self-host, omni-hub only consumes the RSS.",
+      "next_step": "Self-host the Docker image; omni-hub reads via stdlib http_get_json against the published RSS endpoint — no direct subprocess link."
+    },
+    {
+      "id": "vogue-runway-scraper",
+      "path": "agent-harness/forks/vogue-runway-scraper",
+      "upstream": "https://github.com/TonyAssi/Vogue-Runway-Scraper.git",
+      "branch": "main",
+      "role": "Vogue Runway image / metadata Selenium scraper used in snapshot mode (NOT cascade hot path) for the fashion domain; outputs flow into the research-kb vault as quarterly snapshots",
+      "decision": "upstream-direct",
+      "promotion_reason": "v0.10: only viable open-source fashion runway data path (no official Vogue API). Selenium-based and DOM-brittle, so used in snapshot mode behind a manual ritual — not in retrieve cascade.",
+      "next_step": "cd agent-harness && git submodule add https://github.com/TonyAssi/Vogue-Runway-Scraper.git forks/vogue-runway-scraper; document quarterly snapshot ritual in docs/retrieval-snapshots.md"
     }
   ],
   "candidates": [],
@@ -126,6 +176,41 @@
       "id": "openhands",
       "to": "fork-pending-personal-clone",
       "reason": "Complements swe-agent: production-grade engineering agent (66-77% SWE-bench Verified)"
+    },
+    {
+      "date": "2026-05-28",
+      "action": "add",
+      "id": "trafilatura",
+      "to": "upstream-direct",
+      "reason": "v0.10 retrieval SOTA scan: F1 0.883 Python heuristic extractor (Apache-2.0). Pinned for HTML→markdown fallback when Jina returns empty; bridged via subprocess to keep main repo dependency-free."
+    },
+    {
+      "date": "2026-05-28",
+      "action": "add",
+      "id": "xiaohongshu-cli",
+      "to": "upstream-direct",
+      "reason": "v0.10 SOTA reversal of prior blanket-reject of XHS scraping. jackwener/xiaohongshu-cli (2k stars, 2026-03-21) factors signing into upstream Cloxl/xhshow so blast radius of XHS server rotations is bounded — Tier B PIN. Omni-hub only subprocess-shells the CLI; no signing code lives in the main repo."
+    },
+    {
+      "date": "2026-05-28",
+      "action": "add",
+      "id": "xhshow",
+      "to": "upstream-direct",
+      "reason": "Transitive dep of xiaohongshu-cli, pinned separately so signing breakage is patched in one place."
+    },
+    {
+      "date": "2026-05-28",
+      "action": "add",
+      "id": "we-mp-rss",
+      "to": "upstream-direct",
+      "reason": "v0.10 SOTA scan: cooderl/wewe-rss was archived 2026-05-11; rachelos/we-mp-rss is the only 2026-active broker for WeChat 公众号 RSS. Docker self-host."
+    },
+    {
+      "date": "2026-05-28",
+      "action": "add",
+      "id": "vogue-runway-scraper",
+      "to": "upstream-direct",
+      "reason": "v0.10: only viable open-source fashion runway data path. Pinned for snapshot mode (not cascade hot path) — Selenium too brittle for live retrieve."
     }
   ]
 }

@@ -11,6 +11,7 @@ from .harness.models import (
     RetrievalPolicy,
     TaskPacket,
 )
+from .knowledge_plane import ContextPack, WikiSearchResult
 from .markdown import MarkdownDocument
 from .memory import MemoryDigestResult, MemorySearchResult, MemoryStore
 from .models import OperationSpec, OperationStatus, RiskLevel
@@ -51,6 +52,7 @@ __all__ = [
     "Candidate",
     "Constraints",
     "ContentStore",
+    "ContextPack",
     "DatasetSplit",
     "EntityProposal",
     "EvalGate",
@@ -84,6 +86,7 @@ __all__ = [
     "WorkerAdapter",
     "WorkerError",
     "WorkerTimeout",
+    "WikiSearchResult",
     "RetrievalPolicy",
     "RiskLevel",
     "SkillConflict",

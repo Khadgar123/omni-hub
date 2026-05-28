@@ -4,7 +4,7 @@
 项目本体是契约 + 队列 + 审计 + 提案 + 评测飞轮。Codex / Claude Code / OpenHands 是
 **可替换的 worker**，不是核心。
 
-## 5 层总览
+## 6 层总览
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
@@ -32,6 +32,12 @@
 └──────────────────┬────────────────────────────────────────────────────┘
                    │
 ┌──────────────────▼────────────────────────────────────────────────────┐
+│ Knowledge Plane · src/omni_hub/knowledge_plane.py                     │
+│   vault/raw + vault/evidence + vault/wiki + .omni/claims.jsonl        │
+│   wiki_update Proposal -> approved apply -> context-pack-build         │
+└──────────────────┬────────────────────────────────────────────────────┘
+                   │
+┌──────────────────▼────────────────────────────────────────────────────┐
 │ Eval / Memory Flywheel · src/omni_hub/harness/ + reports/             │
 │   TaskPacket → ensemble (ccLoad fan-out) → judge (multi + bias audit) │
 │     → preference (Argilla schema) → DSPy compile → daily/weekly/monthly│
@@ -55,7 +61,7 @@ agent-harness/    pinned modules（SWE-agent / promptfoo / argilla / graphiti）
 api-management/   metapi（上游账号/余额/路由）+ ccLoad（本地协议转换/限流）
                   Docker compose 启停
 .agents/skills/   业务 skill 入口（SKILL.md），Claude Code / Codex 经 symlink 读
-vault/            用户的 Markdown / Obsidian 知识库
+vault/            Karpathy-style raw / evidence / compiled wiki 知识库
 scripts/launchd/  macOS launchd plist 模板（daily/weekly/monthly/worker）
 ```
 
@@ -70,6 +76,7 @@ scripts/launchd/  macOS launchd plist 模板（daily/weekly/monthly/worker）
 | `Task` | [queue.py](../src/omni_hub/queue.py) | 队列行，含 `lease_epoch` fencing token |
 | `Proposal` | [proposals.py](../src/omni_hub/proposals.py) | 统一审批原语（kind ∈ knowledge/duplicate/stale/conflict/low_signal/generation） |
 | `Artifact` | [workers/base.py](../src/omni_hub/workers/base.py) | worker 输出包装（kind: generation/report/patch/scan_result/text） |
+| `WikiSearchResult` / `ContextPack` | [knowledge_plane.py](../src/omni_hub/knowledge_plane.py) | compiled wiki 检索结果与任务上下文包 |
 
 ## 通用调用链
 
@@ -105,6 +112,17 @@ scripts/launchd/  macOS launchd plist 模板（daily/weekly/monthly/worker）
    人 → propose-list --kind generation --state pending → propose-approve --id <pid>
 ```
 
+**Knowledge Plane 写入**：
+
+```
+   ResearchFlow / PaperBite evidence
+        → wiki-propose-research
+        → Proposal(kind="wiki_update", state="pending")
+        → propose-approve
+        → wiki-apply-proposal
+        → vault/wiki/domains/<domain>/*.md + .omni/claims.jsonl + wiki/log.md
+```
+
 ## 工程硬约束（详见 [AGENTS.md](../AGENTS.md)）
 
 1. 新 CLI 子命令必须在 `src/omni_hub/cli/<area>.py`，写操作必须过 `OperationRunner`。
@@ -120,6 +138,7 @@ scripts/launchd/  macOS launchd plist 模板（daily/weekly/monthly/worker）
 | 权限与风险 | [permission-model.md](permission-model.md) |
 | 提案层（Proposal[T]）| [proposal-model.md](proposal-model.md) |
 | 记忆层（MemoryStore + 三层 memory）| [memory-model.md](memory-model.md) |
+| Knowledge Plane（LLM Wiki + claims + context packs）| [knowledge-plane.md](knowledge-plane.md) |
 | Skill Registry（三真源问题）| [skill-registry.md](skill-registry.md) |
 | 推荐技术栈 | [recommended-stack.md](recommended-stack.md) |
 | 自进化 harness | [self-evolution-harness.md](self-evolution-harness.md) |

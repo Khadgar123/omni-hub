@@ -21,9 +21,13 @@ ATOM_NS = {
 
 class ArxivSource:
     name = "arxiv"
+    tier = 0
 
     def __init__(self, timeout: int = DEFAULT_TIMEOUT_SEC) -> None:
         self.timeout = timeout
+
+    def check(self) -> tuple[str, str]:
+        return "ok", "anonymous 1 req/3s (export.arxiv.org)"
 
     def retrieve(
         self,

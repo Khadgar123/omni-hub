@@ -23,6 +23,7 @@ _DEFAULT_FIELDS = (
 
 class SemanticScholarSource:
     name = "semantic_scholar"
+    tier = 0          # works anonymous; key upgrades from 5k/5min shared → 1 RPS dedicated
 
     def __init__(
         self,
@@ -32,6 +33,11 @@ class SemanticScholarSource:
     ) -> None:
         self.api_key = api_key or os.environ.get("SEMANTIC_SCHOLAR_API_KEY", "")
         self.timeout = timeout
+
+    def check(self) -> tuple[str, str]:
+        if self.api_key:
+            return "ok", "dedicated 1 RPS (SEMANTIC_SCHOLAR_API_KEY set)"
+        return "warn", "anonymous (5k/5min shared, 429-prone)"
 
     def retrieve(
         self,
