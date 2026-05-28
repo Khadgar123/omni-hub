@@ -1024,6 +1024,16 @@ def make_schedule_tick(workspace: Path):
                     },
                 },
                 {
+                    # Karpathy wiki-lint daily — six rules, persisted as
+                    # Proposal(kind=lint_finding) for human review.
+                    "key": f"daily-wiki-lint-{anchor}",
+                    "packet": {
+                        "operation": "wiki_lint",
+                        "kind": "scan_result",
+                        "payload": {"persist": True},
+                    },
+                },
+                {
                     "key": f"daily-report-{anchor}",
                     "packet": {
                         "operation": "build_daily_report",

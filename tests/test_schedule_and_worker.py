@@ -31,10 +31,15 @@ class ScheduleTickTests(unittest.TestCase):
             ])
             self.assertEqual(tick["status"], "succeeded")
             self.assertEqual(tick["output"]["period"], "daily")
-            self.assertEqual(len(tick["output"]["enqueued"]), 2)
+            # v0.14: daily plan = redundancy + wiki_lint + daily_report = 3 tasks.
+            self.assertEqual(len(tick["output"]["enqueued"]), 3)
 
             queue = TaskQueue(workspace, create=False)
-            self.assertEqual(queue.counts_by_state()["pending"], 2)
+            self.assertEqual(queue.counts_by_state()["pending"], 3)
+            ops = {t.packet["operation"] for t in queue.list()}
+            self.assertIn("wiki_lint", ops)               # Karpathy daily lint
+            self.assertIn("harness_redundancy_scan", ops)
+            self.assertIn("build_daily_report", ops)
 
     def test_daily_tick_is_idempotent_for_same_anchor(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -47,7 +52,7 @@ class ScheduleTickTests(unittest.TestCase):
             ])
             queue = TaskQueue(workspace, create=False)
             # Same idempotency key → no duplicates.
-            self.assertEqual(queue.counts_by_state()["pending"], 2)
+            self.assertEqual(queue.counts_by_state()["pending"], 3)
 
     def test_weekly_and_monthly_emit_tasks(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

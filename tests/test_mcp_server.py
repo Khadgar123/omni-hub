@@ -62,8 +62,32 @@ class ToolsListTests(unittest.TestCase):
                 "task-enqueue", "task-list", "task-stats",
                 "propose-list", "propose-approve", "propose-reject",
                 "memory-search", "memory-stats",
+                # v0.14: wiki + claims surface
+                "wiki-status", "wiki-search", "wiki-ingest", "wiki-lint",
+                "claims-list", "claims-show", "claims-stats",
+                "context-pack-build",
             ):
                 self.assertIn(required, tool_names)
+
+    def test_wiki_ingest_marked_idempotent(self) -> None:
+        for tool in default_tools():
+            if tool.name == "wiki-ingest":
+                self.assertTrue(tool.idempotent)
+                self.assertEqual(tool.input_schema["required"], ["run_id"])
+                return
+        self.fail("wiki-ingest tool not registered")
+
+    def test_read_only_tools_advertise_read_only_hint(self) -> None:
+        read_only_expected = {
+            "wiki-status", "wiki-search",
+            "claims-list", "claims-show", "claims-stats",
+        }
+        for tool in default_tools():
+            if tool.name in read_only_expected:
+                self.assertTrue(
+                    tool.annotations()["readOnlyHint"],
+                    f"{tool.name} should advertise readOnlyHint=true",
+                )
 
     def test_each_tool_has_json_schema_input(self) -> None:
         for tool in default_tools():

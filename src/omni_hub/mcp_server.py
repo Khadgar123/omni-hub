@@ -112,6 +112,10 @@ def _object(description: str, default: dict | None = None) -> dict[str, Any]:
     return schema
 
 
+def _boolean(description: str, default: bool = False) -> dict[str, Any]:
+    return {"type": "boolean", "description": description, "default": default}
+
+
 def default_tools() -> list[Tool]:
     """The curated set of operations exposed to MCP clients."""
 
@@ -170,7 +174,8 @@ def default_tools() -> list[Tool]:
                 "properties": {
                     "state": _string("pending|approved|rejected"),
                     "kind": _string(
-                        "knowledge|duplicate|stale|conflict|low_signal|generation"
+                        "knowledge|duplicate|stale|conflict|low_signal|generation|"
+                        "wiki_update|lint_finding"
                     ),
                     "limit": _integer("Max rows", default=50),
                 },
@@ -230,6 +235,170 @@ def default_tools() -> list[Tool]:
             description="Document / entity / relation counts.",
             input_schema={"type": "object", "properties": {}},
             operation_name="memory_stats",
+            risk_level=RiskLevel.READ_ONLY,
+        ),
+        # ----- Karpathy LLM-Wiki + claims surface (v0.11 – v0.13) -----
+        Tool(
+            name="wiki-status",
+            description=(
+                "Compiled-wiki status — directory layout, page count, claim ledger size. "
+                "Use this before wiki-search to confirm the wiki is initialised."
+            ),
+            input_schema={"type": "object", "properties": {}},
+            operation_name="wiki_status",
+            risk_level=RiskLevel.READ_ONLY,
+        ),
+        Tool(
+            name="wiki-search",
+            description=(
+                "Search the compiled wiki (vault/wiki/) with bitemporal + state filtering. "
+                "By default skips review_state=rejected/superseded and pages whose "
+                "t_valid_to lies in the past.  Set include_closed=true for the full audit view."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "query": _string("Query string (terms split on whitespace)"),
+                    "limit": _integer("Max results", default=10),
+                    "include_closed": _boolean(
+                        "Include rejected/superseded/expired pages",
+                        default=False,
+                    ),
+                },
+                "required": ["query"],
+            },
+            operation_name="wiki_search",
+            risk_level=RiskLevel.READ_ONLY,
+        ),
+        Tool(
+            name="wiki-ingest",
+            description=(
+                "Bridge a retrieval cascade run (.omni/retrieval/<run_id>/) into the wiki "
+                "Ingest pipeline.  Writes evidence files under vault/evidence/<domain>/ "
+                "and produces a Proposal(kind=wiki_update) carrying a synthesis page body + "
+                "N candidate claims (bitemporal t_valid_from set).  Approve via propose-approve "
+                "then materialise via wiki-apply-proposal."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "run_id": _string("Retrieval run id under .omni/retrieval/"),
+                    "domain": _string(
+                        "Override the cascade domain (defaults to manifest.domain). "
+                        "research|engineering|finance|policy|international_relations|"
+                        "ai_progress|agent_systems|photography|fashion|chat_relationships|"
+                        "social_en|social_zh"
+                    ),
+                    "title": _string("Override the page title (defaults to manifest.query)"),
+                    "max_records": _integer("Max evidence records to ingest", default=20),
+                },
+                "required": ["run_id"],
+            },
+            operation_name="wiki_ingest",
+            risk_level=RiskLevel.LOCAL_WRITE,
+            idempotent=True,                     # run_id makes ingest replay-safe
+            title="Wiki Ingest",
+        ),
+        Tool(
+            name="wiki-lint",
+            description=(
+                "Run the six Karpathy wiki-lint rules: contradiction / stale_fact / "
+                "orphan_page / missing_concept / broken_cross_ref / data_gap.  With "
+                "persist=true, each finding becomes a Proposal(kind=lint_finding) "
+                "pending human review.  Default (persist=false) returns findings "
+                "without writing anything."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "domain": _string("Restrict to a domain folder; default = all"),
+                    "stale_after_days": _integer(
+                        "Override per-domain data_gap threshold", default=30
+                    ),
+                    "persist": _boolean(
+                        "Write each finding as Proposal(kind=lint_finding)",
+                        default=False,
+                    ),
+                },
+            },
+            operation_name="wiki_lint",
+            risk_level=RiskLevel.LOCAL_WRITE,   # persist=True writes; pin LOCAL_WRITE conservatively
+        ),
+        Tool(
+            name="context-pack-build",
+            description=(
+                "Assemble a task-specific context pack with Karpathy progressive disclosure. "
+                "tier=minimal (frontmatter only, ~1k tok), standard (+snippet, ~5k tok), "
+                "expanded (+body excerpts up to 8000 chars/result).  Filters closed pages "
+                "by default; set include_closed=true to surface superseded content."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "query": _string("Task query / topic"),
+                    "domain": _string("Domain tag for the pack (default: research)"),
+                    "tier": _string("minimal | standard | expanded (default: standard)"),
+                    "wiki_limit": _integer("Max wiki results", default=6),
+                    "research_limit": _integer("Max research results", default=6),
+                    "persist": _boolean("Write pack to .omni/context_packs/", default=False),
+                    "include_closed": _boolean(
+                        "Include rejected/superseded/expired pages", default=False,
+                    ),
+                },
+                "required": ["query"],
+            },
+            operation_name="context_pack_build",
+            risk_level=RiskLevel.LOCAL_WRITE,   # persist=True writes; conservative
+        ),
+        Tool(
+            name="claims-list",
+            description=(
+                "List atomic claims from .omni/claims.jsonl.  By default filters out "
+                "claims with t_valid_to set or review_state ∈ {rejected, superseded}.  "
+                "Pass include_closed=true for the full audit view."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "state": _string(
+                        "approved | proposed | conflict | superseded | rejected"
+                    ),
+                    "domain": _string("Filter by claim.domain field"),
+                    "include_closed": _boolean(
+                        "Include closed claims (t_valid_to set or state ∈ rejected/superseded)",
+                        default=False,
+                    ),
+                    "limit": _integer("Max rows", default=50),
+                },
+            },
+            operation_name="claims_list",
+            risk_level=RiskLevel.READ_ONLY,
+        ),
+        Tool(
+            name="claims-show",
+            description=(
+                "Show a single claim plus its supersession chain "
+                "(supersedes + superseded_by walks in both directions)."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "claim_id": _string("16-char hex claim_id"),
+                },
+                "required": ["claim_id"],
+            },
+            operation_name="claims_show",
+            risk_level=RiskLevel.READ_ONLY,
+        ),
+        Tool(
+            name="claims-stats",
+            description=(
+                "Aggregate claim counts: total / open / closed, plus by_state and "
+                "by_domain buckets.  Open = t_valid_to is null AND state not in "
+                "{rejected, superseded}."
+            ),
+            input_schema={"type": "object", "properties": {}},
+            operation_name="claims_stats",
             risk_level=RiskLevel.READ_ONLY,
         ),
     ]
