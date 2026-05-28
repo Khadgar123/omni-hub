@@ -37,9 +37,11 @@ class SkillThreeTruthSourceMergeTests(unittest.TestCase):
     def test_domain_wiki_kind_exists(self) -> None:
         self.assertEqual(SkillKind.DOMAIN_WIKI.value, "domain_wiki")
 
-    def test_stub_marker_bumped_to_v037(self) -> None:
-        self.assertEqual(SKILL_STUB_VERSION, "v0.37")
-        self.assertIn("v0.37", SKILL_STUB_MARKER)
+    def test_stub_marker_bumped_at_least_v037(self) -> None:
+        # v0.38 bumped to v0.38 marker; the loose matcher accepts any
+        # "omni-skill-stub:" prefix so version-bumps refresh stubs.
+        self.assertGreaterEqual(SKILL_STUB_VERSION, "v0.37")
+        self.assertIn("omni-skill-stub:", SKILL_STUB_MARKER)
 
     def test_regenerated_stubs_have_omni_hub_block(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

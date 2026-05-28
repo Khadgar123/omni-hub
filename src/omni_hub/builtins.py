@@ -1865,7 +1865,303 @@ def build_default_registry(workspace: Path | str = ".") -> OperationRegistry:
     registry.register("ab_test_list", make_ab_test_list(workspace_path))
     registry.register("ab_test_show", make_ab_test_show(workspace_path))
     registry.register("ab_test_stats", make_ab_test_stats(workspace_path))
+    # v0.38 Functional layer operations.
+    registry.register("inbox_classify", make_inbox_classify(workspace_path))
+    registry.register("project_plan", make_project_plan(workspace_path))
+    registry.register("pptx_build", make_pptx_build(workspace_path))
+    registry.register("calendar_add", make_calendar_add(workspace_path))
+    registry.register("schedule_plan", make_schedule_plan(workspace_path))
+    registry.register("task_add", make_task_add(workspace_path))
+    registry.register("finance_screen", make_finance_screen(workspace_path))
+    registry.register("order_propose", make_order_propose(workspace_path))
     return registry
+
+
+# ---------------------------------------------------------------------------
+# v0.38 — Functional layer operations (the missing 8)
+# ---------------------------------------------------------------------------
+
+
+def make_inbox_classify(workspace: Path):
+    def inbox_classify(spec: OperationSpec) -> dict:
+        from .channels.base import InboundMessage
+        from .inbox import ForwardedContentRouter
+
+        body = str(spec.payload.get("body", "")).strip()
+        subject = str(spec.payload.get("subject", ""))
+        sender = str(spec.payload.get("sender", "cli-user"))
+        channel = str(spec.payload.get("channel", "cli"))
+        if not body and not subject:
+            raise ValueError("body or subject is required")
+        msg = InboundMessage.new(
+            channel=channel, sender=sender, body=body, subject=subject,
+        )
+        decision = ForwardedContentRouter().classify(
+            msg,
+            default_user_id=str(spec.payload.get("user_id", "")),
+            default_domain=str(spec.payload.get("default_domain", "")),
+        )
+        return decision.to_dict()
+
+    return inbox_classify
+
+
+def make_project_plan(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def project_plan(spec: OperationSpec) -> dict:
+        from .projects import ProjectStore
+
+        user_id = str(spec.payload.get("user_id", "")).strip()
+        title = str(spec.payload.get("title", "")).strip()
+        description = str(spec.payload.get("description", ""))
+        if not user_id:
+            raise ValueError("user_id is required")
+        if not title:
+            raise ValueError("title is required")
+        store = ProjectStore(workspace_root)
+        project = store.create(
+            user_id=user_id, title=title, description=description,
+        )
+        return project.to_dict()
+
+    return project_plan
+
+
+def make_pptx_build(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def pptx_build(spec: OperationSpec) -> dict:
+        from .pptx import DeckOutline, Slide, Bullet, StubPPTXBuilder
+
+        outline_raw = spec.payload.get("outline") or {}
+        if not isinstance(outline_raw, dict) or not outline_raw.get("title"):
+            raise ValueError("outline (with at least title) is required")
+        outline = DeckOutline(
+            title=str(outline_raw["title"]),
+            author=str(outline_raw.get("author", "")),
+            audience=str(outline_raw.get("audience", "")),
+            theme=str(outline_raw.get("theme", "default")),
+            slides=[
+                Slide(
+                    layout=str(s.get("layout", "title-and-content")),
+                    title=str(s.get("title", "")),
+                    subtitle=str(s.get("subtitle", "")),
+                    bullets=[
+                        Bullet(
+                            text=str(b.get("text", "")),
+                            level=int(b.get("level", 0)),
+                            bold=bool(b.get("bold", False)),
+                            italic=bool(b.get("italic", False)),
+                        )
+                        for b in (s.get("bullets") or [])
+                    ],
+                    speaker_notes=str(s.get("speaker_notes", "")),
+                    image_paths=list(s.get("image_paths") or []),
+                )
+                for s in (outline_raw.get("slides") or [])
+            ],
+        )
+        output_rel = str(spec.payload.get("output_path", "vault/decks/out.pptx"))
+        output_path = workspace_root / output_rel
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        builder = StubPPTXBuilder()
+        if not builder.available():
+            return {
+                "skipped": True,
+                "reason": "pptx-omni broker not on PATH; install "
+                          "agent-harness/integrations/pptx/ first",
+                "outline_slide_count": outline.slide_count(),
+            }
+        result = builder.render(outline, output_path)
+        return result.to_dict()
+
+    return pptx_build
+
+
+def make_calendar_add(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def calendar_add(spec: OperationSpec) -> dict:
+        from datetime import datetime
+        from .scheduling import CalendarStore
+
+        user_id = str(spec.payload.get("user_id", "")).strip()
+        summary = str(spec.payload.get("summary", "")).strip()
+        start_raw = str(spec.payload.get("start", "")).strip()
+        end_raw = str(spec.payload.get("end", "")).strip()
+        if not all((user_id, summary, start_raw, end_raw)):
+            raise ValueError("user_id, summary, start, end are all required")
+        start = datetime.fromisoformat(start_raw.replace("Z", "+00:00"))
+        end = datetime.fromisoformat(end_raw.replace("Z", "+00:00"))
+        store = CalendarStore(workspace_root)
+        event = store.add_event(
+            user_id=user_id, summary=summary, start=start, end=end,
+            description=str(spec.payload.get("description", "")),
+            location=str(spec.payload.get("location", "")),
+            categories=list(spec.payload.get("categories") or []),
+        )
+        return event.to_dict()
+
+    return calendar_add
+
+
+def make_schedule_plan(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def schedule_plan(spec: OperationSpec) -> dict:
+        from datetime import UTC, datetime, timedelta
+        from .scheduling import (
+            CalendarStore, PersonalTaskStore, TimeBlockPlanner, TaskStatus,
+        )
+
+        user_id = str(spec.payload.get("user_id", "")).strip()
+        if not user_id:
+            raise ValueError("user_id is required")
+        days_ahead = int(spec.payload.get("days_ahead", 7))
+        window_start = datetime.now(UTC)
+        window_end = window_start + timedelta(days=max(1, days_ahead))
+
+        cal = CalendarStore(workspace_root)
+        events = cal.list_events(
+            user_id, window_start=window_start, window_end=window_end,
+        )
+        tasks_store = PersonalTaskStore(workspace_root)
+        open_tasks = tasks_store.list(user_id=user_id, status=TaskStatus.OPEN)
+        planner = TimeBlockPlanner()
+        blocks = planner.plan(
+            open_tasks, events,
+            window_start=window_start, window_end=window_end,
+        )
+        return {
+            "user_id": user_id,
+            "window_start": window_start.isoformat(),
+            "window_end": window_end.isoformat(),
+            "task_count": len(open_tasks),
+            "event_count": len(events),
+            "blocks": [b.to_dict() for b in blocks],
+        }
+
+    return schedule_plan
+
+
+def make_task_add(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def task_add(spec: OperationSpec) -> dict:
+        from .scheduling import PersonalTaskStore, TaskCategory
+
+        user_id = str(spec.payload.get("user_id", "")).strip()
+        title = str(spec.payload.get("title", "")).strip()
+        if not user_id:
+            raise ValueError("user_id is required")
+        if not title:
+            raise ValueError("title is required")
+        category_raw = str(spec.payload.get("category", "other"))
+        try:
+            category = TaskCategory(category_raw)
+        except ValueError:
+            category = TaskCategory.OTHER
+        store = PersonalTaskStore(workspace_root)
+        task = store.add(
+            user_id=user_id, title=title,
+            description=str(spec.payload.get("description", "")),
+            category=category,
+            priority=int(spec.payload.get("priority", 3)),
+            estimated_minutes=int(spec.payload.get("estimated_minutes", 30)),
+            due_at=str(spec.payload.get("due_at", "")),
+        )
+        return task.to_dict()
+
+    return task_add
+
+
+def make_finance_screen(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def finance_screen(spec: OperationSpec) -> dict:
+        from .finance_ops import FinanceAnalyst, ScreenCriteria
+
+        criteria = ScreenCriteria(
+            domain=str(spec.payload.get("domain", "finance")),
+            tickers=list(spec.payload.get("tickers") or []),
+            sector=str(spec.payload.get("sector", "")),
+            market=str(spec.payload.get("market", "")),
+        )
+        analyst = FinanceAnalyst(workspace_root)
+        signals = analyst.screen(criteria)
+        return {
+            "criteria": criteria.to_dict(),
+            "count": len(signals),
+            "signals": [s.to_dict() for s in signals],
+        }
+
+    return finance_screen
+
+
+def make_order_propose(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def order_propose(spec: OperationSpec) -> dict:
+        from .finance_ops import (
+            OrderIntent, OrderSide, OrderType, risk_check,
+        )
+        from .proposals import PENDING, Proposal, ProposalStore
+
+        user_id = str(spec.payload.get("user_id", "")).strip()
+        instrument = str(spec.payload.get("instrument", "")).strip()
+        side_raw = str(spec.payload.get("side", "")).lower()
+        qty = float(spec.payload.get("qty", 0))
+        order_type_raw = str(spec.payload.get("order_type", "market")).lower()
+        if not all((user_id, instrument, side_raw)) or qty <= 0:
+            raise ValueError("user_id, instrument, side, qty (>0) are required")
+        intent = OrderIntent.new(
+            user_id=user_id, instrument=instrument,
+            side=OrderSide(side_raw), qty=qty,
+            order_type=OrderType(order_type_raw),
+            limit_price=spec.payload.get("limit_price"),
+            stop_price=spec.payload.get("stop_price"),
+            rationale=str(spec.payload.get("rationale", "")),
+        )
+        risk = risk_check(
+            intent,
+            portfolio_value_usd=float(spec.payload.get("portfolio_value_usd", 0.0)),
+            estimated_price=spec.payload.get("estimated_price"),
+        )
+        intent.risk_check = risk
+
+        # Land the intent + risk audit in the Proposal store as
+        # kind=order_intent — never executes from main repo.
+        store = ProposalStore(workspace_root)
+        prop = Proposal(
+            kind="order_intent",
+            state=PENDING,
+            title=(
+                f"OrderIntent {intent.side.value.upper()} "
+                f"{intent.qty} {intent.instrument}"
+            ),
+            summary=(
+                f"{intent.type.value} {intent.side.value} {intent.qty}@"
+                f"{intent.limit_price or intent.stop_price or 'MARKET'} — "
+                f"risk_passes={risk.passes}, "
+                f"position_pct={risk.position_pct_of_portfolio:.1%}"
+            ),
+            payload=intent.to_dict(),
+            source_path=f"finance_ops/order/{intent.intent_id}",
+            suggested_action="execute_via_broker_after_approve",
+            confidence=0.5 if risk.passes else 0.0,
+        )
+        store.store(prop)
+        return {
+            "intent_id": intent.intent_id,
+            "proposal_id": prop.proposal_id,
+            "risk_passes": risk.passes,
+            "warnings": risk.warnings,
+            "hard_blocks": risk.hard_blocks,
+            "intent": intent.to_dict(),
+        }
+
+    return order_propose
 
 
 # ---------------------------------------------------------------------------
@@ -2013,15 +2309,32 @@ def make_skill_stubs_sync(workspace: Path):
     workspace_root = workspace.resolve()
 
     def skill_stubs_sync(spec: OperationSpec) -> dict:
-        from .skill_stubs import regenerate_all
+        from .skill_stubs import (
+            regenerate_all, regenerate_foundation, regenerate_functional,
+        )
 
         skills_root = str(spec.payload.get("skills_root", ".agents/skills"))
-        actions = regenerate_all(skills_root, workspace=workspace_root)
+        layers_raw = spec.payload.get("layers") or "all"
+        layers = (
+            {"foundation", "functional", "domain"}
+            if layers_raw == "all"
+            else set(layers_raw if isinstance(layers_raw, list) else [layers_raw])
+        )
+
+        actions: list = []
+        if "foundation" in layers:
+            actions.extend(regenerate_foundation(skills_root, workspace=workspace_root))
+        if "functional" in layers:
+            actions.extend(regenerate_functional(skills_root, workspace=workspace_root))
+        if "domain" in layers:
+            actions.extend(regenerate_all(skills_root, workspace=workspace_root))
+
         summary: dict[str, int] = {}
         for action in actions:
             summary[action.action] = summary.get(action.action, 0) + 1
         return {
             "skills_root": skills_root,
+            "layers": sorted(layers),
             "total": len(actions),
             "summary": summary,
             "actions": [

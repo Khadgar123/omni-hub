@@ -27,8 +27,8 @@ from pathlib import Path
 from .domain_schemas import DOMAIN_SCHEMAS, DomainSchema
 
 
-SKILL_STUB_MARKER = "<!-- omni-skill-stub: v0.37 -->"
-SKILL_STUB_VERSION = "v0.37"
+SKILL_STUB_MARKER = "<!-- omni-skill-stub: v0.38 -->"
+SKILL_STUB_VERSION = "v0.38"
 
 
 # ---------------------------------------------------------------------------
@@ -371,7 +371,633 @@ def _render_frontmatter_block(schema: DomainSchema) -> str:
 __all__ = [
     "SKILL_STUB_MARKER",
     "SKILL_STUB_VERSION",
+    "FOUNDATION_SKILLS",
+    "FUNCTIONAL_SKILLS",
     "StubAction",
     "regenerate_all",
+    "regenerate_foundation",
+    "regenerate_functional",
     "render_skill_stub",
+    "render_foundation_stub",
+    "render_functional_stub",
 ]
+
+
+# ---------------------------------------------------------------------------
+# v0.38 — Foundation + Functional skill definitions
+# ---------------------------------------------------------------------------
+
+
+@dataclass(slots=True)
+class FoundationSkill:
+    """Foundation-tier skill spec — always-on primitive, no domain knowledge."""
+
+    skill_id: str            # e.g. "retrieve"
+    display_name: str
+    hero: str                # one-line elevator
+    triggers: list[str]      # verbatim user-language phrases that should invoke
+    entrypoint: str          # "operation:<builtin_name>" or "" for routers
+    risk_level: str = "L0"   # default read-only
+    bucket: str = "knowledge_access"   # knowledge_access | knowledge_update | eval | workflow | channel
+    body_md: str = ""        # additional markdown body beyond the auto frontmatter
+
+
+@dataclass(slots=True)
+class FunctionalSkill:
+    """Functional-tier skill — cross-domain orchestrator that composes
+    foundation skills.  Sits in ``app/`` semantics."""
+
+    skill_id: str
+    display_name: str
+    hero: str
+    triggers: list[str]
+    entrypoint: str
+    composes: list[str]      # foundation/domain skill_ids this orchestrates
+    risk_level: str = "L0"
+    body_md: str = ""
+
+
+FOUNDATION_SKILLS: list[FoundationSkill] = [
+    # Knowledge access (5) ---------------------------------------------
+    FoundationSkill(
+        skill_id="context-pack",
+        display_name="Context Pack Builder",
+        hero="Assemble a tier-bounded context bundle (minimal/standard/expanded) "
+             "from vault/wiki + research-kb for a given query + domain.",
+        triggers=[
+            "build a context pack for X",
+            "上下文打包 X domain",
+            "把 X 主题的 wiki 段抽出来",
+        ],
+        entrypoint="operation:context_pack_build",
+        bucket="knowledge_access",
+    ),
+    FoundationSkill(
+        skill_id="wiki-search",
+        display_name="Wiki Search",
+        hero="Search vault/wiki via FTS5 (with substring fallback); filter "
+             "out superseded / rejected pages by default.",
+        triggers=[
+            "search the wiki for X",
+            "wiki 里有没有 X 的页",
+            "find pages about X in the wiki",
+        ],
+        entrypoint="operation:wiki_search",
+        bucket="knowledge_access",
+    ),
+    FoundationSkill(
+        skill_id="claims-show",
+        display_name="Claims Lookup",
+        hero="Inspect a single ClaimLedger record by claim_id (bitemporal: "
+             "shows t_valid_from/to + superseded_by chain).",
+        triggers=[
+            "show claim c_abc123",
+            "看一下 claim c_xyz",
+            "look up the supersedes chain of X",
+        ],
+        entrypoint="operation:claims_show",
+        bucket="knowledge_access",
+    ),
+    FoundationSkill(
+        skill_id="memory-search-foundation",
+        display_name="Memory Search (Foundation)",
+        hero="Query archival memory across documents / entities / relations "
+             "by case-insensitive substring (stdlib FTS).",
+        triggers=[
+            "search memory for X",
+            "memory 里提过 X 吗",
+            "what do we remember about X",
+        ],
+        entrypoint="operation:search_memory",
+        bucket="knowledge_access",
+    ),
+    FoundationSkill(
+        skill_id="url-capture",
+        display_name="URL Capture",
+        hero="Fetch a single URL + persist as a Resource under "
+             "vault/raw/ with provenance.  Used by Inbox forward-routing.",
+        triggers=[
+            "capture this URL",
+            "fetch + save https://...",
+            "把这个链接存到 KB",
+        ],
+        entrypoint="operation:capture_url",
+        risk_level="L1",
+        bucket="knowledge_access",
+    ),
+
+    # Knowledge update (6) ---------------------------------------------
+    FoundationSkill(
+        skill_id="wiki-ingest",
+        display_name="Wiki Ingest",
+        hero="Bridge a retrieve cascade run into a Proposal(kind=wiki_update); "
+             "writes vault/evidence + composes candidate claims; humans "
+             "approve before content lands in vault/wiki.",
+        triggers=[
+            "ingest this retrieval run into the wiki",
+            "把 run_id 转成 wiki proposal",
+            "consolidate this research into a wiki page",
+        ],
+        entrypoint="operation:wiki_ingest",
+        risk_level="L1",
+        bucket="knowledge_update",
+    ),
+    FoundationSkill(
+        skill_id="wiki-propose-research",
+        display_name="Wiki Propose (Research Asset)",
+        hero="Select a single ResearchFlow / PaperBite analysis note as a "
+             "Proposal(wiki_update) — for when retrieve cascade isn't needed.",
+        triggers=[
+            "propose this paperbite note into the wiki",
+            "wiki-propose 这条 researchflow",
+            "import this analysis into the global truth wiki",
+        ],
+        entrypoint="operation:wiki_propose_research",
+        risk_level="L1",
+        bucket="knowledge_update",
+    ),
+    FoundationSkill(
+        skill_id="wiki-apply",
+        display_name="Wiki Apply (Approved Proposal)",
+        hero="Land an already-approved wiki_update Proposal: write the page, "
+             "append claims, append log.md, refresh FTS5, auto-record a "
+             "PreferenceRecord(accepted).",
+        triggers=[
+            "apply approved proposal X to the wiki",
+            "wiki-apply --proposal X",
+            "把 approved 的 proposal 落地",
+        ],
+        entrypoint="operation:wiki_apply_proposal",
+        risk_level="L1",
+        bucket="knowledge_update",
+    ),
+    FoundationSkill(
+        skill_id="wiki-supersede",
+        display_name="Wiki Supersede (Bitemporal Close)",
+        hero="Close an old claim's t_valid_to window + link superseded_by; "
+             "never deletes (Graphiti/Zep pattern).",
+        triggers=[
+            "supersede claim X with Y",
+            "wiki-supersede --new Y --old X",
+            "废弃旧 claim 改成新版本",
+        ],
+        entrypoint="operation:wiki_supersede",
+        risk_level="L1",
+        bucket="knowledge_update",
+    ),
+    FoundationSkill(
+        skill_id="wiki-lint",
+        display_name="Wiki Lint",
+        hero="Eight-rule scan (contradiction / stale_fact / orphan_page / "
+             "missing_concept / broken_cross_ref / data_gap / "
+             "cross_ref_asymmetry / abandoned_page) — emits "
+             "Proposal(lint_finding) per issue.",
+        triggers=[
+            "lint the wiki",
+            "wiki-lint --persist",
+            "scan for contradictions in the wiki",
+        ],
+        entrypoint="operation:wiki_lint",
+        risk_level="L1",
+        bucket="knowledge_update",
+    ),
+    FoundationSkill(
+        skill_id="wiki-dream",
+        display_name="Wiki Dream (Offline Consolidation)",
+        hero="Local-first dual of Anthropic Dreaming: scan recent retrieval + "
+             "raw + claims, propose consolidations (cluster_canonical / "
+             "statement_cluster / raw_orphan / stale_active).",
+        triggers=[
+            "run a wiki-dream consolidation pass",
+            "consolidate recent retrieval + claims",
+            "offline 整理一下 wiki",
+        ],
+        entrypoint="operation:wiki_dream",
+        risk_level="L1",
+        bucket="knowledge_update",
+    ),
+
+    # Eval (3) ---------------------------------------------------------
+    FoundationSkill(
+        skill_id="judge-evaluate",
+        display_name="Judge Evaluate",
+        hero="Score a candidate answer against a domain rubric (5-dim: "
+             "evidence_coverage / information_density / citation_support / "
+             "style_fit / uncertainty_calibration).  HeuristicJudge stdlib; "
+             "LLMJudge via ccLoad / Anthropic SDK fallback.",
+        triggers=[
+            "judge this answer against the X rubric",
+            "评一下这段输出",
+            "score candidate with the LLM judge",
+        ],
+        entrypoint="operation:judge_evaluate",
+        bucket="eval",
+    ),
+    FoundationSkill(
+        skill_id="ab-test",
+        display_name="A/B Test",
+        hero="Run two candidate variants side-by-side; Judge composite delta; "
+             "classify decisive / moderate / marginal / tie; persist in "
+             ".omni/ab_tests.sqlite3 for lifetime win-rate.",
+        triggers=[
+            "ab-test these two prompts",
+            "compare A vs B with the judge",
+            "对比两版输出",
+        ],
+        entrypoint="operation:ab_test_run",
+        risk_level="L1",
+        bucket="eval",
+    ),
+    FoundationSkill(
+        skill_id="harness-compile-skill",
+        display_name="Harness Compile Skill",
+        hero="Compile a domain's PreferenceStore (accepted / rejected spans) "
+             "into the domain's .agents/skills/<x>-wiki/SKILL.md body "
+             "(DSPy 5-component artifact).",
+        triggers=[
+            "recompile the X-wiki skill",
+            "harness-compile-skill --domain X",
+            "重新编译某 domain 的 SKILL.md",
+        ],
+        entrypoint="operation:harness_compile_skill",
+        risk_level="L1",
+        bucket="eval",
+    ),
+
+    # Workflow (2) -----------------------------------------------------
+    FoundationSkill(
+        skill_id="propose-approve",
+        display_name="Approve Proposal",
+        hero="Human-review gate: approve a pending Proposal[T] so the "
+             "downstream apply / supersede / lint-fix step can land it.",
+        triggers=[
+            "approve proposal X",
+            "通过这个 proposal",
+            "propose-approve --id X",
+        ],
+        entrypoint="operation:approve_proposal",
+        risk_level="L1",
+        bucket="workflow",
+    ),
+    FoundationSkill(
+        skill_id="propose-reject",
+        display_name="Reject Proposal",
+        hero="Human-review gate: reject a pending Proposal[T] with a reason "
+             "the audit log captures.",
+        triggers=[
+            "reject proposal X — reason: ...",
+            "拒掉这个 proposal",
+            "propose-reject --id X --reason ...",
+        ],
+        entrypoint="operation:reject_proposal",
+        risk_level="L1",
+        bucket="workflow",
+    ),
+]
+
+
+FUNCTIONAL_SKILLS: list[FunctionalSkill] = [
+    FunctionalSkill(
+        skill_id="chat-route",
+        display_name="Chat Route",
+        hero="Route a conversational query to the right domain skill via "
+             "intent classification; recommend the downstream OperationSpec.",
+        triggers=[
+            "route this question to the right skill",
+            "用 chat router 决定 domain",
+            "where should this query go",
+        ],
+        entrypoint="operation:app_route_task",
+        composes=["retrieve", "context-pack"],
+    ),
+    FunctionalSkill(
+        skill_id="app-report-build",
+        display_name="App Report Build",
+        hero="Cross-skill daily / weekly / monthly report — pure data rollup; "
+             "--narrate enqueues a claude lane task for trend analysis "
+             "(lands as Proposal(generation)).",
+        triggers=[
+            "build a weekly report",
+            "today's daily digest",
+            "做一个本月 report",
+        ],
+        entrypoint="operation:app_report_build",
+        composes=["claims-show", "wiki-lint"],
+    ),
+    FunctionalSkill(
+        skill_id="inbox-route",
+        display_name="Inbox Route (Forwarded Content)",
+        hero="Classify a forwarded item (URL / PDF / .ics / task / wiki) and "
+             "dispatch to the right handler (capture-url, calendar-add, "
+             "task-add, wiki-propose-research).",
+        triggers=[
+            "I just forwarded this — handle it",
+            "把这个内容收进 KB",
+            "convert this email into the right action",
+        ],
+        entrypoint="operation:inbox_classify",
+        composes=["url-capture", "calendar-add", "task-add", "wiki-propose-research"],
+    ),
+    FunctionalSkill(
+        skill_id="project-plan",
+        display_name="Project Plan",
+        hero="Create a high-level Project; enqueue a claude lane planner "
+             "task that emits a plan_markdown + subtask decomposition as "
+             "Proposal(kind=project_plan).",
+        triggers=[
+            "plan a project to ship X",
+            "decompose this multi-week effort",
+            "做个 plan 把 X 拆成子任务",
+        ],
+        entrypoint="operation:project_plan",
+        composes=["task-add"],
+        risk_level="L1",
+    ),
+    FunctionalSkill(
+        skill_id="pptx-build",
+        display_name="PPTX Build",
+        hero="Render a typed DeckOutline → real .pptx via the python-pptx "
+             "shim in agent-harness/integrations/pptx/.  Never generates "
+             "raw OOXML.",
+        triggers=[
+            "build a pptx from this outline",
+            "做一份 deck",
+            "render this outline as a slide deck",
+        ],
+        entrypoint="operation:pptx_build",
+        composes=["context-pack"],
+        risk_level="L1",
+    ),
+    FunctionalSkill(
+        skill_id="calendar-add",
+        display_name="Calendar Add",
+        hero="Add a CalendarEvent to vault/users/<user>/calendar/<YYYY-MM>.ics "
+             "(stdlib RFC 5545 writer).  iCal-syncable via any CalDAV client.",
+        triggers=[
+            "add this to my calendar",
+            "schedule a meeting on X at Y",
+            "记一个日程",
+        ],
+        entrypoint="operation:calendar_add",
+        composes=[],
+        risk_level="L1",
+    ),
+    FunctionalSkill(
+        skill_id="schedule-plan",
+        display_name="Schedule Plan",
+        hero="Deterministic time-block solver: place PersonalTasks into free "
+             "Calendar slots by priority + due_at + duration.",
+        triggers=[
+            "plan my week",
+            "auto-block today's tasks",
+            "把待办排进日历",
+        ],
+        entrypoint="operation:schedule_plan",
+        composes=["task-add", "calendar-add"],
+        risk_level="L1",
+    ),
+    FunctionalSkill(
+        skill_id="task-add",
+        display_name="Task Add",
+        hero="Append a PersonalTask (user-facing todo, NOT a worker queue "
+             "task) to .omni/personal_tasks.sqlite3.",
+        triggers=[
+            "add a todo: ...",
+            "remind me to X",
+            "记一个任务: ...",
+        ],
+        entrypoint="operation:task_add",
+        composes=[],
+        risk_level="L1",
+    ),
+    FunctionalSkill(
+        skill_id="finance-screen",
+        display_name="Finance Screen",
+        hero="Read-only stock screening against existing connectors (EDGAR / "
+             "FRED / Tushare / Crunchbase).  Returns typed StockSignal list. "
+             "Never places orders.",
+        triggers=[
+            "screen US large-cap AI plays",
+            "找 A 股新能源",
+            "screen by sector + market_cap",
+        ],
+        entrypoint="operation:finance_screen",
+        composes=["retrieve", "context-pack"],
+    ),
+    FunctionalSkill(
+        skill_id="order-propose",
+        display_name="Order Propose",
+        hero="Emit an OrderIntent + RiskCheckResult as "
+             "Proposal(kind=order_intent).  Hard-blocks > 25% portfolio "
+             "position; warns > 10%; refuses MARKET-without-price.  Human "
+             "approves; broker CLI in agent-harness executes.",
+        triggers=[
+            "propose a BUY of NVDA at limit 195",
+            "下一个 limit 单 (走 Proposal)",
+            "place an order — Proposal first",
+        ],
+        entrypoint="operation:order_propose",
+        composes=["finance-screen", "propose-approve"],
+        risk_level="L2",
+    ),
+    FunctionalSkill(
+        skill_id="meta-cross-skill-scan",
+        display_name="Meta Cross-Skill Scan",
+        hero="Scan PreferenceStore across all 19 domains; surface tokens "
+             "with strong accepted-signal in ≥3 domains but absent in "
+             "others; emit CrossSkillFinding for human review.",
+        triggers=[
+            "find cross-skill patterns",
+            "哪些 token 在多个 domain 都被 accept",
+            "scan for meta-skill transfer candidates",
+        ],
+        entrypoint="operation:meta_cross_skill_scan",
+        composes=["judge-evaluate"],
+    ),
+]
+
+
+# ---------------------------------------------------------------------------
+# Foundation / Functional stub renderers
+# ---------------------------------------------------------------------------
+
+
+def render_foundation_stub(skill: FoundationSkill) -> str:
+    triggers_md = "\n  - ".join(f'"{t}"' for t in skill.triggers)
+    return f"""---
+name: {skill.skill_id}
+status: active-foundation
+description: |
+  {skill.hero}
+
+  Triggers — invoke this skill when the user says any of:
+  - {triggers_md}
+
+  This is a **foundation primitive** (no domain knowledge baked in).  Use it
+  as a building block from any other skill — see also ``app-report-build``,
+  ``chat-route``, ``inbox-route``, and the 19 ``*-wiki`` domain skills.
+license: MIT
+schema_version: {SKILL_STUB_VERSION}
+omni_hub:
+  layer: foundation
+  bucket: {skill.bucket}
+  display_name: "{skill.display_name}"
+  status: active
+  version: 0.1.0
+  entrypoint: "{skill.entrypoint}"
+  risk_level: {skill.risk_level}
+  required_permissions: []
+  connectors: []
+  tags:
+    - foundation
+    - {skill.bucket}
+---
+
+{SKILL_STUB_MARKER}
+
+# {skill.display_name}
+
+{skill.hero}
+
+## Canonical CLI
+
+```bash
+PYTHONPATH=src python3 -m omni_hub.cli {skill.skill_id} [--help]
+```
+
+(See ``src/omni_hub/cli/`` for the argparse definition — every foundation
+skill has a matching CLI subcommand by the same name.)
+
+## When to use
+
+The Trigger phrases above are intentionally narrow.  Foundation primitives
+do not carry domain knowledge — if a query mentions a specific domain
+(finance, fitness, cooking, etc.), route through ``chat-route`` first,
+which will select the right ``*-wiki`` skill and feed the answer back.
+
+{skill.body_md or ""}
+
+## Hard rules
+
+- Foundation skills NEVER write to ``vault/wiki/`` directly — all
+  mutating paths land a ``Proposal[T]`` and wait for human approval.
+- Foundation skills NEVER call an LLM directly.  Generation happens
+  through claude/codex worker lanes — this primitive is the
+  deterministic part of the loop.
+
+---
+
+_Auto-generated stub.  Remove the ``{SKILL_STUB_MARKER}`` marker line to
+opt out of regeneration (the v0.32 ``materialise_all`` rule)._
+"""
+
+
+def render_functional_stub(skill: FunctionalSkill) -> str:
+    triggers_md = "\n  - ".join(f'"{t}"' for t in skill.triggers)
+    composes_md = ", ".join(f"`{c}`" for c in skill.composes) or "_(none — pure orchestrator)_"
+    return f"""---
+name: {skill.skill_id}
+status: active-functional
+description: |
+  {skill.hero}
+
+  Triggers — invoke this skill when the user says any of:
+  - {triggers_md}
+
+  This is a **functional orchestrator** (Application Plane).  It composes
+  the foundation primitives ({composes_md}) into a user-visible product
+  flow.  Domain knowledge stays in the routed ``*-wiki`` skills; this
+  layer is the cross-domain glue.
+license: MIT
+schema_version: {SKILL_STUB_VERSION}
+omni_hub:
+  layer: functional
+  display_name: "{skill.display_name}"
+  status: active
+  version: 0.1.0
+  entrypoint: "{skill.entrypoint}"
+  risk_level: {skill.risk_level}
+  composes:
+{_render_yaml_list(skill.composes)}
+  required_permissions: []
+  tags:
+    - functional
+    - orchestrator
+---
+
+{SKILL_STUB_MARKER}
+
+# {skill.display_name}
+
+{skill.hero}
+
+## What it composes
+
+{chr(10).join(f"- `{c}` (foundation)" for c in skill.composes) or "_(none — top-level entry point)_"}
+
+## Canonical CLI
+
+```bash
+PYTHONPATH=src python3 -m omni_hub.cli {skill.skill_id} [--help]
+```
+
+## Hard rules
+
+- Functional skills MAY orchestrate multiple foundation calls.  They do
+  NOT bypass the Proposal[T] gate for any mutating step.
+- Trigger phrases are the user-visible product surface; tune via
+  PreferenceStore + ``harness-compile-skill --functional`` (v0.40).
+
+{skill.body_md or ""}
+
+---
+
+_Auto-generated stub.  Remove the ``{SKILL_STUB_MARKER}`` marker line to
+opt out of regeneration._
+"""
+
+
+def _render_yaml_list(items: list[str]) -> str:
+    if not items:
+        return "    []"
+    return "\n".join(f"    - {i}" for i in items)
+
+
+def regenerate_foundation(
+    skills_root: Path | str = ".agents/skills",
+    *,
+    workspace: Path | str = ".",
+) -> list[StubAction]:
+    skills_root_path = Path(workspace) / Path(skills_root)
+    skills_root_path.mkdir(parents=True, exist_ok=True)
+    actions: list[StubAction] = []
+    for skill in FOUNDATION_SKILLS:
+        skill_dir = skills_root_path / skill.skill_id
+        skill_dir.mkdir(parents=True, exist_ok=True)
+        target = skill_dir / "SKILL.md"
+        new_body = render_foundation_stub(skill)
+        action = _materialise_one(target, new_body)
+        actions.append(StubAction(
+            skill_id=skill.skill_id, folder=skill_dir, action=action,
+        ))
+    return actions
+
+
+def regenerate_functional(
+    skills_root: Path | str = ".agents/skills",
+    *,
+    workspace: Path | str = ".",
+) -> list[StubAction]:
+    skills_root_path = Path(workspace) / Path(skills_root)
+    skills_root_path.mkdir(parents=True, exist_ok=True)
+    actions: list[StubAction] = []
+    for skill in FUNCTIONAL_SKILLS:
+        skill_dir = skills_root_path / skill.skill_id
+        skill_dir.mkdir(parents=True, exist_ok=True)
+        target = skill_dir / "SKILL.md"
+        new_body = render_functional_stub(skill)
+        action = _materialise_one(target, new_body)
+        actions.append(StubAction(
+            skill_id=skill.skill_id, folder=skill_dir, action=action,
+        ))
+    return actions

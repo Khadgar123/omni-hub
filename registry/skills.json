@@ -1,5 +1,30 @@
 [
   {
+    "skill_id": "ab-test",
+    "name": "A/B Test",
+    "kind": "connector",
+    "description": "Run two candidate variants side-by-side; Judge composite delta; classify decisive / moderate / marginal / tie; persist in .omni/ab_tests.sqlite3 for lifetime win-rate.\n\nTriggers — invoke this skill when the user says any of:\n- \"ab-test these two prompts\"\n- \"compare A vs B with the judge\"\n- \"对比两版输出\"\n\nThis is a **foundation primitive** (no domain knowledge baked in).  Use it\nas a building block from any other skill — see also ``app-report-build``,\n``chat-route``, ``inbox-route``, and the 19 ``*-wiki`` domain skills.",
+    "version": "0.1.0",
+    "status": "active",
+    "entrypoint": "operation:ab_test_run",
+    "risk_level": "L1",
+    "required_permissions": [
+      "[]"
+    ],
+    "connectors": [
+      "[]"
+    ],
+    "tags": [
+      "foundation",
+      "eval"
+    ],
+    "inputs": {},
+    "outputs": {},
+    "source_path": ".agents/skills/ab-test/SKILL.md",
+    "created_at": "2026-05-28T11:14:34.718938+00:00",
+    "updated_at": "2026-05-28T11:14:34.725626+00:00"
+  },
+  {
     "skill_id": "agent-systems-wiki",
     "name": "Agent Systems — Wiki Domain Skill",
     "kind": "domain_wiki",
@@ -30,8 +55,8 @@
       "context_pack": "ContextPack with cited wiki + research results"
     },
     "source_path": ".agents/skills/agent-systems-wiki/SKILL.md",
-    "created_at": "2026-05-28T10:46:15.191592+00:00",
-    "updated_at": "2026-05-28T10:46:15.195705+00:00"
+    "created_at": "2026-05-28T11:14:34.719173+00:00",
+    "updated_at": "2026-05-28T11:14:34.725641+00:00"
   },
   {
     "skill_id": "ai-progress-wiki",
@@ -65,8 +90,8 @@
       "context_pack": "ContextPack with cited wiki + research results"
     },
     "source_path": ".agents/skills/ai-progress-wiki/SKILL.md",
-    "created_at": "2026-05-28T10:46:15.191831+00:00",
-    "updated_at": "2026-05-28T10:46:15.195721+00:00"
+    "created_at": "2026-05-28T11:14:34.719324+00:00",
+    "updated_at": "2026-05-28T11:14:34.725654+00:00"
   },
   {
     "skill_id": "api-management-status",
@@ -83,8 +108,54 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/api-management-status/SKILL.md",
-    "created_at": "2026-05-28T10:46:15.191957+00:00",
-    "updated_at": "2026-05-28T10:46:15.195732+00:00"
+    "created_at": "2026-05-28T11:14:34.719439+00:00",
+    "updated_at": "2026-05-28T11:14:34.725665+00:00"
+  },
+  {
+    "skill_id": "app-report-build",
+    "name": "App Report Build",
+    "kind": "connector",
+    "description": "Cross-skill daily / weekly / monthly report — pure data rollup; --narrate enqueues a claude lane task for trend analysis (lands as Proposal(generation)).\n\nTriggers — invoke this skill when the user says any of:\n- \"build a weekly report\"\n- \"today's daily digest\"\n- \"做一个本月 report\"\n\nThis is a **functional orchestrator** (Application Plane).  It composes\nthe foundation primitives (`claims-show`, `wiki-lint`) into a user-visible product\nflow.  Domain knowledge stays in the routed ``*-wiki`` skills; this\nlayer is the cross-domain glue.",
+    "version": "0.1.0",
+    "status": "active",
+    "entrypoint": "operation:app_report_build",
+    "risk_level": "L0",
+    "required_permissions": [
+      "[]"
+    ],
+    "connectors": [],
+    "tags": [
+      "functional",
+      "orchestrator"
+    ],
+    "inputs": {},
+    "outputs": {},
+    "source_path": ".agents/skills/app-report-build/SKILL.md",
+    "created_at": "2026-05-28T11:14:34.719563+00:00",
+    "updated_at": "2026-05-28T11:14:34.725675+00:00"
+  },
+  {
+    "skill_id": "calendar-add",
+    "name": "Calendar Add",
+    "kind": "connector",
+    "description": "Add a CalendarEvent to vault/users/<user>/calendar/<YYYY-MM>.ics (stdlib RFC 5545 writer).  iCal-syncable via any CalDAV client.\n\nTriggers — invoke this skill when the user says any of:\n- \"add this to my calendar\"\n- \"schedule a meeting on X at Y\"\n- \"记一个日程\"\n\nThis is a **functional orchestrator** (Application Plane).  It composes\nthe foundation primitives (_(none — pure orchestrator)_) into a user-visible product\nflow.  Domain knowledge stays in the routed ``*-wiki`` skills; this\nlayer is the cross-domain glue.",
+    "version": "0.1.0",
+    "status": "active",
+    "entrypoint": "operation:calendar_add",
+    "risk_level": "L1",
+    "required_permissions": [
+      "[]"
+    ],
+    "connectors": [],
+    "tags": [
+      "functional",
+      "orchestrator"
+    ],
+    "inputs": {},
+    "outputs": {},
+    "source_path": ".agents/skills/calendar-add/SKILL.md",
+    "created_at": "2026-05-28T11:14:34.719673+00:00",
+    "updated_at": "2026-05-28T11:14:34.725686+00:00"
   },
   {
     "skill_id": "chat-relationships-wiki",
@@ -113,8 +184,56 @@
       "context_pack": "ContextPack with cited wiki + research results"
     },
     "source_path": ".agents/skills/chat-relationships-wiki/SKILL.md",
-    "created_at": "2026-05-28T10:46:15.192097+00:00",
-    "updated_at": "2026-05-28T10:46:15.195746+00:00"
+    "created_at": "2026-05-28T11:14:34.719805+00:00",
+    "updated_at": "2026-05-28T11:14:34.725697+00:00"
+  },
+  {
+    "skill_id": "chat-route",
+    "name": "Chat Route",
+    "kind": "connector",
+    "description": "Route a conversational query to the right domain skill via intent classification; recommend the downstream OperationSpec.\n\nTriggers — invoke this skill when the user says any of:\n- \"route this question to the right skill\"\n- \"用 chat router 决定 domain\"\n- \"where should this query go\"\n\nThis is a **functional orchestrator** (Application Plane).  It composes\nthe foundation primitives (`retrieve`, `context-pack`) into a user-visible product\nflow.  Domain knowledge stays in the routed ``*-wiki`` skills; this\nlayer is the cross-domain glue.",
+    "version": "0.1.0",
+    "status": "active",
+    "entrypoint": "operation:app_route_task",
+    "risk_level": "L0",
+    "required_permissions": [
+      "[]"
+    ],
+    "connectors": [],
+    "tags": [
+      "functional",
+      "orchestrator"
+    ],
+    "inputs": {},
+    "outputs": {},
+    "source_path": ".agents/skills/chat-route/SKILL.md",
+    "created_at": "2026-05-28T11:14:34.719916+00:00",
+    "updated_at": "2026-05-28T11:14:34.725707+00:00"
+  },
+  {
+    "skill_id": "claims-show",
+    "name": "Claims Lookup",
+    "kind": "connector",
+    "description": "Inspect a single ClaimLedger record by claim_id (bitemporal: shows t_valid_from/to + superseded_by chain).\n\nTriggers — invoke this skill when the user says any of:\n- \"show claim c_abc123\"\n- \"看一下 claim c_xyz\"\n- \"look up the supersedes chain of X\"\n\nThis is a **foundation primitive** (no domain knowledge baked in).  Use it\nas a building block from any other skill — see also ``app-report-build``,\n``chat-route``, ``inbox-route``, and the 19 ``*-wiki`` domain skills.",
+    "version": "0.1.0",
+    "status": "active",
+    "entrypoint": "operation:claims_show",
+    "risk_level": "L0",
+    "required_permissions": [
+      "[]"
+    ],
+    "connectors": [
+      "[]"
+    ],
+    "tags": [
+      "foundation",
+      "knowledge_access"
+    ],
+    "inputs": {},
+    "outputs": {},
+    "source_path": ".agents/skills/claims-show/SKILL.md",
+    "created_at": "2026-05-28T11:14:34.720027+00:00",
+    "updated_at": "2026-05-28T11:14:34.725718+00:00"
   },
   {
     "skill_id": "cn-policy-wiki",
@@ -149,8 +268,33 @@
       "context_pack": "ContextPack with cited wiki + research results"
     },
     "source_path": ".agents/skills/cn-policy-wiki/SKILL.md",
-    "created_at": "2026-05-28T10:46:15.192242+00:00",
-    "updated_at": "2026-05-28T10:46:15.195759+00:00"
+    "created_at": "2026-05-28T11:14:34.720164+00:00",
+    "updated_at": "2026-05-28T11:14:34.725730+00:00"
+  },
+  {
+    "skill_id": "context-pack",
+    "name": "Context Pack Builder",
+    "kind": "connector",
+    "description": "Assemble a tier-bounded context bundle (minimal/standard/expanded) from vault/wiki + research-kb for a given query + domain.\n\nTriggers — invoke this skill when the user says any of:\n- \"build a context pack for X\"\n- \"上下文打包 X domain\"\n- \"把 X 主题的 wiki 段抽出来\"\n\nThis is a **foundation primitive** (no domain knowledge baked in).  Use it\nas a building block from any other skill — see also ``app-report-build``,\n``chat-route``, ``inbox-route``, and the 19 ``*-wiki`` domain skills.",
+    "version": "0.1.0",
+    "status": "active",
+    "entrypoint": "operation:context_pack_build",
+    "risk_level": "L0",
+    "required_permissions": [
+      "[]"
+    ],
+    "connectors": [
+      "[]"
+    ],
+    "tags": [
+      "foundation",
+      "knowledge_access"
+    ],
+    "inputs": {},
+    "outputs": {},
+    "source_path": ".agents/skills/context-pack/SKILL.md",
+    "created_at": "2026-05-28T11:14:34.720269+00:00",
+    "updated_at": "2026-05-28T11:14:34.725740+00:00"
   },
   {
     "skill_id": "cooking-wiki",
@@ -183,8 +327,8 @@
       "context_pack": "ContextPack with cited wiki + research results"
     },
     "source_path": ".agents/skills/cooking-wiki/SKILL.md",
-    "created_at": "2026-05-28T10:46:15.192368+00:00",
-    "updated_at": "2026-05-28T10:46:15.195772+00:00"
+    "created_at": "2026-05-28T11:14:34.720396+00:00",
+    "updated_at": "2026-05-28T11:14:34.725752+00:00"
   },
   {
     "skill_id": "engineering-wiki",
@@ -217,8 +361,8 @@
       "context_pack": "ContextPack with cited wiki + research results"
     },
     "source_path": ".agents/skills/engineering-wiki/SKILL.md",
-    "created_at": "2026-05-28T10:46:15.192493+00:00",
-    "updated_at": "2026-05-28T10:46:15.195784+00:00"
+    "created_at": "2026-05-28T11:14:34.720522+00:00",
+    "updated_at": "2026-05-28T11:14:34.725764+00:00"
   },
   {
     "skill_id": "enterprise-wiki",
@@ -253,8 +397,8 @@
       "context_pack": "ContextPack with cited wiki + research results"
     },
     "source_path": ".agents/skills/enterprise-wiki/SKILL.md",
-    "created_at": "2026-05-28T10:46:15.192621+00:00",
-    "updated_at": "2026-05-28T10:46:15.195796+00:00"
+    "created_at": "2026-05-28T11:14:34.720649+00:00",
+    "updated_at": "2026-05-28T11:14:34.725776+00:00"
   },
   {
     "skill_id": "fashion-wiki",
@@ -285,8 +429,31 @@
       "context_pack": "ContextPack with cited wiki + research results"
     },
     "source_path": ".agents/skills/fashion-wiki/SKILL.md",
-    "created_at": "2026-05-28T10:46:15.192741+00:00",
-    "updated_at": "2026-05-28T10:46:15.195807+00:00"
+    "created_at": "2026-05-28T11:14:34.720769+00:00",
+    "updated_at": "2026-05-28T11:14:34.725790+00:00"
+  },
+  {
+    "skill_id": "finance-screen",
+    "name": "Finance Screen",
+    "kind": "connector",
+    "description": "Read-only stock screening against existing connectors (EDGAR / FRED / Tushare / Crunchbase).  Returns typed StockSignal list. Never places orders.\n\nTriggers — invoke this skill when the user says any of:\n- \"screen US large-cap AI plays\"\n- \"找 A 股新能源\"\n- \"screen by sector + market_cap\"\n\nThis is a **functional orchestrator** (Application Plane).  It composes\nthe foundation primitives (`retrieve`, `context-pack`) into a user-visible product\nflow.  Domain knowledge stays in the routed ``*-wiki`` skills; this\nlayer is the cross-domain glue.",
+    "version": "0.1.0",
+    "status": "active",
+    "entrypoint": "operation:finance_screen",
+    "risk_level": "L0",
+    "required_permissions": [
+      "[]"
+    ],
+    "connectors": [],
+    "tags": [
+      "functional",
+      "orchestrator"
+    ],
+    "inputs": {},
+    "outputs": {},
+    "source_path": ".agents/skills/finance-screen/SKILL.md",
+    "created_at": "2026-05-28T11:14:34.720876+00:00",
+    "updated_at": "2026-05-28T11:14:34.725800+00:00"
   },
   {
     "skill_id": "finance-wiki",
@@ -320,8 +487,8 @@
       "context_pack": "ContextPack with cited wiki + research results"
     },
     "source_path": ".agents/skills/finance-wiki/SKILL.md",
-    "created_at": "2026-05-28T10:46:15.192863+00:00",
-    "updated_at": "2026-05-28T10:46:15.195819+00:00"
+    "created_at": "2026-05-28T11:14:34.721003+00:00",
+    "updated_at": "2026-05-28T11:14:34.725812+00:00"
   },
   {
     "skill_id": "fitness-wellness-wiki",
@@ -355,8 +522,56 @@
       "context_pack": "ContextPack with cited wiki + research results"
     },
     "source_path": ".agents/skills/fitness-wellness-wiki/SKILL.md",
-    "created_at": "2026-05-28T10:46:15.193056+00:00",
-    "updated_at": "2026-05-28T10:46:15.195831+00:00"
+    "created_at": "2026-05-28T11:14:34.721139+00:00",
+    "updated_at": "2026-05-28T11:14:34.725824+00:00"
+  },
+  {
+    "skill_id": "harness-compile-skill",
+    "name": "Harness Compile Skill",
+    "kind": "connector",
+    "description": "Compile a domain's PreferenceStore (accepted / rejected spans) into the domain's .agents/skills/<x>-wiki/SKILL.md body (DSPy 5-component artifact).\n\nTriggers — invoke this skill when the user says any of:\n- \"recompile the X-wiki skill\"\n- \"harness-compile-skill --domain X\"\n- \"重新编译某 domain 的 SKILL.md\"\n\nThis is a **foundation primitive** (no domain knowledge baked in).  Use it\nas a building block from any other skill — see also ``app-report-build``,\n``chat-route``, ``inbox-route``, and the 19 ``*-wiki`` domain skills.",
+    "version": "0.1.0",
+    "status": "active",
+    "entrypoint": "operation:harness_compile_skill",
+    "risk_level": "L1",
+    "required_permissions": [
+      "[]"
+    ],
+    "connectors": [
+      "[]"
+    ],
+    "tags": [
+      "foundation",
+      "eval"
+    ],
+    "inputs": {},
+    "outputs": {},
+    "source_path": ".agents/skills/harness-compile-skill/SKILL.md",
+    "created_at": "2026-05-28T11:14:34.721254+00:00",
+    "updated_at": "2026-05-28T11:14:34.725834+00:00"
+  },
+  {
+    "skill_id": "inbox-route",
+    "name": "Inbox Route (Forwarded Content)",
+    "kind": "connector",
+    "description": "Classify a forwarded item (URL / PDF / .ics / task / wiki) and dispatch to the right handler (capture-url, calendar-add, task-add, wiki-propose-research).\n\nTriggers — invoke this skill when the user says any of:\n- \"I just forwarded this — handle it\"\n- \"把这个内容收进 KB\"\n- \"convert this email into the right action\"\n\nThis is a **functional orchestrator** (Application Plane).  It composes\nthe foundation primitives (`url-capture`, `calendar-add`, `task-add`, `wiki-propose-research`) into a user-visible product\nflow.  Domain knowledge stays in the routed ``*-wiki`` skills; this\nlayer is the cross-domain glue.",
+    "version": "0.1.0",
+    "status": "active",
+    "entrypoint": "operation:inbox_classify",
+    "risk_level": "L0",
+    "required_permissions": [
+      "[]"
+    ],
+    "connectors": [],
+    "tags": [
+      "functional",
+      "orchestrator"
+    ],
+    "inputs": {},
+    "outputs": {},
+    "source_path": ".agents/skills/inbox-route/SKILL.md",
+    "created_at": "2026-05-28T11:14:34.721361+00:00",
+    "updated_at": "2026-05-28T11:14:34.725845+00:00"
   },
   {
     "skill_id": "international-relations-wiki",
@@ -391,8 +606,33 @@
       "context_pack": "ContextPack with cited wiki + research results"
     },
     "source_path": ".agents/skills/international-relations-wiki/SKILL.md",
-    "created_at": "2026-05-28T10:46:15.193275+00:00",
-    "updated_at": "2026-05-28T10:46:15.195843+00:00"
+    "created_at": "2026-05-28T11:14:34.721492+00:00",
+    "updated_at": "2026-05-28T11:14:34.725857+00:00"
+  },
+  {
+    "skill_id": "judge-evaluate",
+    "name": "Judge Evaluate",
+    "kind": "connector",
+    "description": "Score a candidate answer against a domain rubric (5-dim: evidence_coverage / information_density / citation_support / style_fit / uncertainty_calibration).  HeuristicJudge stdlib; LLMJudge via ccLoad / Anthropic SDK fallback.\n\nTriggers — invoke this skill when the user says any of:\n- \"judge this answer against the X rubric\"\n- \"评一下这段输出\"\n- \"score candidate with the LLM judge\"\n\nThis is a **foundation primitive** (no domain knowledge baked in).  Use it\nas a building block from any other skill — see also ``app-report-build``,\n``chat-route``, ``inbox-route``, and the 19 ``*-wiki`` domain skills.",
+    "version": "0.1.0",
+    "status": "active",
+    "entrypoint": "operation:judge_evaluate",
+    "risk_level": "L0",
+    "required_permissions": [
+      "[]"
+    ],
+    "connectors": [
+      "[]"
+    ],
+    "tags": [
+      "foundation",
+      "eval"
+    ],
+    "inputs": {},
+    "outputs": {},
+    "source_path": ".agents/skills/judge-evaluate/SKILL.md",
+    "created_at": "2026-05-28T11:14:34.721596+00:00",
+    "updated_at": "2026-05-28T11:14:34.725867+00:00"
   },
   {
     "skill_id": "marketing-wiki",
@@ -427,8 +667,8 @@
       "context_pack": "ContextPack with cited wiki + research results"
     },
     "source_path": ".agents/skills/marketing-wiki/SKILL.md",
-    "created_at": "2026-05-28T10:46:15.193484+00:00",
-    "updated_at": "2026-05-28T10:46:15.195855+00:00"
+    "created_at": "2026-05-28T11:14:34.721734+00:00",
+    "updated_at": "2026-05-28T11:14:34.725879+00:00"
   },
   {
     "skill_id": "memory-digest",
@@ -455,7 +695,7 @@
     },
     "source_path": "src/omni_hub/memory.py",
     "created_at": "2026-05-03T00:00:00+00:00",
-    "updated_at": "2026-05-28T10:46:15.195869+00:00"
+    "updated_at": "2026-05-28T11:14:34.725892+00:00"
   },
   {
     "skill_id": "memory-search",
@@ -481,7 +721,55 @@
     },
     "source_path": "src/omni_hub/memory.py",
     "created_at": "2026-05-03T00:00:00+00:00",
-    "updated_at": "2026-05-28T10:46:15.195881+00:00"
+    "updated_at": "2026-05-28T11:14:34.725905+00:00"
+  },
+  {
+    "skill_id": "memory-search-foundation",
+    "name": "Memory Search (Foundation)",
+    "kind": "connector",
+    "description": "Query archival memory across documents / entities / relations by case-insensitive substring (stdlib FTS).\n\nTriggers — invoke this skill when the user says any of:\n- \"search memory for X\"\n- \"memory 里提过 X 吗\"\n- \"what do we remember about X\"\n\nThis is a **foundation primitive** (no domain knowledge baked in).  Use it\nas a building block from any other skill — see also ``app-report-build``,\n``chat-route``, ``inbox-route``, and the 19 ``*-wiki`` domain skills.",
+    "version": "0.1.0",
+    "status": "active",
+    "entrypoint": "operation:search_memory",
+    "risk_level": "L0",
+    "required_permissions": [
+      "[]"
+    ],
+    "connectors": [
+      "[]"
+    ],
+    "tags": [
+      "foundation",
+      "knowledge_access"
+    ],
+    "inputs": {},
+    "outputs": {},
+    "source_path": ".agents/skills/memory-search-foundation/SKILL.md",
+    "created_at": "2026-05-28T11:14:34.721841+00:00",
+    "updated_at": "2026-05-28T11:14:34.725916+00:00"
+  },
+  {
+    "skill_id": "meta-cross-skill-scan",
+    "name": "Meta Cross-Skill Scan",
+    "kind": "connector",
+    "description": "Scan PreferenceStore across all 19 domains; surface tokens with strong accepted-signal in ≥3 domains but absent in others; emit CrossSkillFinding for human review.\n\nTriggers — invoke this skill when the user says any of:\n- \"find cross-skill patterns\"\n- \"哪些 token 在多个 domain 都被 accept\"\n- \"scan for meta-skill transfer candidates\"\n\nThis is a **functional orchestrator** (Application Plane).  It composes\nthe foundation primitives (`judge-evaluate`) into a user-visible product\nflow.  Domain knowledge stays in the routed ``*-wiki`` skills; this\nlayer is the cross-domain glue.",
+    "version": "0.1.0",
+    "status": "active",
+    "entrypoint": "operation:meta_cross_skill_scan",
+    "risk_level": "L0",
+    "required_permissions": [
+      "[]"
+    ],
+    "connectors": [],
+    "tags": [
+      "functional",
+      "orchestrator"
+    ],
+    "inputs": {},
+    "outputs": {},
+    "source_path": ".agents/skills/meta-cross-skill-scan/SKILL.md",
+    "created_at": "2026-05-28T11:14:34.721946+00:00",
+    "updated_at": "2026-05-28T11:14:34.725927+00:00"
   },
   {
     "skill_id": "meta-wiki",
@@ -510,8 +798,31 @@
       "context_pack": "ContextPack with cited wiki + research results"
     },
     "source_path": ".agents/skills/meta-wiki/SKILL.md",
-    "created_at": "2026-05-28T10:46:15.193640+00:00",
-    "updated_at": "2026-05-28T10:46:15.195893+00:00"
+    "created_at": "2026-05-28T11:14:34.722077+00:00",
+    "updated_at": "2026-05-28T11:14:34.725938+00:00"
+  },
+  {
+    "skill_id": "order-propose",
+    "name": "Order Propose",
+    "kind": "connector",
+    "description": "Emit an OrderIntent + RiskCheckResult as Proposal(kind=order_intent).  Hard-blocks > 25% portfolio position; warns > 10%; refuses MARKET-without-price.  Human approves; broker CLI in agent-harness executes.\n\nTriggers — invoke this skill when the user says any of:\n- \"propose a BUY of NVDA at limit 195\"\n- \"下一个 limit 单 (走 Proposal)\"\n- \"place an order — Proposal first\"\n\nThis is a **functional orchestrator** (Application Plane).  It composes\nthe foundation primitives (`finance-screen`, `propose-approve`) into a user-visible product\nflow.  Domain knowledge stays in the routed ``*-wiki`` skills; this\nlayer is the cross-domain glue.",
+    "version": "0.1.0",
+    "status": "active",
+    "entrypoint": "operation:order_propose",
+    "risk_level": "L2",
+    "required_permissions": [
+      "[]"
+    ],
+    "connectors": [],
+    "tags": [
+      "functional",
+      "orchestrator"
+    ],
+    "inputs": {},
+    "outputs": {},
+    "source_path": ".agents/skills/order-propose/SKILL.md",
+    "created_at": "2026-05-28T11:14:34.722183+00:00",
+    "updated_at": "2026-05-28T11:14:34.725949+00:00"
   },
   {
     "skill_id": "photography-wiki",
@@ -544,8 +855,104 @@
       "context_pack": "ContextPack with cited wiki + research results"
     },
     "source_path": ".agents/skills/photography-wiki/SKILL.md",
-    "created_at": "2026-05-28T10:46:15.193784+00:00",
-    "updated_at": "2026-05-28T10:46:15.195904+00:00"
+    "created_at": "2026-05-28T11:14:34.722308+00:00",
+    "updated_at": "2026-05-28T11:14:34.725960+00:00"
+  },
+  {
+    "skill_id": "pptx-build",
+    "name": "PPTX Build",
+    "kind": "connector",
+    "description": "Render a typed DeckOutline → real .pptx via the python-pptx shim in agent-harness/integrations/pptx/.  Never generates raw OOXML.\n\nTriggers — invoke this skill when the user says any of:\n- \"build a pptx from this outline\"\n- \"做一份 deck\"\n- \"render this outline as a slide deck\"\n\nThis is a **functional orchestrator** (Application Plane).  It composes\nthe foundation primitives (`context-pack`) into a user-visible product\nflow.  Domain knowledge stays in the routed ``*-wiki`` skills; this\nlayer is the cross-domain glue.",
+    "version": "0.1.0",
+    "status": "active",
+    "entrypoint": "operation:pptx_build",
+    "risk_level": "L1",
+    "required_permissions": [
+      "[]"
+    ],
+    "connectors": [],
+    "tags": [
+      "functional",
+      "orchestrator"
+    ],
+    "inputs": {},
+    "outputs": {},
+    "source_path": ".agents/skills/pptx-build/SKILL.md",
+    "created_at": "2026-05-28T11:14:34.722407+00:00",
+    "updated_at": "2026-05-28T11:14:34.725970+00:00"
+  },
+  {
+    "skill_id": "project-plan",
+    "name": "Project Plan",
+    "kind": "connector",
+    "description": "Create a high-level Project; enqueue a claude lane planner task that emits a plan_markdown + subtask decomposition as Proposal(kind=project_plan).\n\nTriggers — invoke this skill when the user says any of:\n- \"plan a project to ship X\"\n- \"decompose this multi-week effort\"\n- \"做个 plan 把 X 拆成子任务\"\n\nThis is a **functional orchestrator** (Application Plane).  It composes\nthe foundation primitives (`task-add`) into a user-visible product\nflow.  Domain knowledge stays in the routed ``*-wiki`` skills; this\nlayer is the cross-domain glue.",
+    "version": "0.1.0",
+    "status": "active",
+    "entrypoint": "operation:project_plan",
+    "risk_level": "L1",
+    "required_permissions": [
+      "[]"
+    ],
+    "connectors": [],
+    "tags": [
+      "functional",
+      "orchestrator"
+    ],
+    "inputs": {},
+    "outputs": {},
+    "source_path": ".agents/skills/project-plan/SKILL.md",
+    "created_at": "2026-05-28T11:14:34.722509+00:00",
+    "updated_at": "2026-05-28T11:14:34.725980+00:00"
+  },
+  {
+    "skill_id": "propose-approve",
+    "name": "Approve Proposal",
+    "kind": "connector",
+    "description": "Human-review gate: approve a pending Proposal[T] so the downstream apply / supersede / lint-fix step can land it.\n\nTriggers — invoke this skill when the user says any of:\n- \"approve proposal X\"\n- \"通过这个 proposal\"\n- \"propose-approve --id X\"\n\nThis is a **foundation primitive** (no domain knowledge baked in).  Use it\nas a building block from any other skill — see also ``app-report-build``,\n``chat-route``, ``inbox-route``, and the 19 ``*-wiki`` domain skills.",
+    "version": "0.1.0",
+    "status": "active",
+    "entrypoint": "operation:approve_proposal",
+    "risk_level": "L1",
+    "required_permissions": [
+      "[]"
+    ],
+    "connectors": [
+      "[]"
+    ],
+    "tags": [
+      "foundation",
+      "workflow"
+    ],
+    "inputs": {},
+    "outputs": {},
+    "source_path": ".agents/skills/propose-approve/SKILL.md",
+    "created_at": "2026-05-28T11:14:34.722614+00:00",
+    "updated_at": "2026-05-28T11:14:34.725991+00:00"
+  },
+  {
+    "skill_id": "propose-reject",
+    "name": "Reject Proposal",
+    "kind": "connector",
+    "description": "Human-review gate: reject a pending Proposal[T] with a reason the audit log captures.\n\nTriggers — invoke this skill when the user says any of:\n- \"reject proposal X — reason: ...\"\n- \"拒掉这个 proposal\"\n- \"propose-reject --id X --reason ...\"\n\nThis is a **foundation primitive** (no domain knowledge baked in).  Use it\nas a building block from any other skill — see also ``app-report-build``,\n``chat-route``, ``inbox-route``, and the 19 ``*-wiki`` domain skills.",
+    "version": "0.1.0",
+    "status": "active",
+    "entrypoint": "operation:reject_proposal",
+    "risk_level": "L1",
+    "required_permissions": [
+      "[]"
+    ],
+    "connectors": [
+      "[]"
+    ],
+    "tags": [
+      "foundation",
+      "workflow"
+    ],
+    "inputs": {},
+    "outputs": {},
+    "source_path": ".agents/skills/propose-reject/SKILL.md",
+    "created_at": "2026-05-28T11:14:34.722716+00:00",
+    "updated_at": "2026-05-28T11:14:34.726003+00:00"
   },
   {
     "skill_id": "research-wiki",
@@ -579,8 +986,8 @@
       "context_pack": "ContextPack with cited wiki + research results"
     },
     "source_path": ".agents/skills/research-wiki/SKILL.md",
-    "created_at": "2026-05-28T10:46:15.193928+00:00",
-    "updated_at": "2026-05-28T10:46:15.195916+00:00"
+    "created_at": "2026-05-28T11:14:34.722846+00:00",
+    "updated_at": "2026-05-28T11:14:34.726014+00:00"
   },
   {
     "skill_id": "retrieve",
@@ -597,8 +1004,8 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/retrieve/SKILL.md",
-    "created_at": "2026-05-28T10:46:15.194051+00:00",
-    "updated_at": "2026-05-28T10:46:15.195926+00:00"
+    "created_at": "2026-05-28T11:14:34.722957+00:00",
+    "updated_at": "2026-05-28T11:14:34.726024+00:00"
   },
   {
     "skill_id": "retrieve-cascade",
@@ -615,8 +1022,8 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/retrieve-cascade/SKILL.md",
-    "created_at": "2026-05-28T10:46:15.194153+00:00",
-    "updated_at": "2026-05-28T10:46:15.195936+00:00"
+    "created_at": "2026-05-28T11:14:34.723052+00:00",
+    "updated_at": "2026-05-28T11:14:34.726034+00:00"
   },
   {
     "skill_id": "retrieve-domain-source-map",
@@ -633,8 +1040,8 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/retrieve-domain-source-map/SKILL.md",
-    "created_at": "2026-05-28T10:46:15.194252+00:00",
-    "updated_at": "2026-05-28T10:46:15.195946+00:00"
+    "created_at": "2026-05-28T11:14:34.723143+00:00",
+    "updated_at": "2026-05-28T11:14:34.726044+00:00"
   },
   {
     "skill_id": "retrieve-evidence-pin",
@@ -651,8 +1058,8 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/retrieve-evidence-pin/SKILL.md",
-    "created_at": "2026-05-28T10:46:15.194348+00:00",
-    "updated_at": "2026-05-28T10:46:15.195956+00:00"
+    "created_at": "2026-05-28T11:14:34.723235+00:00",
+    "updated_at": "2026-05-28T11:14:34.726054+00:00"
   },
   {
     "skill_id": "retrieve-grade-and-fuse",
@@ -669,8 +1076,31 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/retrieve-grade-and-fuse/SKILL.md",
-    "created_at": "2026-05-28T10:46:15.194454+00:00",
-    "updated_at": "2026-05-28T10:46:15.195966+00:00"
+    "created_at": "2026-05-28T11:14:34.723330+00:00",
+    "updated_at": "2026-05-28T11:14:34.726064+00:00"
+  },
+  {
+    "skill_id": "schedule-plan",
+    "name": "Schedule Plan",
+    "kind": "connector",
+    "description": "Deterministic time-block solver: place PersonalTasks into free Calendar slots by priority + due_at + duration.\n\nTriggers — invoke this skill when the user says any of:\n- \"plan my week\"\n- \"auto-block today's tasks\"\n- \"把待办排进日历\"\n\nThis is a **functional orchestrator** (Application Plane).  It composes\nthe foundation primitives (`task-add`, `calendar-add`) into a user-visible product\nflow.  Domain knowledge stays in the routed ``*-wiki`` skills; this\nlayer is the cross-domain glue.",
+    "version": "0.1.0",
+    "status": "active",
+    "entrypoint": "operation:schedule_plan",
+    "risk_level": "L1",
+    "required_permissions": [
+      "[]"
+    ],
+    "connectors": [],
+    "tags": [
+      "functional",
+      "orchestrator"
+    ],
+    "inputs": {},
+    "outputs": {},
+    "source_path": ".agents/skills/schedule-plan/SKILL.md",
+    "created_at": "2026-05-28T11:14:34.723431+00:00",
+    "updated_at": "2026-05-28T11:14:34.726074+00:00"
   },
   {
     "skill_id": "skill-registry",
@@ -697,7 +1127,7 @@
     },
     "source_path": "src/omni_hub/skills.py",
     "created_at": "2026-05-03T00:00:00+00:00",
-    "updated_at": "2026-05-28T10:46:15.195978+00:00"
+    "updated_at": "2026-05-28T11:14:34.726086+00:00"
   },
   {
     "skill_id": "social-en-wiki",
@@ -729,8 +1159,8 @@
       "context_pack": "ContextPack with cited wiki + research results"
     },
     "source_path": ".agents/skills/social-en-wiki/SKILL.md",
-    "created_at": "2026-05-28T10:46:15.194581+00:00",
-    "updated_at": "2026-05-28T10:46:15.195989+00:00"
+    "created_at": "2026-05-28T11:14:34.723559+00:00",
+    "updated_at": "2026-05-28T11:14:34.726097+00:00"
   },
   {
     "skill_id": "social-zh-wiki",
@@ -762,8 +1192,31 @@
       "context_pack": "ContextPack with cited wiki + research results"
     },
     "source_path": ".agents/skills/social-zh-wiki/SKILL.md",
-    "created_at": "2026-05-28T10:46:15.194707+00:00",
-    "updated_at": "2026-05-28T10:46:15.196001+00:00"
+    "created_at": "2026-05-28T11:14:34.723680+00:00",
+    "updated_at": "2026-05-28T11:14:34.726109+00:00"
+  },
+  {
+    "skill_id": "task-add",
+    "name": "Task Add",
+    "kind": "connector",
+    "description": "Append a PersonalTask (user-facing todo, NOT a worker queue task) to .omni/personal_tasks.sqlite3.\n\nTriggers — invoke this skill when the user says any of:\n- \"add a todo: ...\"\n- \"remind me to X\"\n- \"记一个任务: ...\"\n\nThis is a **functional orchestrator** (Application Plane).  It composes\nthe foundation primitives (_(none — pure orchestrator)_) into a user-visible product\nflow.  Domain knowledge stays in the routed ``*-wiki`` skills; this\nlayer is the cross-domain glue.",
+    "version": "0.1.0",
+    "status": "active",
+    "entrypoint": "operation:task_add",
+    "risk_level": "L1",
+    "required_permissions": [
+      "[]"
+    ],
+    "connectors": [],
+    "tags": [
+      "functional",
+      "orchestrator"
+    ],
+    "inputs": {},
+    "outputs": {},
+    "source_path": ".agents/skills/task-add/SKILL.md",
+    "created_at": "2026-05-28T11:14:34.723781+00:00",
+    "updated_at": "2026-05-28T11:14:34.726119+00:00"
   },
   {
     "skill_id": "travel-wiki",
@@ -796,38 +1249,33 @@
       "context_pack": "ContextPack with cited wiki + research results"
     },
     "source_path": ".agents/skills/travel-wiki/SKILL.md",
-    "created_at": "2026-05-28T10:46:15.194849+00:00",
-    "updated_at": "2026-05-28T10:46:15.196013+00:00"
+    "created_at": "2026-05-28T11:14:34.723904+00:00",
+    "updated_at": "2026-05-28T11:14:34.726131+00:00"
   },
   {
     "skill_id": "url-capture",
     "name": "URL Capture",
     "kind": "connector",
-    "description": "Capture HTTP or HTTPS URLs, extract basic metadata, and write inbox cards.",
+    "description": "Fetch a single URL + persist as a Resource under vault/raw/ with provenance.  Used by Inbox forward-routing.\n\nTriggers — invoke this skill when the user says any of:\n- \"capture this URL\"\n- \"fetch + save https://...\"\n- \"把这个链接存到 KB\"\n\nThis is a **foundation primitive** (no domain knowledge baked in).  Use it\nas a building block from any other skill — see also ``app-report-build``,\n``chat-route``, ``inbox-route``, and the 19 ``*-wiki`` domain skills.",
     "version": "0.1.0",
     "status": "active",
     "entrypoint": "operation:capture_url",
     "risk_level": "L1",
-    "required_permissions": [],
+    "required_permissions": [
+      "[]"
+    ],
     "connectors": [
-      "web"
+      "[]"
     ],
     "tags": [
-      "capture",
-      "web",
-      "youtube"
+      "foundation",
+      "knowledge_access"
     ],
-    "inputs": {
-      "url": "http or https URL",
-      "fetch": "whether to fetch content"
-    },
-    "outputs": {
-      "markdown_path": "inbox card path",
-      "raw_path": "raw content path"
-    },
-    "source_path": "src/omni_hub/connectors/web.py",
-    "created_at": "2026-05-03T00:00:00+00:00",
-    "updated_at": "2026-05-28T10:46:15.196025+00:00"
+    "inputs": {},
+    "outputs": {},
+    "source_path": ".agents/skills/url-capture/SKILL.md",
+    "created_at": "2026-05-28T11:14:34.724003+00:00",
+    "updated_at": "2026-05-28T11:14:34.726141+00:00"
   },
   {
     "skill_id": "us-policy-wiki",
@@ -863,8 +1311,8 @@
       "context_pack": "ContextPack with cited wiki + research results"
     },
     "source_path": ".agents/skills/us-policy-wiki/SKILL.md",
-    "created_at": "2026-05-28T10:46:15.194978+00:00",
-    "updated_at": "2026-05-28T10:46:15.196037+00:00"
+    "created_at": "2026-05-28T11:14:34.724143+00:00",
+    "updated_at": "2026-05-28T11:14:34.726153+00:00"
   },
   {
     "skill_id": "vault-proposal",
@@ -893,6 +1341,181 @@
     },
     "source_path": "src/omni_hub/proposals.py",
     "created_at": "2026-05-03T00:00:00+00:00",
-    "updated_at": "2026-05-28T10:46:15.196049+00:00"
+    "updated_at": "2026-05-28T11:14:34.726167+00:00"
+  },
+  {
+    "skill_id": "wiki-apply",
+    "name": "Wiki Apply (Approved Proposal)",
+    "kind": "connector",
+    "description": "Land an already-approved wiki_update Proposal: write the page, append claims, append log.md, refresh FTS5, auto-record a PreferenceRecord(accepted).\n\nTriggers — invoke this skill when the user says any of:\n- \"apply approved proposal X to the wiki\"\n- \"wiki-apply --proposal X\"\n- \"把 approved 的 proposal 落地\"\n\nThis is a **foundation primitive** (no domain knowledge baked in).  Use it\nas a building block from any other skill — see also ``app-report-build``,\n``chat-route``, ``inbox-route``, and the 19 ``*-wiki`` domain skills.",
+    "version": "0.1.0",
+    "status": "active",
+    "entrypoint": "operation:wiki_apply_proposal",
+    "risk_level": "L1",
+    "required_permissions": [
+      "[]"
+    ],
+    "connectors": [
+      "[]"
+    ],
+    "tags": [
+      "foundation",
+      "knowledge_update"
+    ],
+    "inputs": {},
+    "outputs": {},
+    "source_path": ".agents/skills/wiki-apply/SKILL.md",
+    "created_at": "2026-05-28T11:14:34.724246+00:00",
+    "updated_at": "2026-05-28T11:14:34.726177+00:00"
+  },
+  {
+    "skill_id": "wiki-dream",
+    "name": "Wiki Dream (Offline Consolidation)",
+    "kind": "connector",
+    "description": "Local-first dual of Anthropic Dreaming: scan recent retrieval + raw + claims, propose consolidations (cluster_canonical / statement_cluster / raw_orphan / stale_active).\n\nTriggers — invoke this skill when the user says any of:\n- \"run a wiki-dream consolidation pass\"\n- \"consolidate recent retrieval + claims\"\n- \"offline 整理一下 wiki\"\n\nThis is a **foundation primitive** (no domain knowledge baked in).  Use it\nas a building block from any other skill — see also ``app-report-build``,\n``chat-route``, ``inbox-route``, and the 19 ``*-wiki`` domain skills.",
+    "version": "0.1.0",
+    "status": "active",
+    "entrypoint": "operation:wiki_dream",
+    "risk_level": "L1",
+    "required_permissions": [
+      "[]"
+    ],
+    "connectors": [
+      "[]"
+    ],
+    "tags": [
+      "foundation",
+      "knowledge_update"
+    ],
+    "inputs": {},
+    "outputs": {},
+    "source_path": ".agents/skills/wiki-dream/SKILL.md",
+    "created_at": "2026-05-28T11:14:34.724346+00:00",
+    "updated_at": "2026-05-28T11:14:34.726187+00:00"
+  },
+  {
+    "skill_id": "wiki-ingest",
+    "name": "Wiki Ingest",
+    "kind": "connector",
+    "description": "Bridge a retrieve cascade run into a Proposal(kind=wiki_update); writes vault/evidence + composes candidate claims; humans approve before content lands in vault/wiki.\n\nTriggers — invoke this skill when the user says any of:\n- \"ingest this retrieval run into the wiki\"\n- \"把 run_id 转成 wiki proposal\"\n- \"consolidate this research into a wiki page\"\n\nThis is a **foundation primitive** (no domain knowledge baked in).  Use it\nas a building block from any other skill — see also ``app-report-build``,\n``chat-route``, ``inbox-route``, and the 19 ``*-wiki`` domain skills.",
+    "version": "0.1.0",
+    "status": "active",
+    "entrypoint": "operation:wiki_ingest",
+    "risk_level": "L1",
+    "required_permissions": [
+      "[]"
+    ],
+    "connectors": [
+      "[]"
+    ],
+    "tags": [
+      "foundation",
+      "knowledge_update"
+    ],
+    "inputs": {},
+    "outputs": {},
+    "source_path": ".agents/skills/wiki-ingest/SKILL.md",
+    "created_at": "2026-05-28T11:14:34.724447+00:00",
+    "updated_at": "2026-05-28T11:14:34.726197+00:00"
+  },
+  {
+    "skill_id": "wiki-lint",
+    "name": "Wiki Lint",
+    "kind": "connector",
+    "description": "Eight-rule scan (contradiction / stale_fact / orphan_page / missing_concept / broken_cross_ref / data_gap / cross_ref_asymmetry / abandoned_page) — emits Proposal(lint_finding) per issue.\n\nTriggers — invoke this skill when the user says any of:\n- \"lint the wiki\"\n- \"wiki-lint --persist\"\n- \"scan for contradictions in the wiki\"\n\nThis is a **foundation primitive** (no domain knowledge baked in).  Use it\nas a building block from any other skill — see also ``app-report-build``,\n``chat-route``, ``inbox-route``, and the 19 ``*-wiki`` domain skills.",
+    "version": "0.1.0",
+    "status": "active",
+    "entrypoint": "operation:wiki_lint",
+    "risk_level": "L1",
+    "required_permissions": [
+      "[]"
+    ],
+    "connectors": [
+      "[]"
+    ],
+    "tags": [
+      "foundation",
+      "knowledge_update"
+    ],
+    "inputs": {},
+    "outputs": {},
+    "source_path": ".agents/skills/wiki-lint/SKILL.md",
+    "created_at": "2026-05-28T11:14:34.724545+00:00",
+    "updated_at": "2026-05-28T11:14:34.726207+00:00"
+  },
+  {
+    "skill_id": "wiki-propose-research",
+    "name": "Wiki Propose (Research Asset)",
+    "kind": "connector",
+    "description": "Select a single ResearchFlow / PaperBite analysis note as a Proposal(wiki_update) — for when retrieve cascade isn't needed.\n\nTriggers — invoke this skill when the user says any of:\n- \"propose this paperbite note into the wiki\"\n- \"wiki-propose 这条 researchflow\"\n- \"import this analysis into the global truth wiki\"\n\nThis is a **foundation primitive** (no domain knowledge baked in).  Use it\nas a building block from any other skill — see also ``app-report-build``,\n``chat-route``, ``inbox-route``, and the 19 ``*-wiki`` domain skills.",
+    "version": "0.1.0",
+    "status": "active",
+    "entrypoint": "operation:wiki_propose_research",
+    "risk_level": "L1",
+    "required_permissions": [
+      "[]"
+    ],
+    "connectors": [
+      "[]"
+    ],
+    "tags": [
+      "foundation",
+      "knowledge_update"
+    ],
+    "inputs": {},
+    "outputs": {},
+    "source_path": ".agents/skills/wiki-propose-research/SKILL.md",
+    "created_at": "2026-05-28T11:14:34.724648+00:00",
+    "updated_at": "2026-05-28T11:14:34.726218+00:00"
+  },
+  {
+    "skill_id": "wiki-search",
+    "name": "Wiki Search",
+    "kind": "connector",
+    "description": "Search vault/wiki via FTS5 (with substring fallback); filter out superseded / rejected pages by default.\n\nTriggers — invoke this skill when the user says any of:\n- \"search the wiki for X\"\n- \"wiki 里有没有 X 的页\"\n- \"find pages about X in the wiki\"\n\nThis is a **foundation primitive** (no domain knowledge baked in).  Use it\nas a building block from any other skill — see also ``app-report-build``,\n``chat-route``, ``inbox-route``, and the 19 ``*-wiki`` domain skills.",
+    "version": "0.1.0",
+    "status": "active",
+    "entrypoint": "operation:wiki_search",
+    "risk_level": "L0",
+    "required_permissions": [
+      "[]"
+    ],
+    "connectors": [
+      "[]"
+    ],
+    "tags": [
+      "foundation",
+      "knowledge_access"
+    ],
+    "inputs": {},
+    "outputs": {},
+    "source_path": ".agents/skills/wiki-search/SKILL.md",
+    "created_at": "2026-05-28T11:14:34.724744+00:00",
+    "updated_at": "2026-05-28T11:14:34.726228+00:00"
+  },
+  {
+    "skill_id": "wiki-supersede",
+    "name": "Wiki Supersede (Bitemporal Close)",
+    "kind": "connector",
+    "description": "Close an old claim's t_valid_to window + link superseded_by; never deletes (Graphiti/Zep pattern).\n\nTriggers — invoke this skill when the user says any of:\n- \"supersede claim X with Y\"\n- \"wiki-supersede --new Y --old X\"\n- \"废弃旧 claim 改成新版本\"\n\nThis is a **foundation primitive** (no domain knowledge baked in).  Use it\nas a building block from any other skill — see also ``app-report-build``,\n``chat-route``, ``inbox-route``, and the 19 ``*-wiki`` domain skills.",
+    "version": "0.1.0",
+    "status": "active",
+    "entrypoint": "operation:wiki_supersede",
+    "risk_level": "L1",
+    "required_permissions": [
+      "[]"
+    ],
+    "connectors": [
+      "[]"
+    ],
+    "tags": [
+      "foundation",
+      "knowledge_update"
+    ],
+    "inputs": {},
+    "outputs": {},
+    "source_path": ".agents/skills/wiki-supersede/SKILL.md",
+    "created_at": "2026-05-28T11:14:34.724842+00:00",
+    "updated_at": "2026-05-28T11:14:34.726238+00:00"
   }
 ]

@@ -18,7 +18,7 @@ description: |
   one).  Do NOT use this for writing — all writes go through
   Proposal[T] (see "Write boundary" below).
 license: MIT
-schema_version: v0.37
+schema_version: v0.38
 omni_hub:
   kind: domain_wiki
   display_name: "Photography — Wiki Domain Skill"
@@ -43,7 +43,7 @@ omni_hub:
     context_pack: "ContextPack with cited wiki + research results"
 ---
 
-<!-- omni-skill-stub: v0.37 -->
+<!-- omni-skill-stub: v0.38 -->
 
 # Photography — Wiki Domain Skill
 
@@ -142,4 +142,4 @@ proposes prompt updates as new versions of this SKILL.md body.
 ---
 
 _Auto-generated stub.  Hand-editing is supported — remove the
-`<!-- omni-skill-stub: v0.37 -->` marker line to opt out of future regenerations._
+`<!-- omni-skill-stub: v0.38 -->` marker line to opt out of future regenerations._
