@@ -14,6 +14,23 @@ from .base import DEFAULT_TIMEOUT_SEC, RetrievalRecord, http_get_json
 
 
 WORKS_URL = "https://api.openalex.org/works"
+OPENALEX_SECRET_REF = "local:omni-hub/api/openalex/mailto"
+
+
+def _resolve_openalex_mailto() -> str:
+    env_v = os.environ.get("OPENALEX_MAILTO", "").strip()
+    if env_v:
+        return env_v
+    try:
+        from ..secrets import resolve_secret_ref, SecretStoreError
+    except ImportError:
+        return ""
+    try:
+        return resolve_secret_ref(OPENALEX_SECRET_REF) or ""
+    except SecretStoreError:
+        return ""
+    except Exception:                                            # noqa: BLE001
+        return ""
 
 
 class OpenAlexSource:
@@ -31,7 +48,7 @@ class OpenAlexSource:
         mailto: str | None = None,
         timeout: int = DEFAULT_TIMEOUT_SEC,
     ) -> None:
-        self.mailto = mailto or os.environ.get("OPENALEX_MAILTO", "")
+        self.mailto = mailto if mailto is not None else _resolve_openalex_mailto()
         self.timeout = timeout
 
     def check(self) -> tuple[str, str]:

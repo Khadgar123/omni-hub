@@ -35,6 +35,25 @@ FRED_SEARCH = "https://api.stlouisfed.org/fred/series/search"
 # ---------------------------------------------------------------------------
 
 
+SEC_UA_SECRET_REF = "local:omni-hub/api/edgar/user_agent"
+
+
+def _resolve_sec_user_agent() -> str:
+    env_v = os.environ.get("SEC_USER_AGENT", "").strip()
+    if env_v:
+        return env_v
+    try:
+        from ..secrets import resolve_secret_ref, SecretStoreError
+    except ImportError:
+        return ""
+    try:
+        return resolve_secret_ref(SEC_UA_SECRET_REF) or ""
+    except SecretStoreError:
+        return ""
+    except Exception:                                            # noqa: BLE001
+        return ""
+
+
 class EdgarSource:
     """SEC EDGAR full-text filing search.  No key; needs polite UA."""
 
@@ -47,15 +66,18 @@ class EdgarSource:
         user_agent: str | None = None,
         timeout: int = DEFAULT_TIMEOUT_SEC,
     ) -> None:
+        resolved = _resolve_sec_user_agent()
         self.user_agent = (
             user_agent
-            or os.environ.get("SEC_USER_AGENT", "")
+            or resolved
             or "omni-hub/0.10 (personal-knowledge-harness)"
         )
+        # Track whether the polite-pool UA came from env/secrets vs default
+        self._polite = bool(user_agent or resolved)
         self.timeout = timeout
 
     def check(self) -> tuple[str, str]:
-        if os.environ.get("SEC_USER_AGENT", "").strip():
+        if self._polite:
             return "ok", "SEC_USER_AGENT polite-set"
         return "warn", "default UA; set SEC_USER_AGENT='Name email@x.com' to be polite"
 

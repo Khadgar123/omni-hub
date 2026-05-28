@@ -87,6 +87,42 @@ class EuropePMCSource:
         return records
 
 
+PUBMED_EMAIL_SECRET_REF = "local:omni-hub/api/pubmed/email"
+PUBMED_API_KEY_SECRET_REF = "local:omni-hub/api/pubmed/api_key"
+
+
+def _resolve_pubmed_email() -> str:
+    env_v = os.environ.get("NCBI_EMAIL", "").strip()
+    if env_v:
+        return env_v
+    try:
+        from ..secrets import resolve_secret_ref, SecretStoreError
+    except ImportError:
+        return ""
+    try:
+        return resolve_secret_ref(PUBMED_EMAIL_SECRET_REF) or ""
+    except SecretStoreError:
+        return ""
+    except Exception:                                            # noqa: BLE001
+        return ""
+
+
+def _resolve_pubmed_api_key() -> str:
+    env_v = os.environ.get("NCBI_API_KEY", "").strip()
+    if env_v:
+        return env_v
+    try:
+        from ..secrets import resolve_secret_ref, SecretStoreError
+    except ImportError:
+        return ""
+    try:
+        return resolve_secret_ref(PUBMED_API_KEY_SECRET_REF) or ""
+    except SecretStoreError:
+        return ""
+    except Exception:                                            # noqa: BLE001
+        return ""
+
+
 class PubMedSource:
     """NCBI PubMed via E-utilities.  Optional ``NCBI_API_KEY`` / ``NCBI_EMAIL``."""
 
@@ -101,8 +137,8 @@ class PubMedSource:
         tool: str | None = None,
         timeout: int = DEFAULT_TIMEOUT_SEC,
     ) -> None:
-        self.api_key = api_key if api_key is not None else os.environ.get("NCBI_API_KEY", "")
-        self.email = email if email is not None else os.environ.get("NCBI_EMAIL", "")
+        self.api_key = api_key if api_key is not None else _resolve_pubmed_api_key()
+        self.email = email if email is not None else _resolve_pubmed_email()
         self.tool = tool if tool is not None else os.environ.get("NCBI_TOOL", "omni-hub")
         self.timeout = timeout
 
