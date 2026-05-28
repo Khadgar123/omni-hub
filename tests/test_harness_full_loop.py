@@ -160,7 +160,6 @@ class FullFlywheelTests(unittest.TestCase):
             _run_cli(workspace, [
                 "harness-redundancy-scan",
                 "--db-path", str(workspace / "missing.sqlite3"),
-                "--no-write",
             ])
 
             audit_path = workspace / ".omni" / "audit" / "events.jsonl"

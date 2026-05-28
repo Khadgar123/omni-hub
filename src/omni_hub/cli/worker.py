@@ -14,7 +14,8 @@ import time
 import uuid
 from pathlib import Path
 
-from ..queue import TaskQueue
+from ..proposals import Proposal, ProposalStore
+from ..queue import LeaseLost, TaskQueue
 from ..workers import (
     Artifact,
     ClaudeAdapter,
@@ -23,6 +24,39 @@ from ..workers import (
 )
 from ..workers.builtin import make_builtin_adapter
 from ._common import print_json
+
+
+# Lanes whose successful artifacts must land as a pending Proposal[T]
+# before the task is marked done.  Python (builtin) lane is exempt because
+# its work is already an audited OperationRunner write.
+_GATED_LANES = {"claude", "codex", "openhands"}
+
+
+def _artifact_to_proposal(artifact: Artifact, *, lane: str) -> Proposal:
+    raw = artifact.data if isinstance(artifact.data, dict) else {}
+    text = str(raw.get("text", "") or "")
+    title = (text.splitlines()[0][:80] if text else f"{lane} generation")
+    summary = text[:280]
+    return Proposal(
+        kind="generation",
+        title=title,
+        summary=summary,
+        confidence=0.5,
+        suggested_action="review_generation",
+        source_task_id=str(artifact.task_id) if artifact.task_id else None,
+        payload={
+            "artifact_id": artifact.artifact_id,
+            "text": text,
+            "model": raw.get("model"),
+            "session_id": raw.get("session_id"),
+            "tokens_in": artifact.tokens_in,
+            "tokens_out": artifact.tokens_out,
+            "cost_usd": artifact.cost_usd,
+            "duration_ms": artifact.duration_ms,
+            "worker_lane": artifact.worker_lane,
+            "worker_id": artifact.worker_id,
+        },
+    )
 
 
 def register(subparsers: argparse._SubParsersAction) -> None:
@@ -71,10 +105,21 @@ def _make_adapter(lane: str, workspace: Path, worker_id: str) -> WorkerAdapter:
 def _handle_worker(args, *, runner, workspace) -> int:
     worker_id = args.worker_id or f"worker-{uuid.uuid4()}"
     queue = TaskQueue(workspace)
+    proposal_store = ProposalStore(workspace)
     adapter = _make_adapter(args.lane, workspace, worker_id)
+    gated = args.lane in _GATED_LANES
 
     processed = 0
+    proposals_made = 0
+    lease_losses = 0
     last_task_at = time.monotonic()
+
+    def _safe_fail(task_id: int, error: str) -> None:
+        nonlocal lease_losses
+        try:
+            queue.fail(task_id, error=error, claimed_by=worker_id)
+        except LeaseLost:
+            lease_losses += 1
 
     while True:
         task = queue.claim(lane=args.lane, claimed_by=worker_id)
@@ -90,14 +135,40 @@ def _handle_worker(args, *, runner, workspace) -> int:
         try:
             artifact: Artifact = adapter.run(task, timeout_sec=args.task_timeout_sec)
         except Exception as exc:                            # noqa: BLE001
-            queue.fail(task.id, error=f"{type(exc).__name__}: {exc}")
+            _safe_fail(task.id, f"{type(exc).__name__}: {exc}")
             processed += 1
             continue
 
-        if artifact.error:
-            queue.fail(task.id, error=artifact.error)
-        else:
-            queue.complete(task.id, output=artifact.to_dict())
+        proposal: Proposal | None = None
+        try:
+            if artifact.error:
+                _safe_fail(task.id, artifact.error)
+            else:
+                output = artifact.to_dict()
+                # Gated lanes (agent workers) write a pending Proposal[T]
+                # that the human must approve via propose-approve.  The
+                # proposal_id is surfaced in the task output so callers
+                # can link back.
+                if gated:
+                    proposal = _artifact_to_proposal(artifact, lane=args.lane)
+                    proposal_store.store(proposal, write_card=False)
+                    output["proposal_id"] = proposal.proposal_id
+                    output["proposal_state"] = proposal.state
+                queue.complete(task.id, output=output, claimed_by=worker_id)
+                if proposal is not None:
+                    proposals_made += 1
+        except LeaseLost:
+            # Another worker reclaimed this task while we were running it.
+            # Drop the result — the new holder will produce its own.  If
+            # we already staged a gated proposal, close it so stale output
+            # never appears as a pending human decision.
+            if proposal is not None:
+                proposal_store.reject(
+                    proposal.proposal_id,
+                    reason="lease_lost",
+                    decided_by=worker_id,
+                )
+            lease_losses += 1
         processed += 1
 
         if args.max_iterations and processed >= args.max_iterations:
@@ -107,6 +178,8 @@ def _handle_worker(args, *, runner, workspace) -> int:
         "worker_id": worker_id,
         "lane": args.lane,
         "processed": processed,
+        "proposals_made": proposals_made,
+        "lease_losses": lease_losses,
         "counts_by_state": queue.counts_by_state(),
     })
     return 0

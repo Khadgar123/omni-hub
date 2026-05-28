@@ -2,14 +2,25 @@
 
 个人知识、AI Skill、自动化工作流与本地 API 网关的统一中枢。
 
-## 当前定位
+## 当前定位（v0.7）
 
-仓库只保留两类能力：
+**Control Plane + Worker Pool + Eval/Memory Flywheel** 三层架构，不是聊天工具：
 
-- 本地知识内核：Operation、Policy、Audit、Capture、Vault、Memory、Skill Registry。
-- API 管理与网关：维护 `api-management/metapi` 和 `api-management/ccLoad` 两个 fork，用成熟项目承接余额、额度、模型、路由、协议转换和监控。
+```
+TaskPacket
+  → AgentJob Queue（SQLite WAL）
+  → Worker lane（python / claude / codex / openhands）
+  → Artifact → Proposal[T]
+  → human approve via propose-list / propose-approve
+  → preference / compile / memory 飞轮
+```
 
-原来自研的 Provider Router、Agent Planner 和 GUI 已移除，避免重复造低质量网关。后续 API 能力优先在两个 fork 中维护，主仓库只保留最小状态检查和文档入口。
+- **Control Plane**：Operation、Policy、Audit、TaskPacket 契约、`TaskQueue`、`ProposalStore`、Skill Registry。
+- **Worker Pool**：可替换 adapter；Codex / Claude Code / OpenHands 在这里是 *headless worker*，不是项目本体。常驻进程是 `omni-hub worker --lane <lane>`，由 launchd 拉起。
+- **Eval/Memory Flywheel**：harness（ensemble → judge → preference → DSPy compile → 日/周/月报），外加 4 个 pinned fork（SWE-agent / promptfoo / Argilla / Graphiti）+ 3 个待升格（DSPy / OpenHands / Opik）。
+- **API 管理与网关**：`api-management/metapi` 和 `api-management/ccLoad` 两个 fork 承接余额、额度、模型、路由、协议转换和监控。
+
+工程硬约束写在 [AGENTS.md](AGENTS.md)（4 条），主仓库 `pyproject.toml: dependencies = []` 是 stdlib-only 硬约束。
 
 ## 快速开始
 
@@ -40,6 +51,24 @@ PYTHONPATH=src python3.12 -m omni_hub.cli vault-list --limit 20
 PYTHONPATH=src python3.12 -m omni_hub.cli memory-search --query "Graphiti"
 PYTHONPATH=src python3.12 -m omni_hub.cli skill-list
 PYTHONPATH=src python3.12 -m omni_hub.cli api-management-status
+```
+
+Control plane / worker pool（v0.7）：
+
+```bash
+# 队列 + 调度
+PYTHONPATH=src python3.12 -m omni_hub.cli schedule-tick --period daily   # 入队日常任务
+PYTHONPATH=src python3.12 -m omni_hub.cli task-list                      # 看队列状态
+PYTHONPATH=src python3.12 -m omni_hub.cli worker --lane python --idle-exit-after-sec 2
+
+# 提案审批（agent worker 产出 + 知识/冗余扫描结果都在这里 review）
+PYTHONPATH=src python3.12 -m omni_hub.cli propose-list --state pending
+PYTHONPATH=src python3.12 -m omni_hub.cli propose-approve --id <pid> --reason "ok"
+
+# 后台 launchd（macOS）— 需要 Python >= 3.12
+PYTHON=/abs/path/to/python3.12+ make schedule-install-dry      # 看渲染的 plist
+PYTHON=/abs/path/to/python3.12+ make schedule-install          # 真正装到 ~/Library/LaunchAgents
+PYTHON=/abs/path/to/python3.12+ make schedule-uninstall
 ```
 
 当前所有项目的 API 默认配置在 [api-management/defaults.json](/Users/hzh/Desktop/简历/个人知识库/api-management/defaults.json)：默认 provider 是 DeepSeek，默认模型是 `deepseek-v4-pro`，真实 key 只通过 `local:omni-hub/api/deepseek/default` 保存在本地 secret backend。
@@ -92,12 +121,29 @@ docker compose --env-file api-management/env.example -f api-management/compose.y
 
 ```text
 .
-├── api-management/    # Metapi + ccLoad fork 与 compose 入口
-├── docs/              # 架构、权限、路线图
-├── registry/          # 机器可读注册表
-├── src/omni_hub/      # 本地知识内核与 API 管理状态入口
-├── tests/             # 单元测试
-├── vault/             # 本地 Markdown / Obsidian 知识库
+├── api-management/         # Metapi + ccLoad fork + compose 入口
+├── agent-harness/          # 4 个 pinned fork（SWE-agent / promptfoo / argilla / graphiti）
+│                           # + pending forks 清单（DSPy / OpenHands / Opik）
+├── .agents/skills/         # 业务 skill：Claude Code 和 Codex CLI 都通过 symlink 读
+├── docs/                   # 架构、权限、提案模型、路线图
+├── registry/               # 机器可读 skill 注册表
+├── scripts/                # 工具脚本
+│   ├── launchd/            # macOS launchd plist 模板（daily/weekly/monthly/worker）
+│   ├── install_launchd.py  # 渲染 plist + launchctl bootstrap
+│   └── ...
+├── src/omni_hub/
+│   ├── cli/                # 子命令按域分文件（capture/memory/skill/task/propose/worker/...）
+│   ├── harness/            # 自进化飞轮（ensemble/judge/preference/compile/reports）
+│   ├── workers/            # WorkerAdapter 协议 + builtin/claude/codex 适配器
+│   ├── reports/            # 日/周/月报构建
+│   ├── proposals.py        # 统一 Proposal[T] + SQLite ProposalStore
+│   ├── queue.py            # AgentJob Queue (SQLite WAL + 原子 claim + lease fencing)
+│   ├── builtins.py         # Operation handlers（policy + audit 通道）
+│   ├── memory.py / vault.py / skills.py / api_management.py / ...
+├── tests/                  # 单元 + 集成测试
+├── vault/                  # 本地 Markdown / Obsidian 知识库
+├── AGENTS.md               # Codex / 其他 agent 入口（含工程硬约束）
+├── CLAUDE.md               # Claude Code 入口（指向 AGENTS.md）
 └── README.md
 ```
 

@@ -16,10 +16,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from omni_hub.cli import main
 from omni_hub.queue import (
+    CLAIMED,
     DEAD,
     DONE,
+    LeaseLost,
     PENDING,
-    CLAIMED,
     TaskQueue,
     _now_ms,
 )
@@ -161,6 +162,79 @@ class TaskQueueTests(unittest.TestCase):
             self.assertEqual(len(q.list(lane="claude")), 1)
             self.assertEqual(len(q.list()), 2)
             self.assertEqual(q.counts_by_state()["pending"], 2)
+
+
+class LeaseFencingTests(unittest.TestCase):
+    """Regression for F3 — a stale worker MUST NOT overwrite a successor's progress."""
+
+    def test_stale_worker_cannot_complete_after_reclaim(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            q = TaskQueue(tmp)
+            q.enqueue(lane="claude", packet={"goal": "x"})
+
+            w1 = q.claim(lane="claude", claimed_by="w1")
+            assert w1 is not None
+
+            # Force-rewind claimed_at so w2 can reclaim with a 1s timeout.
+            with q._connect() as conn:
+                conn.execute(
+                    "UPDATE tasks SET claimed_at = ? WHERE id = ?",
+                    (_now_ms() - 3_600_000, w1.id),
+                )
+                conn.commit()
+
+            w2 = q.claim(
+                lane="claude", claimed_by="w2", visibility_timeout_sec=1,
+            )
+            assert w2 is not None
+            self.assertEqual(w2.id, w1.id)
+
+            # The stale w1 must not be allowed to finish the task.
+            with self.assertRaises(LeaseLost):
+                q.complete(w1.id, output={"text": "stale"}, claimed_by="w1")
+
+            # And the task remains claimed by w2 (still in flight).
+            current = q.get(w1.id)
+            self.assertEqual(current.state, CLAIMED)
+            self.assertEqual(current.claimed_by, "w2")
+
+    def test_stale_worker_cannot_fail_after_reclaim(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            q = TaskQueue(tmp)
+            q.enqueue(lane="claude", packet={"goal": "x"})
+
+            w1 = q.claim(lane="claude", claimed_by="w1")
+            assert w1 is not None
+            with q._connect() as conn:
+                conn.execute(
+                    "UPDATE tasks SET claimed_at = ? WHERE id = ?",
+                    (_now_ms() - 3_600_000, w1.id),
+                )
+                conn.commit()
+            q.claim(lane="claude", claimed_by="w2", visibility_timeout_sec=1)
+
+            with self.assertRaises(LeaseLost):
+                q.fail(w1.id, error="stale", claimed_by="w1")
+
+    def test_holder_can_still_complete(self) -> None:
+        """Sanity: fencing does not block the legitimate holder."""
+        with tempfile.TemporaryDirectory() as tmp:
+            q = TaskQueue(tmp)
+            q.enqueue(lane="python", packet={})
+            t = q.claim(lane="python", claimed_by="w1")
+            assert t is not None
+            done = q.complete(t.id, output={"ok": True}, claimed_by="w1")
+            self.assertEqual(done.state, DONE)
+
+    def test_unfenced_callers_still_work_for_backward_compat(self) -> None:
+        """Legacy callers that pass no claimed_by behave as before."""
+        with tempfile.TemporaryDirectory() as tmp:
+            q = TaskQueue(tmp)
+            q.enqueue(lane="python", packet={})
+            t = q.claim(lane="python", claimed_by="w1")
+            assert t is not None
+            done = q.complete(t.id, output={"legacy": True})
+            self.assertEqual(done.state, DONE)
 
 
 class TaskCliTests(unittest.TestCase):

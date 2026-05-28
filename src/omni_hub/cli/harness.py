@@ -120,8 +120,6 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     )
     redund.add_argument("--freshness-days", type=int, default=365)
     redund.add_argument("--min-low-signal-ratio", type=float, default=0.5)
-    redund.add_argument("--write-to", default=".omni/proposals/redundancy.jsonl")
-    redund.add_argument("--no-write", action="store_true")
     redund.add_argument("--max-documents", type=int, default=5000)
 
     subparsers.add_parser(
@@ -395,8 +393,6 @@ def _redundancy_scan(args, *, runner, workspace) -> int:
                 "prefer_backend": args.prefer_backend,
                 "freshness_days": args.freshness_days,
                 "min_low_signal_ratio": args.min_low_signal_ratio,
-                "write_to": args.write_to,
-                "no_write": args.no_write,
                 "max_documents": args.max_documents,
             },
             risk_level=RiskLevel.LOCAL_WRITE,

@@ -295,6 +295,39 @@ def make_list_tasks(workspace: Path):
     return list_tasks
 
 
+def _make_build_report(workspace: Path, period: str):
+    workspace_root = workspace.resolve()
+
+    def build_report(spec: OperationSpec) -> dict[str, object]:
+        from datetime import date as _date
+        from pathlib import Path as _Path
+        from . import reports as reports_mod
+
+        payload = spec.payload
+        anchor = _date.fromisoformat(str(payload["anchor"])) if payload.get("anchor") else None
+        builder = {
+            "daily": reports_mod.build_daily,
+            "weekly": reports_mod.build_weekly,
+            "monthly": reports_mod.build_monthly,
+        }[period]
+        body, ctx = builder(anchor=anchor, workspace=workspace_root)
+        out_path = (
+            _Path(str(payload["write_to"]))
+            if payload.get("write_to")
+            else reports_mod.default_output_path(workspace_root, ctx)
+        )
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(body, encoding="utf-8")
+        return {
+            "period": period,
+            "anchor": ctx.anchor_date.isoformat(),
+            "output": str(out_path),
+            "bytes": len(body.encode("utf-8")),
+        }
+
+    return build_report
+
+
 def make_schedule_tick(workspace: Path):
     workspace_root = workspace.resolve()
 
@@ -306,10 +339,11 @@ def make_schedule_tick(workspace: Path):
         anchor = str(payload.get("anchor") or date.today().isoformat())
         queue = TaskQueue(workspace_root)
 
+        # Each plan entry enqueues a task whose packet drives a builtin
+        # operation through the BuiltinAdapter when the worker drains it.
         plans: dict[str, list[dict[str, object]]] = {
             "daily": [
                 {
-                    "kind": "scan_result",
                     "key": f"daily-redundancy-{anchor}",
                     "packet": {
                         "operation": "harness_redundancy_scan",
@@ -321,34 +355,43 @@ def make_schedule_tick(workspace: Path):
                     },
                 },
                 {
-                    "kind": "report",
                     "key": f"daily-report-{anchor}",
                     "packet": {
-                        "operation": "memory_stats",  # cheap heartbeat; real
-                        "kind": "report",             # daily report is built
-                        "payload": {},                # via reports CLI manually
+                        "operation": "build_daily_report",
+                        "kind": "report",
+                        "payload": {"anchor": anchor},
                     },
                 },
             ],
             "weekly": [
                 {
-                    "kind": "report",
-                    "key": f"weekly-stats-{anchor}",
+                    "key": f"weekly-compile-engineering-{anchor}",
                     "packet": {
-                        "operation": "memory_stats",
+                        "operation": "harness_compile",
                         "kind": "report",
-                        "payload": {},
+                        "payload": {
+                            "domain": "engineering",
+                            "from_version": "v0",
+                            "backend": "manual",
+                        },
+                    },
+                },
+                {
+                    "key": f"weekly-report-{anchor}",
+                    "packet": {
+                        "operation": "build_weekly_report",
+                        "kind": "report",
+                        "payload": {"anchor": anchor},
                     },
                 },
             ],
             "monthly": [
                 {
-                    "kind": "report",
-                    "key": f"monthly-stats-{anchor}",
+                    "key": f"monthly-report-{anchor}",
                     "packet": {
-                        "operation": "memory_stats",
+                        "operation": "build_monthly_report",
                         "kind": "report",
-                        "payload": {},
+                        "payload": {"anchor": anchor},
                     },
                 },
             ],
@@ -573,20 +616,11 @@ def make_harness_redundancy_scan(workspace: Path):
 
         payload = spec.payload
         db_path = workspace_root / str(payload.get("db_path", ".omni/memory.sqlite3"))
-        write_to_raw = payload.get("write_to")
-        write_to: Path | None
-        if payload.get("no_write"):
-            write_to = None
-        elif write_to_raw is None:
-            write_to = workspace_root / ".omni/proposals/redundancy.jsonl"
-        else:
-            write_to = workspace_root / str(write_to_raw)
         report = redundancy.scan(
             db_path=db_path,
             prefer_backend=str(payload.get("prefer_backend", "auto")),
             freshness_days=int(payload.get("freshness_days", 365)),
             min_low_signal_ratio=float(payload.get("min_low_signal_ratio", 0.5)),
-            write_to=write_to,
             max_documents=int(payload.get("max_documents", 5000)),
         )
         return report.to_dict()
@@ -625,4 +659,7 @@ def build_default_registry(workspace: Path | str = ".") -> OperationRegistry:
     registry.register("fail_task", make_fail_task(workspace_path))
     registry.register("list_tasks", make_list_tasks(workspace_path))
     registry.register("schedule_tick", make_schedule_tick(workspace_path))
+    registry.register("build_daily_report", _make_build_report(workspace_path, "daily"))
+    registry.register("build_weekly_report", _make_build_report(workspace_path, "weekly"))
+    registry.register("build_monthly_report", _make_build_report(workspace_path, "monthly"))
     return registry

@@ -1,12 +1,19 @@
 PYTHON ?= python3
+PYTHON_ABS := $(shell command -v $(PYTHON) 2>/dev/null)
 
-.PHONY: setup test api-status api-update harness-setup harness-update harness-status harness-add-pending harness-ensemble compose-config compose-build-config schedule-install schedule-install-dry schedule-uninstall worker-python worker-claude worker-codex
+.PHONY: setup test api-status api-update harness-setup harness-update harness-status harness-add-pending harness-ensemble compose-config compose-build-config schedule-install schedule-install-dry schedule-uninstall worker-python worker-claude worker-codex check-python
+
+# Refuse to run the launchd installer (or test runner) against a stale
+# Python 3.x on PATH; v0.7 worker pool requires 3.12+ (datetime.UTC, etc.).
+# Plain `%`-formatting so the check itself parses on Python 3.7+.
+check-python:
+	@$(PYTHON) -c "import sys; v=sys.version_info; ok=(v.major, v.minor) >= (3, 12); sys.stderr.write('ERROR: PYTHON=$(PYTHON) -> %d.%d; need >= 3.12. Set PYTHON= to a 3.12+ interpreter.\n' % (v.major, v.minor)) if not ok else None; sys.exit(0 if ok else 2)"
 
 setup:
 	./scripts/bootstrap_api_management.sh
 	./scripts/bootstrap_agent_harness.sh
 
-test:
+test: check-python
 	PYTHONPATH=src $(PYTHON) -m unittest discover -s tests
 
 api-status:
@@ -43,11 +50,11 @@ compose-build-config:
 
 # ---- launchd scheduler ------------------------------------------------------
 
-schedule-install-dry:
-	$(PYTHON) scripts/install_launchd.py --dry-run
+schedule-install-dry: check-python
+	$(PYTHON) scripts/install_launchd.py --dry-run --python $(PYTHON_ABS)
 
-schedule-install:
-	$(PYTHON) scripts/install_launchd.py
+schedule-install: check-python
+	$(PYTHON) scripts/install_launchd.py --python $(PYTHON_ABS)
 
 schedule-uninstall:
 	$(PYTHON) scripts/uninstall_launchd.py

@@ -150,17 +150,26 @@ def scan(
     prefer_backend: str = "auto",
     freshness_days: int = 365,
     min_low_signal_ratio: float = 0.5,
-    write_to: Path | str | None = ".omni/proposals/redundancy.jsonl",
+    write_to: Path | str | None = None,            # deprecated; ignored
     max_documents: int = 5000,
 ) -> RedundancyScanReport:
-    """Scan + persist proposals.
+    """Scan + persist proposals into the unified ``ProposalStore``.
 
-    The legacy ``write_to`` jsonl is still honoured if a path is given
-    (callers and tests that watch that file keep working).  The
-    canonical sink is the unified ``ProposalStore`` SQLite — proposals are
-    inserted there too, so propose-list / approve / reject can pick them
-    up.  Passing ``write_to=None`` only skips the jsonl mirror.
+    The ``write_to`` keyword used to mirror to ``.omni/proposals/redundancy.jsonl``
+    (legacy v0.6 sink).  In v0.7 the SQLite ``ProposalStore`` is the only
+    sink — propose-list / approve / reject query that store, and a jsonl
+    mirror would just drift out of sync.  ``write_to`` is accepted for
+    backwards-compat with old callers but is ignored.
     """
+
+    if write_to is not None:                       # pragma: no cover — soft warn
+        import warnings
+        warnings.warn(
+            "redundancy.scan(write_to=...) is deprecated; the unified "
+            "ProposalStore is the canonical sink. Argument ignored.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
     backend = graphiti_bridge.get_backend(prefer=prefer_backend, db_path=db_path)
     records: list[graphiti_bridge.KnowledgeRecord] = []
@@ -191,40 +200,8 @@ def scan(
     for prop in proposals:
         store.store(prop, write_card=False)
 
-    # Legacy jsonl mirror — still useful for grep + back-compat.
-    if write_to:
-        path = Path(write_to)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        import json
-        with path.open("a", encoding="utf-8") as fh:
-            for prop in proposals:
-                fh.write(json.dumps(prop.to_dict(), ensure_ascii=False) + "\n")
-
     return RedundancyScanReport(
         backend=backend.name,
         documents_scanned=len(records),
         proposals=proposals,
     )
-
-
-def load_proposals(
-    *, path: Path | str = ".omni/proposals/redundancy.jsonl",
-) -> Iterable[Proposal]:
-    """Legacy jsonl reader — still consumed by reports/core.py.
-
-    For the canonical view, callers should query ``ProposalStore.list`` with
-    ``kind`` filtering instead.
-    """
-
-    p = Path(path)
-    if not p.exists():
-        return []
-    import json
-    out: list[Proposal] = []
-    with p.open("r", encoding="utf-8") as fh:
-        for line in fh:
-            line = line.strip()
-            if not line:
-                continue
-            out.append(Proposal.from_dict(json.loads(line)))
-    return out

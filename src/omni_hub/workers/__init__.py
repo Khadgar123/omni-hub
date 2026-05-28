@@ -10,6 +10,7 @@ Adapters are deliberately the only place the queue layer interacts with
 the outside world — the queue itself never invokes models or shells.
 """
 
+from ..queue import LeaseLost
 from .base import (
     Artifact,
     ArtifactKind,
@@ -28,6 +29,7 @@ __all__ = [
     "BuiltinAdapter",
     "ClaudeAdapter",
     "CodexAdapter",
+    "LeaseLost",
     "WorkerAdapter",
     "WorkerError",
     "WorkerTimeout",

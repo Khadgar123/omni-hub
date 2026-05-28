@@ -20,13 +20,13 @@ from __future__ import annotations
 
 import argparse
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 
 PLIST_NAMES = ["omni-hub.daily", "omni-hub.weekly", "omni-hub.monthly", "omni-hub.worker"]
+REQUIRED_PYTHON = (3, 12)
 
 
 def _repo_root() -> Path:
@@ -69,16 +69,44 @@ def install(name: str, rendered: str) -> Path:
     return target
 
 
+def _check_python(python_bin: str) -> None:
+    """Refuse to install a plist that points at a Python < 3.12."""
+
+    try:
+        out = subprocess.run(
+            [python_bin, "-c",
+             "import sys; print('%d.%d' % sys.version_info[:2])"],
+            capture_output=True, text=True, check=True, timeout=10,
+        ).stdout.strip()
+        major, minor = (int(x) for x in out.split("."))
+    except Exception as exc:                                # noqa: BLE001
+        raise SystemExit(
+            f"--python {python_bin!r} is not invokable: {exc}"
+        ) from exc
+    if (major, minor) < REQUIRED_PYTHON:
+        raise SystemExit(
+            f"--python {python_bin!r} resolves to {major}.{minor}; "
+            f"omni-hub requires >= {REQUIRED_PYTHON[0]}.{REQUIRED_PYTHON[1]}. "
+            f"Re-run with `--python /abs/path/to/python3.12+` or set PYTHON= in make."
+        )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dry-run", action="store_true",
                         help="Print rendered plists; do not install.")
-    parser.add_argument("--python", default=shutil.which("python3") or sys.executable,
-                        help="Python interpreter to bake into the plist.")
+    parser.add_argument(
+        "--python", default=sys.executable,
+        help="Python interpreter to bake into the plist (default: the "
+             "interpreter invoking THIS script — never shutil.which, which "
+             "may resolve to a stale `python3` on PATH).",
+    )
     parser.add_argument("--only",
                         help="Comma-separated subset of plists to install "
                              "(short names: daily, weekly, monthly, worker).")
     args = parser.parse_args(argv)
+
+    _check_python(args.python)
 
     workspace = _repo_root().resolve()
     requested: list[str]

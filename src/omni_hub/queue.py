@@ -40,6 +40,16 @@ FAILED = "failed"
 DEAD = "dead"
 VALID_STATES = {PENDING, CLAIMED, DONE, FAILED, DEAD}
 
+
+class LeaseLost(RuntimeError):
+    """A worker tried to complete/fail a task it no longer holds.
+
+    Typical cause: the worker stalled past the visibility timeout and
+    another worker reclaimed the task.  The losing worker MUST NOT
+    silently overwrite the new holder's progress — surface this so the
+    caller can drop the result and move on.
+    """
+
 DEFAULT_VISIBILITY_TIMEOUT_SEC = 600          # 10 min reclaim window
 DEFAULT_BACKOFF_BASE_SEC = 60
 DEFAULT_BACKOFF_CAP_SEC = 3600
@@ -226,24 +236,58 @@ class TaskQueue:
         task_id: int,
         *,
         output: dict[str, Any] | None = None,
+        claimed_by: str | None = None,
     ) -> Task:
+        """Mark a claimed task done.
+
+        When ``claimed_by`` is provided the UPDATE is *fenced*: only the
+        current claim holder can complete the task.  Passing ``None``
+        (legacy callers) skips the check, but new code should always pass
+        the holder so a stalled worker can't overwrite a successor's
+        progress (see :class:`LeaseLost`).
+        """
+
         now = _now_ms()
         output_json = json.dumps(output, ensure_ascii=False) if output is not None else None
         with self._connect() as conn:
-            row = conn.execute(
-                """
-                UPDATE tasks
-                SET state = 'done',
-                    output_json = ?,
-                    updated_at = ?
-                WHERE id = ?
-                RETURNING *
-                """,
-                (output_json, now, task_id),
-            ).fetchone()
+            if claimed_by is not None:
+                row = conn.execute(
+                    """
+                    UPDATE tasks
+                    SET state = 'done',
+                        output_json = ?,
+                        updated_at = ?
+                    WHERE id = ?
+                      AND state = 'claimed'
+                      AND claimed_by = ?
+                    RETURNING *
+                    """,
+                    (output_json, now, task_id, claimed_by),
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    """
+                    UPDATE tasks
+                    SET state = 'done',
+                        output_json = ?,
+                        updated_at = ?
+                    WHERE id = ?
+                    RETURNING *
+                    """,
+                    (output_json, now, task_id),
+                ).fetchone()
             conn.commit()
+
         if row is None:
-            raise FileNotFoundError(f"task does not exist: {task_id}")
+            # Either the task doesn't exist OR the lease was lost.
+            existing = self._fetch_raw(task_id)
+            if existing is None:
+                raise FileNotFoundError(f"task does not exist: {task_id}")
+            raise LeaseLost(
+                f"task {task_id}: lease lost (state={existing['state']!r}, "
+                f"current_holder={existing['claimed_by']!r}, "
+                f"caller={claimed_by!r})"
+            )
         return _task_from_row(row)
 
     def fail(
@@ -251,21 +295,36 @@ class TaskQueue:
         task_id: int,
         *,
         error: str,
+        claimed_by: str | None = None,
         backoff_base_sec: int = DEFAULT_BACKOFF_BASE_SEC,
         backoff_cap_sec: int = DEFAULT_BACKOFF_CAP_SEC,
     ) -> Task:
-        """Record a failure; either reschedule with backoff or transition to dead."""
+        """Record a failure; either reschedule with backoff or transition to dead.
+
+        Fenced by ``claimed_by`` when supplied — same contract as
+        :meth:`complete`.
+        """
 
         now = _now_ms()
         with self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
             current = conn.execute(
-                "SELECT attempts, max_attempts FROM tasks WHERE id = ?",
+                "SELECT attempts, max_attempts, state, claimed_by "
+                "FROM tasks WHERE id = ?",
                 (task_id,),
             ).fetchone()
             if current is None:
                 conn.execute("ROLLBACK")
                 raise FileNotFoundError(f"task does not exist: {task_id}")
+            if claimed_by is not None and (
+                current["state"] != "claimed" or current["claimed_by"] != claimed_by
+            ):
+                conn.execute("ROLLBACK")
+                raise LeaseLost(
+                    f"task {task_id}: lease lost (state={current['state']!r}, "
+                    f"current_holder={current['claimed_by']!r}, "
+                    f"caller={claimed_by!r})"
+                )
             attempts = int(current["attempts"])
             max_attempts = int(current["max_attempts"])
 
@@ -302,6 +361,12 @@ class TaskQueue:
                 ).fetchone()
             conn.commit()
         return _task_from_row(row)
+
+    def _fetch_raw(self, task_id: int) -> sqlite3.Row | None:
+        with self._connect() as conn:
+            return conn.execute(
+                "SELECT * FROM tasks WHERE id = ?", (task_id,),
+            ).fetchone()
 
     def get(self, task_id: int) -> Task:
         with self._connect() as conn:

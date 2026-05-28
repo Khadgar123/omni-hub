@@ -64,11 +64,9 @@ class RedundancyScanTests(unittest.TestCase):
         root = Path(tmp.name)
         db = root / "mem.sqlite3"
         _seed_sqlite(db, rows)
-        proposals_jsonl = root / "proposals.jsonl"
         return redundancy.scan(
             db_path=db,
             prefer_backend="local",
-            write_to=proposals_jsonl,
             **kw,
         )
 
@@ -109,20 +107,58 @@ class RedundancyScanTests(unittest.TestCase):
         )
         self.assertEqual(report.counts_by_kind().get("low_signal", 0), 1)
 
-    def test_scan_writes_jsonl(self) -> None:
+    def test_scan_persists_into_proposal_store(self) -> None:
+        """v0.7: SQLite ProposalStore is the only sink — no jsonl mirror."""
+        from omni_hub.proposals import ProposalStore
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            db = root / "mem.sqlite3"
+            (root / ".omni").mkdir()
+            db = root / ".omni" / "memory.sqlite3"
             _seed_sqlite(db, [
                 ("a", "T", "A", "2026-05-20"),
                 ("b", "T", "A", "2026-05-20"),
             ])
-            out = root / "proposals.jsonl"
-            redundancy.scan(db_path=db, prefer_backend="local", write_to=out)
-            self.assertTrue(out.exists())
-            lines = [json.loads(l) for l in out.read_text(encoding="utf-8").splitlines() if l.strip()]
-            self.assertGreaterEqual(len(lines), 1)
-            self.assertTrue(any(p["kind"] == "duplicate" for p in lines))
+            redundancy.scan(db_path=db, prefer_backend="local")
+
+            store = ProposalStore(root, create=False)
+            duplicates = store.list(kind="duplicate")
+            self.assertGreaterEqual(len(duplicates), 1)
+
+            # Old jsonl mirror MUST NOT be written any more.
+            self.assertFalse((root / ".omni" / "proposals" / "redundancy.jsonl").exists())
+
+
+class ReportProposalSectionTests(unittest.TestCase):
+    """F5 regression: report's proposals section reads ProposalStore by state,
+    not the legacy jsonl. Approved/rejected proposals must drop out of the
+    pending count automatically."""
+
+    def test_report_lists_only_pending_proposals(self) -> None:
+        from omni_hub.proposals import ProposalStore
+        from omni_hub.reports import build_daily
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".omni").mkdir()
+            db = root / ".omni" / "memory.sqlite3"
+            _seed_sqlite(db, [
+                ("a", "T", "Body.", "2026-05-20"),
+                ("b", "T", "Body.", "2026-05-20"),
+                ("c", "U", "Body.", "2026-05-20"),
+                ("d", "U", "Body.", "2026-05-20"),
+            ])
+            redundancy.scan(db_path=db, prefer_backend="local")
+
+            store = ProposalStore(root, create=False)
+            pending = store.list(kind="duplicate", state="pending")
+            self.assertEqual(len(pending), 2)
+
+            # Approve one — the report must drop it from "Pending redundancy"
+            store.approve(pending[0].proposal_id, reason="confirmed merge")
+
+            body, _ = build_daily(workspace=root)
+            # The pending section should now show 1 duplicate (not 2)
+            self.assertIn("**duplicate**: 1", body)
 
 
 if __name__ == "__main__":  # pragma: no cover

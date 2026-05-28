@@ -16,7 +16,7 @@ from .memory import MemoryDigestResult, MemorySearchResult, MemoryStore
 from .models import OperationSpec, OperationStatus, RiskLevel
 from .policy import PolicyConfig, PolicyDecision, PolicyEngine
 from .proposals import EntityProposal, Proposal, ProposalStore, RelationProposal
-from .queue import Task, TaskQueue
+from .queue import LeaseLost, Task, TaskQueue
 from .workers import Artifact, WorkerAdapter, WorkerError, WorkerTimeout
 from .reports import (
     ReportContext,
@@ -55,6 +55,7 @@ __all__ = [
     "PolicyDecision",
     "PolicyEngine",
     "Artifact",
+    "LeaseLost",
     "Proposal",
     "ProposalStore",
     "RelationProposal",

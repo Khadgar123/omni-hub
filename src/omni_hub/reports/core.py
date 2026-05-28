@@ -9,7 +9,7 @@ from typing import Iterable
 
 from ..harness import graphiti_bridge
 from ..harness.preference import PreferenceStore
-from ..harness.redundancy import load_proposals
+from ..proposals import ProposalStore
 
 
 @dataclass(slots=True)
@@ -21,7 +21,7 @@ class ReportContext:
     workspace: Path = field(default_factory=lambda: Path("."))
     db_path: Path = field(default_factory=lambda: Path(".omni/memory.sqlite3"))
     preference_root: Path = field(default_factory=lambda: Path(".omni/preference"))
-    proposals_path: Path = field(default_factory=lambda: Path(".omni/proposals/redundancy.jsonl"))
+    proposal_db_path: Path = field(default_factory=lambda: Path(".omni/proposals.sqlite3"))
 
 
 def default_output_path(workspace: Path | str, ctx: ReportContext) -> Path:
@@ -124,13 +124,39 @@ def _section_preference_activity(ctx: ReportContext) -> str:
 
 
 def _section_proposals(ctx: ReportContext) -> str:
-    proposals = list(load_proposals(path=ctx.proposals_path))
-    if not proposals:
-        return "_(no redundancy proposals pending — run `harness-redundancy-scan`)_"
+    """Read pending redundancy proposals from the unified store.
+
+    Reads ``state='pending'`` only — proposals the human has already
+    approved or rejected shouldn't appear in the "things to triage"
+    section.  The store also lives next to memory + queue, so the report
+    naturally reflects the current state machine.
+    """
+
+    relevant_kinds = ("duplicate", "stale", "conflict", "low_signal")
+    store = ProposalStore(
+        workspace=ctx.workspace, db_path=str(ctx.proposal_db_path.name)
+        if ctx.proposal_db_path.is_absolute() else str(ctx.proposal_db_path),
+        create=False,
+    ) if str(ctx.workspace) else ProposalStore(create=False)
+
+    # Workspace-relative or absolute — pass through to ProposalStore.
+    if ctx.proposal_db_path.is_absolute():
+        store = ProposalStore(
+            workspace=ctx.proposal_db_path.parent,
+            db_path=ctx.proposal_db_path.name,
+            create=False,
+        )
+
     by_kind: dict[str, int] = {}
-    for p in proposals:
-        by_kind[p.kind] = by_kind.get(p.kind, 0) + 1
-    lines = [f"- **{k}**: {n}" for k, n in sorted(by_kind.items(), key=lambda x: x[0])]
+    total = 0
+    for kind in relevant_kinds:
+        proposals = store.list(kind=kind, state="pending", limit=10_000)
+        if proposals:
+            by_kind[kind] = len(proposals)
+            total += len(proposals)
+    if total == 0:
+        return "_(no redundancy proposals pending — run `harness-redundancy-scan`)_"
+    lines = [f"- **{k}**: {n}" for k, n in sorted(by_kind.items())]
     return "\n".join(lines)
 
 
@@ -172,7 +198,7 @@ def build_daily(anchor: date | None = None, workspace: Path | str = ".") -> tupl
     ctx.workspace = Path(workspace)
     ctx.db_path = ctx.workspace / ".omni" / "memory.sqlite3"
     ctx.preference_root = ctx.workspace / ".omni" / "preference"
-    ctx.proposals_path = ctx.workspace / ".omni" / "proposals" / "redundancy.jsonl"
+    ctx.proposal_db_path = ctx.workspace / ".omni" / "proposals.sqlite3"
     return _render(ctx), ctx
 
 
@@ -181,7 +207,7 @@ def build_weekly(anchor: date | None = None, workspace: Path | str = ".") -> tup
     ctx.workspace = Path(workspace)
     ctx.db_path = ctx.workspace / ".omni" / "memory.sqlite3"
     ctx.preference_root = ctx.workspace / ".omni" / "preference"
-    ctx.proposals_path = ctx.workspace / ".omni" / "proposals" / "redundancy.jsonl"
+    ctx.proposal_db_path = ctx.workspace / ".omni" / "proposals.sqlite3"
     return _render(ctx), ctx
 
 
@@ -190,5 +216,5 @@ def build_monthly(anchor: date | None = None, workspace: Path | str = ".") -> tu
     ctx.workspace = Path(workspace)
     ctx.db_path = ctx.workspace / ".omni" / "memory.sqlite3"
     ctx.preference_root = ctx.workspace / ".omni" / "preference"
-    ctx.proposals_path = ctx.workspace / ".omni" / "proposals" / "redundancy.jsonl"
+    ctx.proposal_db_path = ctx.workspace / ".omni" / "proposals.sqlite3"
     return _render(ctx), ctx

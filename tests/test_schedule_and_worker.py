@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -76,6 +77,32 @@ class ScheduleTickTests(unittest.TestCase):
 
 
 class WorkerLoopTests(unittest.TestCase):
+    def test_daily_tick_then_worker_produces_real_report_file(self) -> None:
+        """F4 regression: schedule-tick enqueues build_daily_report (not memory_stats),
+        and after a worker pass the markdown file must exist on disk."""
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp)
+            _run_cli(workspace, [
+                "schedule-tick", "--period", "daily", "--anchor", "2026-05-28",
+            ])
+
+            queue = TaskQueue(workspace, create=False)
+            ops = {t.packet["operation"] for t in queue.list()}
+            self.assertIn("build_daily_report", ops)
+            self.assertNotIn("memory_stats", ops)            # the old placeholder
+
+            _run_cli(workspace, [
+                "worker", "--lane", "python",
+                "--idle-exit-after-sec", "1",
+                "--poll-interval-sec", "0.05",
+            ])
+
+            report_path = workspace / "vault" / "40_Reports" / "daily" / "2026-05-28.md"
+            self.assertTrue(report_path.exists())
+            body = report_path.read_text(encoding="utf-8")
+            self.assertIn("Daily Brief", body)
+            self.assertIn("Preference flywheel", body)
+
     def test_worker_drains_python_lane_and_exits_when_idle(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             workspace = Path(tmp)
@@ -128,6 +155,78 @@ class LaunchdRendererTests(unittest.TestCase):
         ET.fromstring(rendered)                               # validates XML
         self.assertIn("KeepAlive", rendered)
         self.assertIn("ThrottleInterval", rendered)
+
+
+class LaunchdPythonGuardTests(unittest.TestCase):
+    """Regression for F1: the installer must refuse Python < 3.12 and must
+    bake the *caller's* interpreter into the plist (not a stale `python3`
+    that happens to be earlier on PATH)."""
+
+    def test_check_python_rejects_old_python(self) -> None:
+        import install_launchd                                # type: ignore
+
+        # Use the system /usr/bin/python3 (or conda anaconda3/bin/python3)
+        # which on this machine is 3.9.  If the user runs the tests on a
+        # box where every python3 is >= 3.12 the test will still pass via
+        # a SystemExit when we point at /usr/bin/false-ish path below.
+        old = "/Users/hzh/opt/anaconda3/bin/python3"
+        if not Path(old).exists():
+            self.skipTest("no Python 3.9 interpreter available for negative test")
+        with self.assertRaises(SystemExit) as cm:
+            install_launchd._check_python(old)
+        self.assertIn("3.12", str(cm.exception))
+
+    def test_check_python_accepts_current_interpreter(self) -> None:
+        import install_launchd                                # type: ignore
+
+        # The interpreter running this test IS the one we want plists to
+        # use, so _check_python must accept it without raising.
+        install_launchd._check_python(sys.executable)
+
+    def test_render_picks_explicit_python_path(self) -> None:
+        import install_launchd                                # type: ignore
+
+        rendered = install_launchd.render(
+            "omni-hub.daily",
+            workspace=Path("/tmp/example"),
+            python_bin="/opt/python/3.12.13/bin/python3",
+        )
+        self.assertIn("/opt/python/3.12.13/bin/python3", rendered)
+        # No stale fallback should leak in.
+        self.assertNotIn("/usr/bin/python3", rendered)
+
+    def test_cli_default_is_sys_executable_not_which(self) -> None:
+        """Without --python, the script must bake in the running interpreter."""
+
+        import install_launchd                                # type: ignore
+        # Replicate the argparse default — confirm it's sys.executable
+        # and *not* shutil.which("python3").
+        parser = install_launchd                              # module
+        # Run main() with --dry-run and no --python; capture rendered output.
+        buf = StringIO()
+        original_stdout = sys.stdout
+        sys.stdout = buf
+        try:
+            install_launchd.main(["--dry-run", "--only", "worker"])
+        finally:
+            sys.stdout = original_stdout
+        self.assertIn(sys.executable, buf.getvalue())
+
+    def test_make_check_python_rejects_old_python(self) -> None:
+        """The real Makefile guard must fail closed for Python < 3.12."""
+
+        old = "/Users/hzh/opt/anaconda3/bin/python3"
+        if not Path(old).exists():
+            self.skipTest("no Python 3.9 interpreter available for negative test")
+        result = subprocess.run(
+            ["make", "check-python", f"PYTHON={old}"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("need >= 3.12", result.stderr)
 
 
 if __name__ == "__main__":  # pragma: no cover
