@@ -12,10 +12,12 @@ Two implementations ship:
   overlap with reference).  Deterministic, no LLM call, no API key.
   Default — always available.
 
-* :class:`LLMJudge` — stub that requires either ``ANTHROPIC_API_KEY``
-  + the optional :mod:`anthropic` SDK, or the local ccLoad gateway
-  (``OMNI_CCLOAD_BASE``).  When neither is available it degrades to
-  the HeuristicJudge so the cascade never throws on missing config.
+* :class:`LLMJudge` — picks the first available channel in this order:
+  local ccLoad gateway (``OMNI_CCLOAD_BASE``) → DeepSeek direct
+  (``DEEPSEEK_API_KEY`` env or ``.omni/secrets.json::omni-hub/api/deepseek/default``)
+  → Anthropic SDK (``ANTHROPIC_API_KEY`` + ``anthropic`` package).
+  When none are available it degrades to the HeuristicJudge so the
+  cascade never throws on missing config.
 
 Use cases:
 

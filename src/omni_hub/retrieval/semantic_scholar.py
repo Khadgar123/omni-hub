@@ -1,8 +1,12 @@
 """Semantic Scholar S2 — 200M+ papers, free with optional key.
 
 Without key: 5k req per 5 minutes shared across all anonymous users; can
-return 429 unpredictably.  With ``SEMANTIC_SCHOLAR_API_KEY`` env var:
+return 429 unpredictably.  With a key (via ``SEMANTIC_SCHOLAR_API_KEY``
+env var or ``.omni/secrets.json::omni-hub/api/semantic-scholar/default``):
 1 RPS dedicated, still free.
+
+S2 recycles unused keys after ~60 days of inactivity — keep a heartbeat
+(e.g. weekly channel-health ping) to avoid silent revocation.
 
 Used as the second academic source after OpenAlex when papers are scarce.
 """
@@ -15,10 +19,27 @@ from .base import DEFAULT_TIMEOUT_SEC, RetrievalRecord, http_get_json
 
 
 SEARCH_URL = "https://api.semanticscholar.org/graph/v1/paper/search"
+S2_SECRET_REF = "local:omni-hub/api/semantic-scholar/default"
 
 _DEFAULT_FIELDS = (
     "title,abstract,year,authors,venue,citationCount,openAccessPdf,url,externalIds"
 )
+
+
+def _resolve_s2_key() -> str:
+    env_key = os.environ.get("SEMANTIC_SCHOLAR_API_KEY", "").strip()
+    if env_key:
+        return env_key
+    try:
+        from ..secrets import resolve_secret_ref, SecretStoreError
+    except ImportError:
+        return ""
+    try:
+        return resolve_secret_ref(S2_SECRET_REF) or ""
+    except SecretStoreError:
+        return ""
+    except Exception:                                                # noqa: BLE001
+        return ""
 
 
 class SemanticScholarSource:
@@ -31,12 +52,12 @@ class SemanticScholarSource:
         api_key: str | None = None,
         timeout: int = DEFAULT_TIMEOUT_SEC,
     ) -> None:
-        self.api_key = api_key or os.environ.get("SEMANTIC_SCHOLAR_API_KEY", "")
+        self.api_key = api_key if api_key is not None else _resolve_s2_key()
         self.timeout = timeout
 
     def check(self) -> tuple[str, str]:
         if self.api_key:
-            return "ok", "dedicated 1 RPS (SEMANTIC_SCHOLAR_API_KEY set)"
+            return "ok", "dedicated 1 RPS (api key configured)"
         return "warn", "anonymous (5k/5min shared, 429-prone)"
 
     def retrieve(

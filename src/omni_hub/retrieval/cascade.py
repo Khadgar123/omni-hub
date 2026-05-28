@@ -50,16 +50,35 @@ DEFAULT_DOMAIN_CASCADES: dict[str, list[str]] = {
     # Papers, defuddle-pattern Tier 0/1 sources).  Sources requiring auth
     # are listed; the cascade fail-soft-skips when their env vars unset.
     "engineering": [
-        "brave_search", "crossref", "openalex", "arxiv", "wikidata", "wikipedia",
+        # brave_search head: engineering queries mostly hit blog / SO / docs,
+        # not papers.  Among academic sources, openalex > arxiv > crossref.
+        # tavily/exa parallel to brave for cleaned content + semantic fallback.
+        # hackernews surfaces dev-tool / OSS / founder-grade discussion.
+        "brave_search", "tavily", "exa", "hackernews",
+        "openalex", "arxiv", "crossref", "wikidata", "wikipedia",
     ],
     "research": [
-        "crossref", "openalex", "semantic_scholar", "arxiv",
-        "europe_pmc", "pubmed", "wikidata", "wikipedia",
+        # All sources fan out in parallel; this order is the RRF tiebreak
+        # and concat-fallback precedence.  Rationale:
+        #   - openalex:  freshest metadata (Crossref-synced daily), 250M+ works,
+        #                key-less, no recycle risk → default main source
+        #   - arxiv:     primary PDF entry for preprints
+        #   - semantic_scholar: irreplaceable for TLDR / SPECTER / influentialCitations,
+        #                but corpus refreshes monthly — used as deep-dive supplement
+        #   - europe_pmc / pubmed: biomedical fill-in
+        #   - crossref:  raw DOI fallback (OpenAlex already ingests it upstream)
+        #   - wikidata / wikipedia: concept / entity tail
+        "openalex", "arxiv", "semantic_scholar",
+        "europe_pmc", "pubmed", "crossref",
+        "tavily", "exa",                              # AI-friendly + semantic-similar fallback
+        "wikidata", "wikipedia",
     ],
     "biomedical": [
-        "europe_pmc", "pubmed", "crossref", "openalex", "wikidata", "wikipedia",
+        # europe_pmc / pubmed are domain-specialised heads; openalex is the
+        # general-purpose head once those return; crossref tail for DOI lookup.
+        "europe_pmc", "pubmed", "openalex", "crossref", "wikidata", "wikipedia",
     ],
-    "photography":           ["unsplash", "pexels", "wikipedia"],
+    "photography":           ["pixabay", "unsplash", "pexels", "wikipedia"],
     "fashion":               ["wikipedia"],            # snapshot-only via vault
     "chat_relationships":    [],                       # purely reactive
     "finance": [
@@ -91,17 +110,22 @@ DEFAULT_DOMAIN_CASCADES: dict[str, list[str]] = {
     ],
     # Synthetic
     "ai_progress": [
-        "hf_daily_papers", "arxiv", "crossref", "openalex",
-        "brave_search", "wikidata", "wikipedia",
+        # hf_daily_papers head: AI Daily-Paper feed is the specialised source.
+        # openalex moved ahead of arxiv (broader coverage, fresher metadata).
+        "hf_daily_papers", "openalex", "arxiv", "crossref",
+        "brave_search", "tavily", "exa", "hackernews",
+        "wikidata", "wikipedia",
     ],
     "default": [
-        "wikidata", "wikipedia", "brave_search", "crossref", "openalex",
-        "gdelt", "internet_archive",
+        # Entity / concept queries lead with wikidata + wikipedia; openalex
+        # promoted above crossref for academic fallback.
+        "wikidata", "wikipedia", "brave_search", "tavily",
+        "openalex", "crossref", "gdelt", "internet_archive",
     ],
     # Tier-2 social-media domains (paid/broker/pinned-fork) — opt-in via
     # `--domain` rather than appearing in `default`, so casual queries
     # don't burn budget or hit Chinese platforms unintentionally.
-    "social_en":             ["x_twitter", "gdelt"],
+    "social_en":             ["bluesky", "mastodon", "hackernews", "reddit", "x_twitter", "gdelt"],
     "social_zh":             ["xiaohongshu", "wechat_mp", "weibo", "bilibili"],
     # v0.19 new domain cascades — v0.20 fills in Bilibili (real, tier 0) +
     # Zhihu / Weibo (broker stubs, tier 2).  v0.22 adds Tushare / Crunchbase
@@ -124,6 +148,7 @@ DEFAULT_DOMAIN_CASCADES: dict[str, list[str]] = {
         "weibo", "brave_search", "gdelt", "zhihu", "wikidata", "wikipedia",
     ],
     "enterprise": [
+        "opencorporates",                             # global registry, no key
         "crunchbase",                                 # v0.22 head (paid key, ts2)
         "edgar", "linkedin",                          # v0.22 (broker, ts2)
         "crossref", "brave_search", "zhihu", "wikidata", "wikipedia",

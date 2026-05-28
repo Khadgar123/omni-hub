@@ -47,7 +47,10 @@ def builtin_sources() -> dict[str, RetrievalSource]:
     from .arxiv_api import ArxivSource
     from .bilibili import BilibiliSource
     from .biomedical import EuropePMCSource, PubMedSource
-    from .business_intel import CrunchbaseSource, LinkedInBrokerSource
+    from .bluesky import BlueskySource
+    from .business_intel import (
+        CrunchbaseSource, LinkedInBrokerSource, OpenCorporatesSource,
+    )
     from .cn_finance import TushareSource
     from .cn_policy import (
         CourtGovCnSource,
@@ -57,18 +60,27 @@ def builtin_sources() -> dict[str, RetrievalSource]:
     )
     from .crossref import CrossrefSource
     from .datacommons import DataCommonsSource
+    from .exa import ExaSearchSource
     from .finance import EdgarSource, FREDSource
     from .gdelt import GDELTSource
+    from .hackernews import HackerNewsSource
     from .hf_daily_papers import HFDailyPapersSource
     from .intl import ACLEDSource, IMFSource, WorldBankSource
     from .jina_reader import JinaReaderFetcher
     from .legal import CourtListenerSource
+    from .mastodon import MastodonSource
     from .openalex import OpenAlexSource
     from .photo import PexelsSource, UnsplashSource
+    from .pixabay import PixabaySource
+    from .reddit import RedditSource
+    from .rss import RSSSource
+    from .trafilatura_source import TrafilaturaSource
+    from .truth_social import TruthSocialSource
+    from .ucdp import UCDPSource
     from .semantic_scholar import SemanticScholarSource
     from .twitterapi_io import TwitterApiIoSource
     from .us_gov import CongressGovSource, FederalRegisterSource, RegulationsGovSource
-    from .web_search import BraveSearchSource
+    from .web_search import BraveSearchSource, TavilySearchSource
     from .wechat_mp import WeChatMPSource
     from .wikidata import WikidataSource, WikidataSPARQLSource
     from .wikipedia import WikipediaSource
@@ -81,15 +93,21 @@ def builtin_sources() -> dict[str, RetrievalSource]:
             # tier 0 — no auth
             ArxivSource(),
             BilibiliSource(),
+            BlueskySource(),                          # social_en, no auth
             CourtListenerSource(),
+            RSSSource(),                              # generic RSS/Atom, no auth
+            TrafilaturaSource(),                      # URL → cleaned article, local
+            UCDPSource(),                             # conflict events, CC BY 4.0
             CrossrefSource(),
             EuropePMCSource(),
             FederalRegisterSource(),
             GDELTSource(),
+            HackerNewsSource(),                       # social_en / engineering, no auth
             HFDailyPapersSource(),
             InternetArchiveSource(),
             IMFSource(),
             JinaReaderFetcher(),
+            MastodonSource(),                         # Fediverse public-search
             OpenAlexSource(),
             PubMedSource(),
             SemanticScholarSource(),
@@ -103,6 +121,12 @@ def builtin_sources() -> dict[str, RetrievalSource]:
             ACLEDSource(),
             BraveSearchSource(),
             CongressGovSource(),
+            ExaSearchSource(),                        # neural/semantic search
+            OpenCorporatesSource(),                   # global company registry, no auth
+            PixabaySource(),                          # photography (5000/h free)
+            RedditSource(),                           # social_en (OAuth credentials)
+            TavilySearchSource(),                     # AI-Agent web search
+            TruthSocialSource(),                      # via RSSHub
             CourtGovCnSource(),                       # v0.21 (RSSHub)
             DataCommonsSource(),
             FREDSource(),

@@ -9,14 +9,14 @@ You are working under the engineering domain profile.  Follow these rules:
 
 ## Positive exemplars (1)
 
-### 000e33ca  (2026-05-28T08:48:07.927259+00:00)
+### 6f1c7fdf  (2026-05-28T16:49:34.218192+00:00)
 
 ---
 page_type: synthesis
 domain: engineering
 claim_ids: ["23115342bafdb207"]
 source_ids: ["doi:10.x/wiki"]
-t_valid_from: 2026-05-28T08:48:07.920942+00:00
+t_valid_from: 2026-05-28T16:49:34.209353+00:00
 t_valid_to: null
 superseded_by: null
 confidence: medium

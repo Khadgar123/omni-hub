@@ -21,6 +21,23 @@ from .base import DEFAULT_TIMEOUT_SEC, RetrievalRecord, http_get_json
 
 
 API_URL = "https://huggingface.co/api/daily_papers"
+HF_SECRET_REF = "local:omni-hub/api/huggingface/default"
+
+
+def _resolve_hf_token() -> str:
+    env_token = os.environ.get("HF_TOKEN", "").strip()
+    if env_token:
+        return env_token
+    try:
+        from ..secrets import resolve_secret_ref, SecretStoreError
+    except ImportError:
+        return ""
+    try:
+        return resolve_secret_ref(HF_SECRET_REF) or ""
+    except SecretStoreError:
+        return ""
+    except Exception:                                            # noqa: BLE001
+        return ""
 
 
 class HFDailyPapersSource:
@@ -42,13 +59,13 @@ class HFDailyPapersSource:
         days_window: int = 7,
         timeout: int = DEFAULT_TIMEOUT_SEC,
     ) -> None:
-        self.api_token = api_token or os.environ.get("HF_TOKEN", "")
+        self.api_token = api_token if api_token is not None else _resolve_hf_token()
         self.days_window = days_window
         self.timeout = timeout
 
     def check(self) -> tuple[str, str]:
         if self.api_token:
-            return "ok", "HF_TOKEN set"
+            return "ok", "authenticated (higher rate limit)"
         return "ok", "anonymous (huggingface.co/api/daily_papers)"
 
     def retrieve(

@@ -1966,8 +1966,12 @@ class V10CascadeIntegrationTests(unittest.TestCase):
         self.assertIn("acled", DEFAULT_DOMAIN_CASCADES["international_relations"])
         self.assertIn("federal_register", DEFAULT_DOMAIN_CASCADES["us_policy"])
         self.assertIn("unsplash", DEFAULT_DOMAIN_CASCADES["photography"])
-        # Tier-2 socials behind opt-in domains
-        self.assertEqual(DEFAULT_DOMAIN_CASCADES["social_en"], ["x_twitter", "gdelt"])
+        # Tier-2 socials: bluesky + mastodon + hackernews + reddit primary;
+        # x_twitter paid (TwitterAPI.io); gdelt for news context.
+        self.assertEqual(
+            DEFAULT_DOMAIN_CASCADES["social_en"],
+            ["bluesky", "mastodon", "hackernews", "reddit", "x_twitter", "gdelt"],
+        )
         # v0.20: social_zh expanded with weibo + bilibili in addition to
         # the original xhs + wechat_mp; assert the head order is stable.
         self.assertEqual(

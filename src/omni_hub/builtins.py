@@ -1334,6 +1334,16 @@ def make_schedule_tick(workspace: Path):
                 },
             ],
             "weekly": [
+                # Keep S2 API key alive — S2 recycles unused keys after ~60 days.
+                # Weekly ping = 8-9 heartbeats per recycle window, ample buffer.
+                {
+                    "key": f"weekly-s2-heartbeat-{anchor}",
+                    "packet": {
+                        "operation": "s2_heartbeat",
+                        "kind": "scan_result",
+                        "payload": {},
+                    },
+                },
                 # v0.17-A: weekly offline consolidation (Anthropic Dreaming parity)
                 {
                     "key": f"weekly-wiki-dream-{anchor}",
@@ -1853,6 +1863,7 @@ def build_default_registry(workspace: Path | str = ".") -> OperationRegistry:
     # v0.19 Interface + Application Plane operations.
     registry.register("channel_list", make_channel_list(workspace_path))
     registry.register("channel_health", make_channel_health(workspace_path))
+    registry.register("s2_heartbeat", make_s2_heartbeat(workspace_path))
     registry.register("app_report_build", make_app_report_build(workspace_path))
     registry.register("app_route_task", make_app_route_task(workspace_path))
     registry.register("skill_stubs_sync", make_skill_stubs_sync(workspace_path))
@@ -2629,6 +2640,74 @@ def make_channel_health(workspace: Path):
         return channel.health_check().to_dict()
 
     return channel_health
+
+
+def make_s2_heartbeat(workspace: Path):
+    """Periodic heartbeat to keep the Semantic Scholar API key alive.
+
+    S2 recycles keys that go unused for ~60 days.  Weekly schedule-tick
+    enqueues this op so the key never crosses the threshold.  One HTTP
+    GET against the search endpoint; result + status appended to
+    ``.omni/logs/s2-heartbeat.log`` (jsonl) for audit.
+    """
+
+    workspace_root = workspace.resolve()
+
+    def s2_heartbeat(spec: OperationSpec) -> dict:
+        import json
+        import urllib.error
+        import urllib.request
+        from datetime import UTC, datetime
+
+        from .retrieval.semantic_scholar import _resolve_s2_key
+
+        ts = datetime.now(UTC).isoformat()
+        api_key = _resolve_s2_key()
+        if not api_key:
+            return {"ok": False, "ts": ts, "reason": "no s2 key configured"}
+
+        url = (
+            "https://api.semanticscholar.org/graph/v1/paper/search"
+            "?query=transformer&limit=1&fields=title"
+        )
+        req = urllib.request.Request(
+            url,
+            headers={
+                "x-api-key": api_key,
+                "User-Agent": "omni-hub/s2-heartbeat",
+            },
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                status = resp.status
+                resp.read(2048)                                       # drain
+            ok = status == 200
+            reason = "200 OK" if ok else f"unexpected status {status}"
+        except urllib.error.HTTPError as exc:
+            status = exc.code
+            ok = False
+            reason = f"HTTPError {exc.code}"
+        except Exception as exc:                                      # noqa: BLE001
+            status = None
+            ok = False
+            reason = f"{type(exc).__name__}: {exc}"
+
+        log_path = workspace_root / ".omni" / "logs" / "s2-heartbeat.log"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        with log_path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps({
+                "ts": ts, "ok": ok, "status": status, "reason": reason,
+            }) + "\n")
+
+        return {
+            "ok": ok,
+            "status": status,
+            "reason": reason,
+            "ts": ts,
+            "log_path": str(log_path.relative_to(workspace_root)),
+        }
+
+    return s2_heartbeat
 
 
 def make_app_report_build(workspace: Path):

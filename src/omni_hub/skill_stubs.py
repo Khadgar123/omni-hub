@@ -270,7 +270,6 @@ omni_hub:
   entrypoint: "operation:context_pack_build"
   risk_level: L0
   required_permissions: []
-  connectors:
 {_render_connector_list(schema.authoritative_sources)}
   tags:
     - wiki
@@ -382,11 +381,18 @@ _Auto-generated stub.  Hand-editing is supported — remove the
 
 
 def _render_connector_list(connectors: list[str]) -> str:
-    """YAML-list render for the ``connectors:`` field inside ``omni_hub:``."""
+    """YAML-list render for the ``connectors:`` field inside ``omni_hub:``.
+
+    Returns the *complete* ``connectors:`` line.  Empty lists must use
+    inline ``[]`` syntax on the same line — the previous "key:\\n    []"
+    form was misparsed as a list of strings ``["[]"]`` by some YAML
+    parsers, polluting the skill registry (v0.42 fix).
+    """
 
     if not connectors:
-        return "    []"
-    return "\n".join(f"    - {c}" for c in connectors)
+        return "  connectors: []"
+    items = "\n".join(f"    - {c}" for c in connectors)
+    return f"  connectors:\n{items}"
 
 
 def _render_frontmatter_block(schema: DomainSchema) -> str:

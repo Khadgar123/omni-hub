@@ -125,10 +125,19 @@ _KEYWORDS: dict[str, list[str]] = {
         "agent 框架", "agent system",
     ],
     "social_en": [
-        "tweet", "twitter", "reddit", "hn", "hacker news",
+        "tweet", "twitter", "x.com", "x post",
+        "bluesky", "bsky", "mastodon", "fediverse",
+        "reddit", "subreddit", "r/", "hn", "hacker news",
+        "trending on x", "viral tweet", "twitter thread",
     ],
     "social_zh": [
-        "微博", "小红书", "知乎", "公众号", "weixin",
+        "微博", "热搜", "热门话题",
+        "小红书", "xhs", "种草",
+        "知乎", "知乎回答",
+        "公众号", "weixin", "wechat",
+        "b站", "bilibili", "弹幕",
+        "抖音", "douyin",
+        "贴吧",
     ],
 }
 
@@ -200,8 +209,17 @@ _INTENT_PHRASES: dict[str, list[str]] = {
     "agent_systems": [
         "build vs use", "fork vs pin", "agent 框架对比",
     ],
-    "social_en": [],
-    "social_zh": [],
+    "social_en": [
+        "twitter 热议", "x 上说", "elon 推", "musk tweet",
+        "reddit 讨论", "hn 讨论", "bluesky 热议",
+        "twitter latest", "trending on twitter",
+    ],
+    "social_zh": [
+        "小红书 趋势", "小红书 热门", "微博 热搜",
+        "知乎 高赞", "b站 up主", "公众号 文章",
+        "全网热议", "网友热议", "舆论",
+        "种草推荐", "测评分享",
+    ],
 }
 
 

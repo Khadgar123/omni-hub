@@ -29,8 +29,7 @@ omni_hub:
   entrypoint: "operation:context_pack_build"
   risk_level: L0
   required_permissions: []
-  connectors:
-    []
+  connectors: []
   tags:
     - wiki
     - domain

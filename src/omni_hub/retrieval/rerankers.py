@@ -174,6 +174,45 @@ class VoyageRerankerV2_5:
         return ordered
 
 
+class BGERerankerLocal:
+    """BAAI/bge-reranker-v2-m3 local cross-encoder.
+
+    No API key needed.  Requires `pip install FlagEmbedding torch` (one-
+    time, see ``omni_hub.retrieval.bge_reranker`` docstring).  First call
+    triggers ~600MB model download to ``~/.cache/huggingface``.
+
+    On CPU: ~10-15s for 15 candidates.  Free-tier alternative to
+    Cohere / Voyage paid rerank APIs.
+    """
+
+    name = "bge_local"
+    tier = 1
+
+    def check(self) -> tuple[str, str]:
+        try:
+            import FlagEmbedding                                  # noqa: F401
+            return "ready", "BAAI/bge-reranker-v2-m3 (local, ~600MB)"
+        except ImportError:
+            return "off", "FlagEmbedding not installed; pip install FlagEmbedding torch"
+
+    def rerank(
+        self,
+        query: str,
+        records: list[RetrievalRecord],
+        *,
+        top_k: int | None = None,
+    ) -> list[RetrievalRecord]:
+        if not records:
+            return []
+        from .bge_reranker import bge_rerank
+        ranked = bge_rerank(query, list(records), top_k=top_k)
+        for r in ranked:
+            r.metadata = dict(r.metadata or {})
+            r.metadata["rerank_score"] = r.score
+            r.metadata["reranker"] = self.name
+        return ranked
+
+
 def build_reranker(name: str):
     """Return a reranker instance by short name, or None for ``"none"``."""
 
@@ -184,7 +223,9 @@ def build_reranker(name: str):
         return CohereRerankerV4()
     if n == "voyage":
         return VoyageRerankerV2_5()
-    raise ValueError(f"unknown reranker {name!r}; expected none|cohere|voyage")
+    if n == "bge":
+        return BGERerankerLocal()
+    raise ValueError(f"unknown reranker {name!r}; expected none|cohere|voyage|bge")
 
 
 # ---------------------------------------------------------------------------

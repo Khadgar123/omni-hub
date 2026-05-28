@@ -119,8 +119,30 @@ class EdgarSource:
 # ---------------------------------------------------------------------------
 
 
+FRED_SECRET_REF = "local:omni-hub/api/fred/default"
+
+
+def _resolve_fred_key() -> str:
+    env_key = os.environ.get("FRED_API_KEY", "").strip()
+    if env_key:
+        return env_key
+    try:
+        from ..secrets import resolve_secret_ref, SecretStoreError
+    except ImportError:
+        return ""
+    try:
+        return resolve_secret_ref(FRED_SECRET_REF) or ""
+    except SecretStoreError:
+        return ""
+    except Exception:                                            # noqa: BLE001
+        return ""
+
+
 class FREDSource:
-    """St. Louis Fed FRED series search.  Needs ``FRED_API_KEY``."""
+    """St. Louis Fed FRED series search.
+
+    Key via ``FRED_API_KEY`` env or ``.omni/secrets.json::omni-hub/api/fred/default``.
+    """
 
     name = "fred"
     tier = 1
@@ -131,10 +153,12 @@ class FREDSource:
         api_key: str | None = None,
         timeout: int = DEFAULT_TIMEOUT_SEC,
     ) -> None:
-        self.api_key = api_key or os.environ.get("FRED_API_KEY", "")
+        self.api_key = api_key if api_key is not None else _resolve_fred_key()
         self.timeout = timeout
 
     def check(self) -> tuple[str, str]:
+        if self.api_key:
+            return "ok", "api key configured"
         return env_var_probe("FRED_API_KEY")
 
     def retrieve(

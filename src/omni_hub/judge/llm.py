@@ -6,9 +6,13 @@ The LLMJudge prefers, in this order:
    (default ``http://localhost:8080``) — keeps the LLM call inside
    the existing api-management plane so cost / quota / cooldown all
    apply.  No third-party SDK needed.
-2. The official **Anthropic SDK** if ``ANTHROPIC_API_KEY`` is set and
+2. **DeepSeek direct** via OpenAI-compatible REST when a DeepSeek
+   key is available (env ``DEEPSEEK_API_KEY`` or
+   ``.omni/secrets.json::omni-hub/api/deepseek/default``).  This is
+   the default channel when ccLoad isn't running.
+3. The official **Anthropic SDK** if ``ANTHROPIC_API_KEY`` is set and
    the optional ``anthropic`` library is importable.
-3. Falls back to :class:`HeuristicJudge` so callers never have to
+4. Falls back to :class:`HeuristicJudge` so callers never have to
    branch on availability.
 
 The actual prompt is intentionally short — a single rubric-aware ask
@@ -16,8 +20,9 @@ that returns JSON.  Long Constitutional-AI prompts belong in
 ``agent-harness/integrations/llm-judge/`` as a pinned fork.
 
 Hard constraint: this module does NOT add a runtime dependency.  The
-``anthropic`` import is guarded.  When neither LLM channel is
-available, evaluate() transparently delegates to HeuristicJudge.
+``anthropic`` import is guarded; DeepSeek uses stdlib ``urllib`` only.
+When no LLM channel is available, evaluate() transparently delegates
+to HeuristicJudge.
 """
 
 from __future__ import annotations
@@ -34,14 +39,33 @@ from .heuristic import HeuristicJudge
 
 CCLOAD_DEFAULT = "http://localhost:8080"
 CCLOAD_TIMEOUT = 30
+DEEPSEEK_DEFAULT_BASE = "https://api.deepseek.com"
+DEEPSEEK_DEFAULT_MODEL = "deepseek-chat"
+DEEPSEEK_SECRET_REF = "local:omni-hub/api/deepseek/default"
 
 
 def _ccload_base() -> str:
     return (os.environ.get("OMNI_CCLOAD_BASE") or CCLOAD_DEFAULT).rstrip("/")
 
 
+def _resolve_deepseek_key() -> str:
+    env_key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
+    if env_key:
+        return env_key
+    try:
+        from ..secrets import resolve_secret_ref, SecretStoreError
+    except ImportError:
+        return ""
+    try:
+        return resolve_secret_ref(DEEPSEEK_SECRET_REF) or ""
+    except SecretStoreError:
+        return ""
+    except Exception:                                                # noqa: BLE001
+        return ""
+
+
 class LLMJudge:
-    """Anthropic / ccLoad-backed Judge with HeuristicJudge fallback."""
+    """ccLoad / DeepSeek / Anthropic Judge with HeuristicJudge fallback."""
 
     name = "llm"
 
@@ -52,8 +76,10 @@ class LLMJudge:
         ccload_base: str | None = None,
         timeout: int = CCLOAD_TIMEOUT,
         anthropic_api_key: str | None = None,
+        deepseek_api_key: str | None = None,
+        deepseek_base: str | None = None,
     ) -> None:
-        self.model = model or os.environ.get("OMNI_LLM_JUDGE_MODEL", "claude-haiku-4-5-20251001")
+        self.model = model or os.environ.get("OMNI_LLM_JUDGE_MODEL", DEEPSEEK_DEFAULT_MODEL)
         # Distinguish None (use env / default) from "" (explicit force-off).
         if ccload_base is None:
             self.ccload_base = _ccload_base().rstrip("/")
@@ -64,12 +90,24 @@ class LLMJudge:
             self.anthropic_api_key = os.environ.get("ANTHROPIC_API_KEY", "")
         else:
             self.anthropic_api_key = anthropic_api_key
+        if deepseek_api_key is None:
+            self.deepseek_api_key = _resolve_deepseek_key()
+        else:
+            self.deepseek_api_key = deepseek_api_key
+        self.deepseek_base = (
+            deepseek_base
+            or os.environ.get("OMNI_DEEPSEEK_BASE")
+            or DEEPSEEK_DEFAULT_BASE
+        ).rstrip("/")
         self._fallback = HeuristicJudge()
 
     # ---- mode selection -----------------------------------------
 
     def _has_ccload(self) -> bool:
         return bool(self.ccload_base)
+
+    def _has_deepseek(self) -> bool:
+        return bool(self.deepseek_api_key)
 
     def _has_anthropic_sdk(self) -> bool:
         if not self.anthropic_api_key:
@@ -81,7 +119,7 @@ class LLMJudge:
         return True
 
     def available(self) -> bool:
-        return self._has_ccload() or self._has_anthropic_sdk()
+        return self._has_ccload() or self._has_deepseek() or self._has_anthropic_sdk()
 
     # ---- evaluate -----------------------------------------------
 
@@ -90,7 +128,7 @@ class LLMJudge:
             verdict = self._fallback.evaluate(request)
             verdict.judge_name = self.name
             verdict.metadata["mode"] = "fallback-heuristic"
-            verdict.metadata["reason"] = "no ccload + no anthropic sdk"
+            verdict.metadata["reason"] = "no ccload + no deepseek + no anthropic sdk"
             return verdict
 
         prompt = _build_prompt(request)
@@ -98,6 +136,9 @@ class LLMJudge:
             if self._has_ccload():
                 raw = self._call_ccload(prompt)
                 mode = "ccload"
+            elif self._has_deepseek():
+                raw = self._call_deepseek_direct(prompt)
+                mode = "deepseek-direct"
             else:
                 raw = self._call_anthropic_sdk(prompt)
                 mode = "anthropic-sdk"
@@ -170,6 +211,31 @@ class LLMJudge:
         )
         # Anthropic SDK shape
         return str(message.content[0].text) if message.content else ""
+
+    def _call_deepseek_direct(self, prompt: str) -> str:
+        url = f"{self.deepseek_base}/v1/chat/completions"
+        payload = json.dumps({
+            "model": self.model,
+            "max_tokens": 800,
+            "messages": [{"role": "user", "content": prompt}],
+            "stream": False,
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            url, data=payload,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.deepseek_api_key}",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+            data = resp.read()
+        body = json.loads(data.decode("utf-8"))
+        # OpenAI-compatible: choices[0].message.content
+        choices = body.get("choices") or []
+        if choices and isinstance(choices[0], dict):
+            message = choices[0].get("message") or {}
+            return str(message.get("content", ""))
+        return ""
 
 
 # ---------------------------------------------------------------------------

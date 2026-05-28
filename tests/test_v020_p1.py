@@ -304,11 +304,15 @@ class HeuristicJudgeTests(unittest.TestCase):
 
 class LLMJudgeTests(unittest.TestCase):
     def test_fallback_when_no_ccload_and_no_sdk(self) -> None:
-        # Clear env so neither path is available.
-        keys = ("OMNI_CCLOAD_BASE", "ANTHROPIC_API_KEY")
+        # Clear env so neither path is available.  v0.42+ also includes
+        # DeepSeek as a third LLM channel — pass empty deepseek_api_key
+        # explicitly so the test still exercises the fallback path.
+        keys = ("OMNI_CCLOAD_BASE", "ANTHROPIC_API_KEY", "DEEPSEEK_API_KEY")
         original = {k: os.environ.pop(k, None) for k in keys}
         try:
-            judge = LLMJudge(ccload_base="", anthropic_api_key="")
+            judge = LLMJudge(
+                ccload_base="", anthropic_api_key="", deepseek_api_key="",
+            )
             self.assertFalse(judge.available())
             verdict = judge.evaluate(JudgeRequest(
                 domain="research", candidate="hello [1]",

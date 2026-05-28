@@ -1,0 +1,230 @@
+# Seed Source Manifest — declarative batch initialization
+#
+# Per-domain: which sources to bulk-ingest, which to live-watch.
+# Read by scripts/seed_orchestrator.py to drive batch seeding through
+# the standard compliance chain:
+#   retrieve --persist-evidence → wiki-ingest → Proposal → approve → wiki-apply
+#
+# Tier: 0 = free / self-host  ·  1 = free key / quota  ·  2 = paid / broker
+# Freshness: daily | weekly | monthly  (controls cron / launchd cadence)
+# Limit: per-source per-run record cap (keeps batches reviewable by humans)
+#
+# This file is the *source of truth* for seeding policy.  Don't edit
+# scripts directly — edit here.
+
+version: 1
+
+defaults:
+  per_source_limit: 20          # 20 records / source / run, keeps PR-sized
+  domain_target_pages: 30        # aim for ~30 wiki pages / domain after approval
+  evidence_to_wiki_threshold: 3  # at least 3 evidence records before proposing wiki page
+
+domains:
+
+  ai_progress:
+    bulk:
+      - source: openalex
+        tier: 0
+        query: "large language model OR transformer architecture OR LLM agent"
+        limit: 50
+      - source: arxiv
+        tier: 0
+        category: ["cs.AI", "cs.CL", "cs.LG"]
+        limit: 30
+      - source: hf_daily_papers
+        tier: 0
+        days: 90
+        limit: 100
+    watch:
+      - rss: ["https://karpathy.github.io/feed.xml",
+              "https://lilianweng.github.io/index.xml",
+              "https://blog.samaltman.com/posts.atom",
+              "https://openai.com/blog/rss.xml",
+              "https://deepmind.google/blog/rss.xml",
+              "https://blogs.nvidia.com/feed/"]
+      - bluesky_handles: ["karpathy.bsky.social"]
+      - hackernews_terms: ["Anthropic", "OpenAI", "DeepMind", "agent autonomy"]
+    freshness: daily
+    wikipedia_anchors:
+      limit: 20                  # pulled from seed_wikipedia_minimal.py DOMAIN_ANCHORS
+
+  research:
+    bulk:
+      - source: openalex
+        tier: 0
+        query: "literature review meta-analysis"
+        limit: 40
+      - source: semantic_scholar
+        tier: 1
+        query: "research methods statistics"
+        limit: 30
+      - source: arxiv
+        tier: 0
+        category: ["stat.ML", "stat.ME"]
+        limit: 20
+    watch:
+      - rss: ["https://www.dwarkesh.com/feed"]
+    freshness: weekly
+    wikipedia_anchors:
+      limit: 15
+
+  enterprise:
+    bulk:
+      - source: edgar
+        tier: 0
+        cik_list: ["0001318605", "0000320193", "0001045810"]   # Tesla, Apple, NVIDIA
+        forms: ["10-K", "10-Q", "8-K"]
+        limit: 20
+    watch:
+      - rss: ["https://blogs.nvidia.com/feed/",
+              "https://blogs.microsoft.com/feed/",
+              "https://about.fb.com/news/feed/",
+              "https://www.aboutamazon.com/news/rss",
+              "https://blog.google/rss/"]
+      - tavily_queries: ["NVIDIA latest", "Microsoft AI announcement"]
+    freshness: daily
+    wikipedia_anchors:
+      limit: 20
+
+  finance:
+    bulk:
+      - source: fred
+        tier: 1
+        series: ["CPIAUCSL", "UNRATE", "DFF", "DGS10", "GDPC1", "M2SL"]
+        limit: 12                # last 12 observations / series
+      - source: edgar
+        tier: 0
+        forms: ["10-K", "10-Q"]
+        limit: 30
+    watch:
+      - rss: []
+    freshness: weekly
+    wikipedia_anchors:
+      limit: 20
+
+  us_policy:
+    bulk:
+      - source: federal_register
+        tier: 0
+        days: 90
+        limit: 50
+      - source: courtlistener
+        tier: 0
+        query: "first amendment OR antitrust OR section 230"
+        limit: 20
+      # Need DATA_GOV_API_KEY:
+      - source: congress_gov
+        tier: 1
+        congress: 119
+        limit: 30
+      - source: regulations_gov
+        tier: 1
+        days: 30
+        limit: 30
+    freshness: daily
+    wikipedia_anchors:
+      limit: 15
+
+  cn_policy:
+    bulk:
+      - source: gov_cn
+        tier: 1
+        limit: 30
+      - source: stats_gov_cn
+        tier: 1
+        limit: 15
+      - source: pbc_gov_cn
+        tier: 1
+        limit: 15
+      - source: court_gov_cn
+        tier: 1
+        limit: 15
+    freshness: daily
+    wikipedia_anchors:
+      limit: 15
+
+  international_relations:
+    bulk:
+      - source: gdelt
+        tier: 0
+        days: 30
+        themes: ["UNGA", "WAR", "DIPLO", "SANCT"]
+        limit: 100
+      - source: world_bank
+        tier: 0
+        indicators: ["NY.GDP.MKTP.CD", "SP.POP.TOTL", "FP.CPI.TOTL.ZG"]
+        limit: 50
+      # Future once token configured:
+      - source: ucdp
+        tier: 1
+        countries: ["Ukraine", "Israel", "Sudan", "Myanmar"]
+        year_range: [2024, 2026]
+        limit: 30
+    watch:
+      - rss: []
+    freshness: daily
+    wikipedia_anchors:
+      limit: 15
+
+  social_en:
+    bulk:
+      - source: hackernews
+        tier: 0
+        query: "AI OR LLM OR agent"
+        limit: 30
+      - source: bluesky
+        tier: 0
+        handles: ["karpathy.bsky.social", "simonw.bsky.social", "ylecun.bsky.social"]
+        limit: 20
+    watch:
+      - mastodon_hashtags: ["ai", "ml", "opensource"]
+    freshness: daily
+
+  social_zh:
+    bulk:
+      - source: bilibili
+        tier: 0
+        query: "AI 大模型"
+        limit: 20
+      # Tier 2 broker (xiaohongshu/weibo/zhihu) — opt-in via --allow-paid
+    freshness: daily
+
+  biomedical:
+    bulk:
+      - source: europe_pmc
+        tier: 0
+        query: "cancer immunotherapy OR CRISPR OR mRNA vaccine"
+        limit: 40
+      - source: pubmed
+        tier: 0
+        query: "GLP-1 OR Alzheimer OR AlphaFold"
+        limit: 30
+    freshness: weekly
+    wikipedia_anchors:
+      limit: 10
+
+  engineering:
+    bulk:
+      - source: hackernews
+        tier: 0
+        query: "open source database OR Kubernetes OR Rust"
+        limit: 30
+      - source: arxiv
+        tier: 0
+        category: ["cs.SE", "cs.DC", "cs.PL"]
+        limit: 20
+    watch:
+      - rss: []
+    freshness: weekly
+    wikipedia_anchors:
+      limit: 15
+
+  # Low-priority domains: only wikipedia anchors as seed.
+  fashion:        { wikipedia_anchors: { limit: 7 } }
+  photography:    { wikipedia_anchors: { limit: 7 } }
+  cooking:        { wikipedia_anchors: { limit: 9 } }
+  travel:         { wikipedia_anchors: { limit: 7 } }
+  fitness_wellness: { wikipedia_anchors: { limit: 8 } }
+  marketing:      { wikipedia_anchors: { limit: 7 } }
+  chat_relationships: { wikipedia_anchors: { limit: 5 } }
+  meta:           { wikipedia_anchors: { limit: 5 } }

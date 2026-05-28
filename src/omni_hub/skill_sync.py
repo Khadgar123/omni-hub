@@ -238,15 +238,36 @@ def _spec_from_md(
         or fm.get("description")
         or body.strip().split("\n", 1)[0][:200]
     )
-    tags = omni.get("tags") or []
-    if isinstance(tags, str):
-        tags = [t.strip() for t in tags.split(",") if t.strip()]
-    connectors = omni.get("connectors") or []
-    if isinstance(connectors, str):
-        connectors = [c.strip() for c in connectors.split(",") if c.strip()]
-    permissions = omni.get("required_permissions") or []
-    if isinstance(permissions, str):
-        permissions = [p.strip() for p in permissions.split(",") if p.strip()]
+    def _clean_list(value: object) -> list[str]:
+        """Defensive parser for list-ish frontmatter fields.
+
+        Handles YAML quirks where empty inline list ``[]`` may arrive as
+        a literal string ``"[]"`` (v0.42: prior template rendered
+        empty as indented ``    []`` which misparsed).  Also accepts
+        comma-separated strings.
+        """
+
+        if not value:
+            return []
+        if isinstance(value, str):
+            stripped = value.strip()
+            if stripped in {"[]", "{}", "null", "~"}:
+                return []
+            return [t.strip() for t in stripped.split(",") if t.strip()]
+        if isinstance(value, list):
+            out = []
+            for item in value:
+                if item is None:
+                    continue
+                s = str(item).strip()
+                if s and s != "[]":
+                    out.append(s)
+            return out
+        return []
+
+    tags = _clean_list(omni.get("tags"))
+    connectors = _clean_list(omni.get("connectors"))
+    permissions = _clean_list(omni.get("required_permissions"))
 
     return SkillSpec(
         skill_id=skill_id,

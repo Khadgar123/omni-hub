@@ -8,12 +8,8 @@
     "status": "active",
     "entrypoint": "operation:ab_test_run",
     "risk_level": "L1",
-    "required_permissions": [
-      "[]"
-    ],
-    "connectors": [
-      "[]"
-    ],
+    "required_permissions": [],
+    "connectors": [],
     "tags": [
       "foundation",
       "eval",
@@ -34,9 +30,7 @@
     "status": "active",
     "entrypoint": "operation:context_pack_build",
     "risk_level": "L0",
-    "required_permissions": [
-      "[]"
-    ],
+    "required_permissions": [],
     "connectors": [
       "wikipedia",
       "openalex",
@@ -62,9 +56,7 @@
     "status": "active",
     "entrypoint": "operation:context_pack_build",
     "risk_level": "L0",
-    "required_permissions": [
-      "[]"
-    ],
+    "required_permissions": [],
     "connectors": [
       "hf_daily_papers",
       "arxiv",
@@ -109,9 +101,7 @@
     "status": "active",
     "entrypoint": "operation:app_report_build",
     "risk_level": "L0",
-    "required_permissions": [
-      "[]"
-    ],
+    "required_permissions": [],
     "connectors": [],
     "tags": [
       "functional",
@@ -133,9 +123,7 @@
     "status": "active",
     "entrypoint": "operation:calendar_add",
     "risk_level": "L1",
-    "required_permissions": [
-      "[]"
-    ],
+    "required_permissions": [],
     "connectors": [],
     "tags": [
       "functional",
@@ -157,9 +145,7 @@
     "status": "active",
     "entrypoint": "operation:context_pack_build",
     "risk_level": "L0",
-    "required_permissions": [
-      "[]"
-    ],
+    "required_permissions": [],
     "connectors": [],
     "tags": [
       "wiki",
@@ -181,9 +167,7 @@
     "status": "active",
     "entrypoint": "operation:app_route_task",
     "risk_level": "L0",
-    "required_permissions": [
-      "[]"
-    ],
+    "required_permissions": [],
     "connectors": [],
     "tags": [
       "functional",
@@ -205,12 +189,8 @@
     "status": "active",
     "entrypoint": "operation:claims_show",
     "risk_level": "L0",
-    "required_permissions": [
-      "[]"
-    ],
-    "connectors": [
-      "[]"
-    ],
+    "required_permissions": [],
+    "connectors": [],
     "tags": [
       "foundation",
       "knowledge_access",
@@ -231,9 +211,7 @@
     "status": "active",
     "entrypoint": "operation:context_pack_build",
     "risk_level": "L0",
-    "required_permissions": [
-      "[]"
-    ],
+    "required_permissions": [],
     "connectors": [
       "gov_cn",
       "stats_gov_cn",
@@ -261,12 +239,8 @@
     "status": "active",
     "entrypoint": "operation:context_pack_build",
     "risk_level": "L0",
-    "required_permissions": [
-      "[]"
-    ],
-    "connectors": [
-      "[]"
-    ],
+    "required_permissions": [],
+    "connectors": [],
     "tags": [
       "foundation",
       "knowledge_access",
@@ -287,9 +261,7 @@
     "status": "active",
     "entrypoint": "operation:context_pack_build",
     "risk_level": "L0",
-    "required_permissions": [
-      "[]"
-    ],
+    "required_permissions": [],
     "connectors": [
       "xiaohongshu",
       "bilibili",
@@ -315,9 +287,7 @@
     "status": "active",
     "entrypoint": "operation:context_pack_build",
     "risk_level": "L0",
-    "required_permissions": [
-      "[]"
-    ],
+    "required_permissions": [],
     "connectors": [
       "openalex",
       "arxiv",
@@ -343,9 +313,7 @@
     "status": "active",
     "entrypoint": "operation:context_pack_build",
     "risk_level": "L0",
-    "required_permissions": [
-      "[]"
-    ],
+    "required_permissions": [],
     "connectors": [
       "crossref",
       "edgar",
@@ -373,9 +341,7 @@
     "status": "active",
     "entrypoint": "operation:context_pack_build",
     "risk_level": "L0",
-    "required_permissions": [
-      "[]"
-    ],
+    "required_permissions": [],
     "connectors": [
       "wikipedia"
     ],
@@ -399,9 +365,7 @@
     "status": "stub",
     "entrypoint": "operation:finance_screen",
     "risk_level": "L0",
-    "required_permissions": [
-      "[]"
-    ],
+    "required_permissions": [],
     "connectors": [],
     "tags": [
       "functional",
@@ -423,9 +387,7 @@
     "status": "active",
     "entrypoint": "operation:context_pack_build",
     "risk_level": "L0",
-    "required_permissions": [
-      "[]"
-    ],
+    "required_permissions": [],
     "connectors": [
       "edgar",
       "fred",
@@ -452,9 +414,7 @@
     "status": "active",
     "entrypoint": "operation:context_pack_build",
     "risk_level": "L0",
-    "required_permissions": [
-      "[]"
-    ],
+    "required_permissions": [],
     "connectors": [
       "pubmed",
       "europe_pmc",
@@ -481,12 +441,8 @@
     "status": "active",
     "entrypoint": "operation:harness_compile_skill",
     "risk_level": "L1",
-    "required_permissions": [
-      "[]"
-    ],
-    "connectors": [
-      "[]"
-    ],
+    "required_permissions": [],
+    "connectors": [],
     "tags": [
       "foundation",
       "eval",
@@ -507,9 +463,7 @@
     "status": "stub",
     "entrypoint": "operation:inbox_classify",
     "risk_level": "L0",
-    "required_permissions": [
-      "[]"
-    ],
+    "required_permissions": [],
     "connectors": [],
     "tags": [
       "functional",
@@ -531,9 +485,7 @@
     "status": "active",
     "entrypoint": "operation:context_pack_build",
     "risk_level": "L0",
-    "required_permissions": [
-      "[]"
-    ],
+    "required_permissions": [],
     "connectors": [
       "acled",
       "gdelt",
@@ -561,12 +513,8 @@
     "status": "active",
     "entrypoint": "operation:judge_evaluate",
     "risk_level": "L0",
-    "required_permissions": [
-      "[]"
-    ],
-    "connectors": [
-      "[]"
-    ],
+    "required_permissions": [],
+    "connectors": [],
     "tags": [
       "foundation",
       "eval",
@@ -587,9 +535,7 @@
     "status": "active",
     "entrypoint": "operation:context_pack_build",
     "risk_level": "L0",
-    "required_permissions": [
-      "[]"
-    ],
+    "required_permissions": [],
     "connectors": [
       "weibo",
       "brave_search",
@@ -670,12 +616,8 @@
     "status": "active",
     "entrypoint": "operation:search_memory",
     "risk_level": "L0",
-    "required_permissions": [
-      "[]"
-    ],
-    "connectors": [
-      "[]"
-    ],
+    "required_permissions": [],
+    "connectors": [],
     "tags": [
       "foundation",
       "knowledge_access",
@@ -696,9 +638,7 @@
     "status": "active",
     "entrypoint": "operation:meta_cross_skill_scan",
     "risk_level": "L0",
-    "required_permissions": [
-      "[]"
-    ],
+    "required_permissions": [],
     "connectors": [],
     "tags": [
       "functional",
@@ -720,9 +660,7 @@
     "status": "active",
     "entrypoint": "operation:context_pack_build",
     "risk_level": "L0",
-    "required_permissions": [
-      "[]"
-    ],
+    "required_permissions": [],
     "connectors": [],
     "tags": [
       "wiki",
@@ -744,9 +682,7 @@
     "status": "active",
     "entrypoint": "operation:order_propose",
     "risk_level": "L2",
-    "required_permissions": [
-      "[]"
-    ],
+    "required_permissions": [],
     "connectors": [],
     "tags": [
       "functional",
@@ -768,9 +704,7 @@
     "status": "active",
     "entrypoint": "operation:context_pack_build",
     "risk_level": "L0",
-    "required_permissions": [
-      "[]"
-    ],
+    "required_permissions": [],
     "connectors": [
       "unsplash",
       "pexels",
@@ -796,9 +730,7 @@
     "status": "broker_required",
     "entrypoint": "operation:pptx_build",
     "risk_level": "L1",
-    "required_permissions": [
-      "[]"
-    ],
+    "required_permissions": [],
     "connectors": [],
     "tags": [
       "functional",
@@ -820,9 +752,7 @@
     "status": "stub",
     "entrypoint": "operation:project_plan",
     "risk_level": "L1",
-    "required_permissions": [
-      "[]"
-    ],
+    "required_permissions": [],
     "connectors": [],
     "tags": [
       "functional",
@@ -844,12 +774,8 @@
     "status": "active",
     "entrypoint": "operation:approve_proposal",
     "risk_level": "L1",
-    "required_permissions": [
-      "[]"
-    ],
-    "connectors": [
-      "[]"
-    ],
+    "required_permissions": [],
+    "connectors": [],
     "tags": [
       "foundation",
       "workflow",
@@ -870,12 +796,8 @@
     "status": "active",
     "entrypoint": "operation:reject_proposal",
     "risk_level": "L1",
-    "required_permissions": [
-      "[]"
-    ],
-    "connectors": [
-      "[]"
-    ],
+    "required_permissions": [],
+    "connectors": [],
     "tags": [
       "foundation",
       "workflow",
@@ -896,9 +818,7 @@
     "status": "active",
     "entrypoint": "operation:context_pack_build",
     "risk_level": "L0",
-    "required_permissions": [
-      "[]"
-    ],
+    "required_permissions": [],
     "connectors": [
       "openalex",
       "semantic_scholar",
@@ -1015,9 +935,7 @@
     "status": "active",
     "entrypoint": "operation:schedule_plan",
     "risk_level": "L1",
-    "required_permissions": [
-      "[]"
-    ],
+    "required_permissions": [],
     "connectors": [],
     "tags": [
       "functional",
@@ -1066,9 +984,7 @@
     "status": "active",
     "entrypoint": "operation:context_pack_build",
     "risk_level": "L0",
-    "required_permissions": [
-      "[]"
-    ],
+    "required_permissions": [],
     "connectors": [
       "x_twitter",
       "gdelt"
@@ -1093,9 +1009,7 @@
     "status": "active",
     "entrypoint": "operation:context_pack_build",
     "risk_level": "L0",
-    "required_permissions": [
-      "[]"
-    ],
+    "required_permissions": [],
     "connectors": [
       "xiaohongshu",
       "wechat_mp"
@@ -1120,9 +1034,7 @@
     "status": "active",
     "entrypoint": "operation:task_add",
     "risk_level": "L1",
-    "required_permissions": [
-      "[]"
-    ],
+    "required_permissions": [],
     "connectors": [],
     "tags": [
       "functional",
@@ -1144,9 +1056,7 @@
     "status": "active",
     "entrypoint": "operation:context_pack_build",
     "risk_level": "L0",
-    "required_permissions": [
-      "[]"
-    ],
+    "required_permissions": [],
     "connectors": [
       "xiaohongshu",
       "bilibili",
@@ -1172,12 +1082,8 @@
     "status": "active",
     "entrypoint": "operation:capture_url",
     "risk_level": "L1",
-    "required_permissions": [
-      "[]"
-    ],
-    "connectors": [
-      "[]"
-    ],
+    "required_permissions": [],
+    "connectors": [],
     "tags": [
       "foundation",
       "knowledge_access",
@@ -1198,9 +1104,7 @@
     "status": "active",
     "entrypoint": "operation:context_pack_build",
     "risk_level": "L0",
-    "required_permissions": [
-      "[]"
-    ],
+    "required_permissions": [],
     "connectors": [
       "federal_register",
       "regulations_gov",
@@ -1258,12 +1162,8 @@
     "status": "active",
     "entrypoint": "operation:wiki_apply_proposal",
     "risk_level": "L1",
-    "required_permissions": [
-      "[]"
-    ],
-    "connectors": [
-      "[]"
-    ],
+    "required_permissions": [],
+    "connectors": [],
     "tags": [
       "foundation",
       "knowledge_update",
@@ -1284,12 +1184,8 @@
     "status": "active",
     "entrypoint": "operation:wiki_dream",
     "risk_level": "L1",
-    "required_permissions": [
-      "[]"
-    ],
-    "connectors": [
-      "[]"
-    ],
+    "required_permissions": [],
+    "connectors": [],
     "tags": [
       "foundation",
       "knowledge_update",
@@ -1310,12 +1206,8 @@
     "status": "active",
     "entrypoint": "operation:wiki_ingest",
     "risk_level": "L1",
-    "required_permissions": [
-      "[]"
-    ],
-    "connectors": [
-      "[]"
-    ],
+    "required_permissions": [],
+    "connectors": [],
     "tags": [
       "foundation",
       "knowledge_update",
@@ -1336,12 +1228,8 @@
     "status": "active",
     "entrypoint": "operation:wiki_lint",
     "risk_level": "L1",
-    "required_permissions": [
-      "[]"
-    ],
-    "connectors": [
-      "[]"
-    ],
+    "required_permissions": [],
+    "connectors": [],
     "tags": [
       "foundation",
       "knowledge_update",
@@ -1362,12 +1250,8 @@
     "status": "active",
     "entrypoint": "operation:wiki_propose_research",
     "risk_level": "L1",
-    "required_permissions": [
-      "[]"
-    ],
-    "connectors": [
-      "[]"
-    ],
+    "required_permissions": [],
+    "connectors": [],
     "tags": [
       "foundation",
       "knowledge_update",
@@ -1388,12 +1272,8 @@
     "status": "active",
     "entrypoint": "operation:wiki_search",
     "risk_level": "L0",
-    "required_permissions": [
-      "[]"
-    ],
-    "connectors": [
-      "[]"
-    ],
+    "required_permissions": [],
+    "connectors": [],
     "tags": [
       "foundation",
       "knowledge_access",
@@ -1414,12 +1294,8 @@
     "status": "active",
     "entrypoint": "operation:wiki_supersede",
     "risk_level": "L1",
-    "required_permissions": [
-      "[]"
-    ],
-    "connectors": [
-      "[]"
-    ],
+    "required_permissions": [],
+    "connectors": [],
     "tags": [
       "foundation",
       "knowledge_update",

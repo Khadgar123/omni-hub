@@ -69,11 +69,12 @@ def register(subparsers: argparse._SubParsersAction) -> None:
              "linking evidence to a queue task.",
     )
     retrieve.add_argument(
-        "--reranker", choices=["none", "cohere", "voyage"], default="none",
+        "--reranker", choices=["none", "cohere", "voyage", "bge"], default="none",
         help=(
             "Optional cross-encoder rerank tail applied after fusion + grader. "
-            "Voyage rerank-2.5 (VOYAGE_API_KEY) is Anthropic's 2026 recommendation; "
-            "Cohere Rerank 4 (COHERE_API_KEY) the previous default."
+            "bge=local BAAI/bge-reranker-v2-m3 (no API key, requires `pip install "
+            "FlagEmbedding torch`); voyage=rerank-2.5 (VOYAGE_API_KEY); "
+            "cohere=Rerank 4 (COHERE_API_KEY)."
         ),
     )
 

@@ -25,7 +25,14 @@ import sys
 from pathlib import Path
 
 
-PLIST_NAMES = ["omni-hub.daily", "omni-hub.weekly", "omni-hub.monthly", "omni-hub.worker"]
+PLIST_NAMES = [
+    "omni-hub.daily",
+    "omni-hub.weekly",
+    "omni-hub.monthly",
+    "omni-hub.worker",
+    "omni-hub.s2-heartbeat",
+    "omni-hub.daily-follow",
+]
 REQUIRED_PYTHON = (3, 12)
 
 

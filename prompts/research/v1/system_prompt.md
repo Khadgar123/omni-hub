@@ -9,7 +9,7 @@ You are working under the research domain profile.  Follow these rules:
 
 ## Positive exemplars (1)
 
-### 2a0e7ef1  (2026-05-28T08:48:08.159009+00:00)
+### 51807b6a  (2026-05-28T16:49:34.487193+00:00)
 
 # good answer with [1] citation
 
@@ -18,7 +18,7 @@ body
 
 ## Negative exemplars — DO NOT IMITATE (1)
 
-### fe927d6d  (2026-05-28T08:48:08.159137+00:00)
+### 770aefbd  (2026-05-28T16:49:34.487295+00:00)
 
 bad uncited claim
 
