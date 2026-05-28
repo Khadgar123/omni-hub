@@ -240,9 +240,8 @@ class PersonalTaskStore:
             conn.commit()
 
     def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        return conn
+        from .._storage import connect_sqlite_store
+        return connect_sqlite_store(self.db_path)
 
 
 __all__ = ["PersonalTask", "PersonalTaskStore", "TaskCategory", "TaskStatus"]

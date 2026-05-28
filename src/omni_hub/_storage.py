@@ -41,6 +41,29 @@ def safe_workspace_path(
     return target
 
 
+class _ManagedConnection(sqlite3.Connection):
+    """``sqlite3.Connection`` that closes on ``__exit__``.
+
+    Standard ``sqlite3.Connection.__exit__`` only commits/rolls back the
+    transaction; it does NOT close the connection.  Python 3.12+ surfaces
+    that as ``ResourceWarning: unclosed database`` whenever a store
+    object is garbage-collected with live connections.  This subclass
+    overrides ``__exit__`` so ``with self._connect() as conn:`` blocks
+    behave as "open + transaction + close", matching every call site's
+    actual lifecycle.
+
+    The 2026-05-28 review (P2 finding) traced the leaks to ``queue.py:587``
+    and similar sites across 12 modules.  Centralising the fix here closes
+    all 94 call sites at once without touching them.
+    """
+
+    def __exit__(self, exc_type, exc_val, exc_tb):  # type: ignore[override]
+        try:
+            super().__exit__(exc_type, exc_val, exc_tb)
+        finally:
+            self.close()
+
+
 def connect_sqlite_store(
     db_path: Path | str,
     *,
@@ -50,11 +73,14 @@ def connect_sqlite_store(
     """Open a SQLite connection with our store defaults.
 
     Apply pragmas per connection (not just at schema init) so readers and
-    writers share the same lock-wait policy.  See `PRAGMA busy_timeout`
+    writers share the same lock-wait policy.  See ``PRAGMA busy_timeout``
     docs — it applies to *the connection*, not the database file.
+
+    Returns a :class:`_ManagedConnection` so ``with conn:`` closes after
+    commit (v0.37 — fixes Python 3.12+ ResourceWarning leak).
     """
 
-    conn = sqlite3.connect(str(db_path))
+    conn = sqlite3.connect(str(db_path), factory=_ManagedConnection)
     conn.row_factory = sqlite3.Row
     if busy_timeout_ms > 0:
         conn.execute(f"PRAGMA busy_timeout = {busy_timeout_ms}")

@@ -18,6 +18,11 @@ class SkillKind(str, Enum):
     AGENT = "agent"
     MEMORY = "memory"
     UTILITY = "utility"
+    # v0.37: knowledge-domain skills (the 19 vertical wiki skills) — pure
+    # prompt + context recipe, no operation handler.  Their "entrypoint" is
+    # implicit: build a context pack for ``inputs.domain`` and let the LLM
+    # answer using it.
+    DOMAIN_WIKI = "domain_wiki"
 
 
 class SkillStatus(str, Enum):

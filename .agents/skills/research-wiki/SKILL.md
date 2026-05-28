@@ -19,10 +19,33 @@ description: |
   one).  Do NOT use this for writing — all writes go through
   Proposal[T] (see "Write boundary" below).
 license: MIT
-schema_version: v0.19
+schema_version: v0.37
+omni_hub:
+  kind: domain_wiki
+  display_name: "Research — Wiki Domain Skill"
+  status: active
+  version: 0.1.0
+  entrypoint: "operation:context_pack_build"
+  risk_level: L0
+  required_permissions: []
+  connectors:
+    - openalex
+    - semantic_scholar
+    - arxiv
+    - wikipedia
+  tags:
+    - wiki
+    - domain
+    - research
+  inputs:
+    query: "user question text"
+    domain: "research"
+    tier: "minimal | standard | expanded"
+  outputs:
+    context_pack: "ContextPack with cited wiki + research results"
 ---
 
-<!-- omni-skill-stub: v0.19 -->
+<!-- omni-skill-stub: v0.37 -->
 
 # Research — Wiki Domain Skill
 
@@ -126,4 +149,4 @@ proposes prompt updates as new versions of this SKILL.md body.
 ---
 
 _Auto-generated stub.  Hand-editing is supported — remove the
-`<!-- omni-skill-stub: v0.19 -->` marker line to opt out of future regenerations._
+`<!-- omni-skill-stub: v0.37 -->` marker line to opt out of future regenerations._

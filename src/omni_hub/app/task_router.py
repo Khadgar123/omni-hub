@@ -128,11 +128,94 @@ _KEYWORDS: dict[str, list[str]] = {
 }
 
 
+# v0.37: per-domain INTENT phrases — higher-weight than entity keywords.
+# When a query mentions "OpenAI" (entity in ai_progress) AND "组织架构" (intent
+# phrase in enterprise), the intent wins.  Heuristic until v0.40 LLM
+# classifier; calibrated by the 2026-05-28 review's failure case.
+_INTENT_PHRASES: dict[str, list[str]] = {
+    "research": [
+        "论文综述", "调研一下", "compare papers", "literature review",
+        "research gap", "评审意见",
+    ],
+    "engineering": [
+        "stack trace", "refactor this", "ci 挂了", "测试为什么失败",
+        "为什么 test 挂了", "代码评审",
+    ],
+    "ai_progress": [
+        "模型对比", "release note", "model card", "model evaluation",
+    ],
+    "meta": [
+        "omni-hub 接下来", "重构 omni", "应该 build 还是 use",
+        "下一步 v0", "skill 注册",
+    ],
+    "fitness_wellness": [
+        "训练计划", "饮食方案", "RCT meta-analysis", "睡眠改善",
+    ],
+    "cooking": [
+        "今晚做什么", "替换食材", "怎么做", "怎么炒",
+    ],
+    "photography": [
+        "构图建议", "曝光建议", "镜头选择", "raw 后期",
+    ],
+    "fashion": [
+        "搭配方案", "穿什么", "outfit ideas",
+    ],
+    "chat_relationships": [
+        "怎么回复", "如何应对", "感情建议", "boundary advice",
+    ],
+    "travel": [
+        "行程规划", "签证流程", "几天合适", "best time to visit",
+    ],
+    "marketing": [
+        "投放策略", "增长方案", "转化优化", "营销 case study",
+    ],
+    "enterprise": [
+        # The v0.37 review's failure-case phrases get top billing.
+        "组织架构", "公司分析", "值得加入",
+        "护城河", "due diligence", "团队组成",
+        "投融资", "招聘趋势", "人事变动",
+        "企业分析", "竞品分析", "公司情况",
+    ],
+    "finance": [
+        "估值",  "目标价", "进场点位", "出场点位",
+        "回撤", "财报解读", "投资建议",
+    ],
+    "us_policy": [
+        "scotus 判决", "bill 通过", "executive order",
+        "联邦法规", "美国政策影响",
+    ],
+    "cn_policy": [
+        "政策解读", "部委文件", "五年规划", "央行政策",
+        "监管动向",
+    ],
+    "international_relations": [
+        "地缘政治", "外交动向", "中美关系", "制裁影响",
+        "局势分析",
+    ],
+    "agent_systems": [
+        "build vs use", "fork vs pin", "agent 框架对比",
+    ],
+    "social_en": [],
+    "social_zh": [],
+}
+
+
 # Compile keyword patterns once at import time for cheap matching.
 _PATTERNS: dict[str, list[re.Pattern[str]]] = {
     domain: [re.compile(rf"(?i){re.escape(kw)}") for kw in kws]
     for domain, kws in _KEYWORDS.items()
 }
+
+
+# Intent patterns are weighted ``INTENT_WEIGHT`` × per-hit (vs 1× for keywords).
+_INTENT_PATTERNS: dict[str, list[re.Pattern[str]]] = {
+    domain: [re.compile(rf"(?i){re.escape(kw)}") for kw in kws]
+    for domain, kws in _INTENT_PHRASES.items()
+}
+
+
+INTENT_WEIGHT = 3.0
+KEYWORD_WEIGHT = 1.0
 
 
 @dataclass(slots=True)
@@ -204,15 +287,27 @@ class TaskRouter:
                 },
             )
 
-        scores: dict[str, tuple[int, list[str]]] = {}
+        # v0.37 — Weighted score per domain.  Each keyword hit contributes
+        # KEYWORD_WEIGHT (1.0), each intent-phrase hit contributes
+        # INTENT_WEIGHT (3.0).  Intent phrases are how we distinguish
+        # "OpenAI 最新组织架构" (enterprise intent: 组织架构 × 3.0) from
+        # "Claude 4.7 怎么样" (ai_progress entity: Claude × 1.0).
+        scores: dict[str, tuple[float, list[str]]] = {}
         for domain, patterns in _PATTERNS.items():
             hits: list[str] = []
+            score = 0.0
             for pattern in patterns:
                 match = pattern.search(haystack)
                 if match:
                     hits.append(match.group(0))
+                    score += KEYWORD_WEIGHT
+            for pattern in _INTENT_PATTERNS.get(domain, []):
+                match = pattern.search(haystack)
+                if match:
+                    hits.append(match.group(0))
+                    score += INTENT_WEIGHT
             if hits:
-                scores[domain] = (len(hits), hits)
+                scores[domain] = (score, hits)
 
         if not scores:
             return RoutingDecision(

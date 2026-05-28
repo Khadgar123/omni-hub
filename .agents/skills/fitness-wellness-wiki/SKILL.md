@@ -11,17 +11,40 @@ description: |
   - "减脂期蛋白质摄入"
 
   Source corpus: vault/wiki/domains/fitness-wellness/.  Authoritative
-  cascade: `pubmed`, `europe_pmc`, `wikipedia`.  Stale threshold: 365 days.
+  cascade: `pubmed`, `europe_pmc`, `bilibili`, `wikipedia`.  Stale threshold: 365 days.
 
   Do NOT trigger for: queries that match a different domain's keywords
   (the task_router in src/omni_hub/app/task_router.py picks the right
   one).  Do NOT use this for writing — all writes go through
   Proposal[T] (see "Write boundary" below).
 license: MIT
-schema_version: v0.19
+schema_version: v0.37
+omni_hub:
+  kind: domain_wiki
+  display_name: "Fitness & Wellness — Wiki Domain Skill"
+  status: active
+  version: 0.1.0
+  entrypoint: "operation:context_pack_build"
+  risk_level: L0
+  required_permissions: []
+  connectors:
+    - pubmed
+    - europe_pmc
+    - bilibili
+    - wikipedia
+  tags:
+    - wiki
+    - domain
+    - fitness_wellness
+  inputs:
+    query: "user question text"
+    domain: "fitness_wellness"
+    tier: "minimal | standard | expanded"
+  outputs:
+    context_pack: "ContextPack with cited wiki + research results"
 ---
 
-<!-- omni-skill-stub: v0.19 -->
+<!-- omni-skill-stub: v0.37 -->
 
 # Fitness & Wellness — Wiki Domain Skill
 
@@ -120,4 +143,4 @@ proposes prompt updates as new versions of this SKILL.md body.
 ---
 
 _Auto-generated stub.  Hand-editing is supported — remove the
-`<!-- omni-skill-stub: v0.19 -->` marker line to opt out of future regenerations._
+`<!-- omni-skill-stub: v0.37 -->` marker line to opt out of future regenerations._

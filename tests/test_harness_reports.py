@@ -15,8 +15,9 @@ from omni_hub.reports import build_daily, build_monthly, build_weekly, default_o
 
 
 def _seed_memory(db_path: Path, rows: list[tuple[str, str, str, str]]) -> None:
+    from contextlib import closing
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(db_path) as conn:
+    with closing(sqlite3.connect(db_path)) as conn, conn:
         conn.execute(
             "CREATE TABLE documents (source_path TEXT PRIMARY KEY, title TEXT, summary TEXT, updated_at TEXT)"
         )

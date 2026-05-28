@@ -14,8 +14,11 @@ from omni_hub.harness import graphiti_bridge, redundancy
 
 
 def _seed_sqlite(db_path: Path, rows: list[tuple[str, str, str, str]]) -> None:
+    from contextlib import closing
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(db_path) as conn:
+    # ``closing`` closes the connection on exit; the nested ``with conn:``
+    # block keeps the original auto-commit semantics.
+    with closing(sqlite3.connect(db_path)) as conn, conn:
         conn.execute(
             "CREATE TABLE documents (source_path TEXT PRIMARY KEY, "
             "title TEXT, summary TEXT, updated_at TEXT)"

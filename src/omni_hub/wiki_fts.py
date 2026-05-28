@@ -267,9 +267,8 @@ class WikiFTSIndex:
             conn.commit()
 
     def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        return conn
+        from ._storage import connect_sqlite_store
+        return connect_sqlite_store(self.db_path)
 
 
 # ---------------------------------------------------------------------------
@@ -360,8 +359,9 @@ def _is_closed_page(frontmatter: dict[str, Any], *, now: datetime) -> bool:
 def fts5_available() -> bool:
     """True if the local sqlite3 build has FTS5 compiled in."""
 
+    from contextlib import closing
     try:
-        with sqlite3.connect(":memory:") as conn:
+        with closing(sqlite3.connect(":memory:")) as conn:
             conn.execute(
                 "CREATE VIRTUAL TABLE _probe USING fts5(t)",
             )

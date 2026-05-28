@@ -160,7 +160,8 @@ class RedundancyToProposalStoreTests(unittest.TestCase):
             workspace = Path(tmp)
             db = workspace / ".omni" / "memory.sqlite3"
             db.parent.mkdir(parents=True, exist_ok=True)
-            with sqlite3.connect(db) as conn:
+            from contextlib import closing
+            with closing(sqlite3.connect(db)) as conn, conn:
                 conn.execute(
                     "CREATE TABLE documents (source_path TEXT PRIMARY KEY, "
                     "title TEXT, summary TEXT, updated_at TEXT)"

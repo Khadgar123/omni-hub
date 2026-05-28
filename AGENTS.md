@@ -2,6 +2,24 @@
 
 Codex 或其他代码 agent 第一次进入仓库时，先读这个文件，再读 `README.md` 和 `api-management/README.md`。
 
+## v0.37 状态实话 (2026-05-28 review 后)
+
+**不要再用 "production ready" / "v1.0 触手可及" 措辞**。准确框架: scaffolding 95%,
+closed-loop on real data 10%。
+
+工程硬约束 #7 (新增,2026-05-28 review):
+
+- WorkflowKernel / ProjectionRegistry **是 lightweight local 实现**,share contract shape with
+  Temporal / Iceberg 但**不 share semantics**。文档若声称"Temporal-grade"或"Iceberg-grade"算违规。
+- "完成度"必须区分 **scaffolding 完成度** (contracts + code paths) vs **closed-loop 完成度**
+  (real data 已经流过整条管线)。前者高,后者低 — 不混淆。
+- 写代码前先 `omni-hub skill-list | jq '.output.skills | length'` 确认运行时 skill 数 ≥ 文档声称的
+  数;若不一致,先跑 `skill-sync --apply`。
+- 跑全测试: `make test` 必须 **0 ResourceWarning + 0 失败**;有 warning 就修,不留作"后续清理"。
+
+详见 [docs/review-2026-05-28-response.md](docs/review-2026-05-28-response.md)。
+
+
 ## API 管理原则
 
 - 不要把 raw API key 写入仓库、README、docs、测试夹具或 compose 示例。

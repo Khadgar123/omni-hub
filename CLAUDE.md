@@ -3,6 +3,17 @@
 本项目的 agent 操作入口与 Codex 共用：**先读 `AGENTS.md`**，再读 `README.md` 和 `api-management/README.md`。
 `AGENTS.md` 里的"工程硬约束"对 Claude Code 完全适用——4 条规则违反 = 改动必拒。
 
+## v0.37 状态实话 (2026-05-28 review 后)
+
+不要再说 "v0.30 production ready" — 准确说法：**scaffolding 95%,closed-loop on real data 10%**。
+读 [docs/review-2026-05-28-response.md](docs/review-2026-05-28-response.md) 了解详情。
+
+- Control / Knowledge / Skill / Interface / Application 五个 Plane 的**契约都到位**
+- WorkflowKernel = "lightweight local replayable state machine",**不是 Temporal-grade durable execution**
+- ProjectionRegistry = "atomic pointer + rollback",**不是 Iceberg-grade table format**
+- 19 个 vertical-skill SKILL.md 存在 + registry/skills.json 已合并 (v0.37 修了 三真源 drift)
+- 真实数据闭环还没跑过 — vault/wiki / claims.jsonl / PreferenceStore 都是空的,等 dogfood 灌入
+
 Claude Code 在本仓库里有两种身份：
 
 1. **交互工程协作**：开发者打开 Claude Code 在终端里直接对话，按 `.agents/skills/<id>/SKILL.md` 加载的技能干活。

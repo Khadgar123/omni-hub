@@ -27,8 +27,8 @@ from pathlib import Path
 from .domain_schemas import DOMAIN_SCHEMAS, DomainSchema
 
 
-SKILL_STUB_MARKER = "<!-- omni-skill-stub: v0.19 -->"
-SKILL_STUB_VERSION = "v0.19"
+SKILL_STUB_MARKER = "<!-- omni-skill-stub: v0.37 -->"
+SKILL_STUB_VERSION = "v0.37"
 
 
 # ---------------------------------------------------------------------------
@@ -185,8 +185,14 @@ def _materialise_one(target: Path, new_body: str) -> str:
     existing = target.read_text(encoding="utf-8")
     if existing == new_body:
         return "unchanged"
-    if SKILL_STUB_MARKER not in existing:
-        # Hand-edited — leave it alone.
+    # Loose marker match: any line starting with "<!-- omni-skill-stub:" is
+    # an auto-managed stub, regardless of version.  Lets a marker bump
+    # (v0.19 → v0.37) auto-refresh without operator intervention.
+    auto_managed = any(
+        line.lstrip().startswith("<!-- omni-skill-stub:")
+        for line in existing.splitlines()
+    )
+    if not auto_managed:
         return "hand-edited"
     target.write_text(new_body, encoding="utf-8")
     return "refreshed"
@@ -228,6 +234,26 @@ description: |
   Proposal[T] (see "Write boundary" below).
 license: MIT
 schema_version: {SKILL_STUB_VERSION}
+omni_hub:
+  kind: domain_wiki
+  display_name: "{schema.display_name} — Wiki Domain Skill"
+  status: active
+  version: 0.1.0
+  entrypoint: "operation:context_pack_build"
+  risk_level: L0
+  required_permissions: []
+  connectors:
+{_render_connector_list(schema.authoritative_sources)}
+  tags:
+    - wiki
+    - domain
+    - {domain_slug}
+  inputs:
+    query: "user question text"
+    domain: "{domain_slug}"
+    tier: "minimal | standard | expanded"
+  outputs:
+    context_pack: "ContextPack with cited wiki + research results"
 ---
 
 {SKILL_STUB_MARKER}
@@ -311,6 +337,14 @@ proposes prompt updates as new versions of this SKILL.md body.
 _Auto-generated stub.  Hand-editing is supported — remove the
 `{SKILL_STUB_MARKER}` marker line to opt out of future regenerations._
 """
+
+
+def _render_connector_list(connectors: list[str]) -> str:
+    """YAML-list render for the ``connectors:`` field inside ``omni_hub:``."""
+
+    if not connectors:
+        return "    []"
+    return "\n".join(f"    - {c}" for c in connectors)
 
 
 def _render_frontmatter_block(schema: DomainSchema) -> str:

@@ -198,8 +198,9 @@ class ReportOrchestrator:
         total = 0
         if proposals_db.exists():
             import sqlite3
+            from contextlib import closing
             try:
-                with sqlite3.connect(proposals_db) as conn:
+                with closing(sqlite3.connect(proposals_db)) as conn:
                     conn.row_factory = sqlite3.Row
                     rows = conn.execute(
                         "SELECT created_at, payload FROM proposals "
@@ -292,8 +293,9 @@ class ReportOrchestrator:
         suspended = 0
         if wf_db.exists():
             import sqlite3
+            from contextlib import closing
             try:
-                with sqlite3.connect(wf_db) as conn:
+                with closing(sqlite3.connect(wf_db)) as conn:
                     conn.row_factory = sqlite3.Row
                     rows = conn.execute(
                         "SELECT state, updated_at FROM workflows "
