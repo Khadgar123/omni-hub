@@ -89,10 +89,19 @@ _DOMAIN_RUBRIC_OVERRIDES: dict[str, dict[str, float]] = {
         "style_fit": 0.10,
         "uncertainty_calibration": 0.20,  # mandatory risk disclosure
     },
-    "policy": {
+    # v0.19 split: us_policy and cn_policy share the rubric — both demand
+    # tight date / regulator citations.
+    "us_policy": {
         "evidence_coverage": 0.30,
         "information_density": 0.20,
         "citation_support": 0.25,         # precise dates + source status
+        "style_fit": 0.05,
+        "uncertainty_calibration": 0.20,
+    },
+    "cn_policy": {
+        "evidence_coverage": 0.30,
+        "information_density": 0.20,
+        "citation_support": 0.25,
         "style_fit": 0.05,
         "uncertainty_calibration": 0.20,
     },
@@ -102,6 +111,37 @@ _DOMAIN_RUBRIC_OVERRIDES: dict[str, dict[str, float]] = {
         "citation_support": 0.20,
         "style_fit": 0.05,
         "uncertainty_calibration": 0.30,  # scenario ranges, not false certainty
+    },
+    # v0.19 new domain rubrics — uncertainty + citation matter more than
+    # style for evidence-driven domains (fitness, enterprise) while consumer
+    # domains (cooking, travel) accept higher style weight.
+    "fitness_wellness": {
+        "evidence_coverage": 0.30,        # RCT / meta-analysis backing
+        "information_density": 0.15,
+        "citation_support": 0.30,         # study links MUST be present
+        "style_fit": 0.05,
+        "uncertainty_calibration": 0.20,  # "do X to achieve Y" needs hedging
+    },
+    "enterprise": {
+        "evidence_coverage": 0.30,
+        "information_density": 0.25,
+        "citation_support": 0.25,         # Crunchbase / EDGAR links
+        "style_fit": 0.05,
+        "uncertainty_calibration": 0.15,
+    },
+    "marketing": {
+        "evidence_coverage": 0.20,
+        "information_density": 0.25,
+        "citation_support": 0.20,
+        "style_fit": 0.20,                # tone matters for marketing copy
+        "uncertainty_calibration": 0.15,
+    },
+    "meta": {
+        "evidence_coverage": 0.20,
+        "information_density": 0.30,      # meta pages summarise patterns
+        "citation_support": 0.20,         # link to commit / file
+        "style_fit": 0.10,
+        "uncertainty_calibration": 0.20,
     },
 }
 
@@ -163,7 +203,10 @@ def build_task_packet_template(
 
     # Domain-flavoured retrieval policy: info-heavy domains require more
     # sources and freshness.
-    info_heavy = domain_id in {"finance", "policy", "international_relations", "research"}
+    info_heavy = domain_id in {
+        "finance", "us_policy", "cn_policy", "international_relations",
+        "research", "enterprise",
+    }
     retrieval = RetrievalPolicy(
         must_search=True,
         min_sources=4 if info_heavy else 3,

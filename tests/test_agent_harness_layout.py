@@ -69,14 +69,23 @@ class AgentHarnessLayoutTests(unittest.TestCase):
         )
 
         expected_domains = {
+            # v0.13 baseline (policy renamed in v0.19)
             "engineering",
             "research",
             "photography",
             "fashion",
             "chat_relationships",
             "finance",
-            "policy",
+            "us_policy",
+            "cn_policy",
             "international_relations",
+            # v0.19 new verticals
+            "meta",
+            "fitness_wellness",
+            "cooking",
+            "travel",
+            "marketing",
+            "enterprise",
         }
         domains = profiles["domains"]
 

@@ -14,17 +14,60 @@ Claude Code 在本仓库里有两种身份：
 
 新增模型渠道、余额监控、协议转换、成本限制和路由策略，应进入 `api-management/metapi` 或 `api-management/ccLoad`，不要恢复主仓库里已经删除的旧 Provider Router / GUI。
 
-## Knowledge Plane (v0.11–v0.16)
+## 5-Plane 架构 (v0.19)
 
-本仓库现在是 Karpathy LLM-Wiki 母模板：`vault/raw → vault/evidence → vault/wiki → .omni/claims.jsonl → .omni/preference → SKILL.md`。
+v0.19 重组成 5 个 Plane,详见 [docs/architecture-v0.19.md](docs/architecture-v0.19.md):
+
+```
+Application Plane  · 日/周/月报 (ReportOrchestrator) + 对话路由 (TaskRouter)
+Interface Plane    · CLI · MCP · Email(stdlib) · Feishu/Discord(agent-harness/)
+Skill Plane        · 19 vertical skills + DSPy 5-comp + GEPA evolution
+Knowledge Plane    · 18 connectors + ClaimLedger + FTS5/Graph/Context-Pack
+Control Plane      · OperationRunner + TaskQueue + Proposal + WorkflowKernel
+```
+
+19 个 vertical-skill domains (`src/omni_hub/domain_schemas.py`):
+research / engineering / photography / fashion / chat_relationships / finance /
+us_policy / cn_policy / international_relations / ai_progress / agent_systems /
+social_en / social_zh / **meta** / **fitness_wellness** / **cooking** /
+**travel** / **marketing** / **enterprise** (粗体为 v0.19 新增,policy 拆 us/cn 也是 v0.19)。
+
+每个 domain 对应 4 处契约:
+- `vault/wiki/domains/<slug>/_schema.md` — 自动生成自 `DOMAIN_SCHEMAS`
+- `.agents/skills/<slug>-wiki/SKILL.md` — 跑 `omni-hub skill-stubs-sync` 生成
+- `agent-harness/domain-profiles.json::<slug>` — TaskPacket 模板
+- `src/omni_hub/retrieval/cascade.py::DEFAULT_DOMAIN_CASCADES[<slug>]`
+
+## Knowledge Plane (v0.11–v0.18)
+
+本仓库是 Karpathy LLM-Wiki 母模板：`vault/raw → vault/evidence → vault/wiki → .omni/claims.jsonl → .omni/preference → SKILL.md`。
 
 写入 wiki / claims 的硬规则：
 
 - **Agent 不允许直写 `vault/wiki/`**。所有变更经 `Proposal(kind=wiki_update)` 或 `Proposal(kind=lint_finding)`，人审通过后由 `wiki-apply-proposal` 落地。
 - **claim 永不删除**。需要"废弃"一条 claim 时走 `wiki-supersede` 关 `t_valid_to` + 链 `superseded_by`（Graphiti bitemporal 模式）。
 - **`vault/wiki/AGENTS.md` 是 schema 真源**。需要改 schema 时改 `src/omni_hub/knowledge_plane.py::WIKI_SCHEMA_BODY` 并 bump `WIKI_SCHEMA_VERSION`；`wiki-init` 会自动 refresh stale 文件。
-- **域子 schema 在 `src/omni_hub/domain_schemas.py`**。改完 bump `DOMAIN_SCHEMA_VERSION`；12 个 `vault/wiki/domains/<x>/_schema.md` 自动 refresh。
+- **域子 schema 在 `src/omni_hub/domain_schemas.py`**。改完 bump `DOMAIN_SCHEMA_VERSION`；19 个 `vault/wiki/domains/<x>/_schema.md` 自动 refresh。
 - **搜索默认过滤过期/被替换页**。`wiki-search` / `claims-list` 默认跳过 `t_valid_to < now` 和 `review_state ∈ {rejected, superseded}`；audit 时显式 `--include-closed`。
+
+## Interface + Application Plane (v0.19)
+
+```bash
+# Interface 健康检查
+omni-hub channel-list                                # 列 5 个 channel + health
+omni-hub channel-health --name email                 # 单 channel 详细诊断
+
+# Application 对话路由 (LLM-free heuristic, v0.19)
+omni-hub app-route-task --query "今晚做什么菜"          # → cooking skill + recommended op
+
+# Application 跨技能报告 (纯数据聚合,无 LLM)
+omni-hub app-report-build --period daily   --persist
+omni-hub app-report-build --period weekly  --persist
+omni-hub app-report-build --period monthly --persist
+
+# Skill stubs 同步 (改完 DOMAIN_SCHEMAS 后跑)
+omni-hub skill-stubs-sync                            # 19 个 SKILL.md → .agents/skills/
+```
 
 常用入口（按生命周期）：
 

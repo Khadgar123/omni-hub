@@ -58,7 +58,7 @@ def _seed_diverse_claims(root: Path) -> None:
     })
     _write_claim(root, {
         "claim_id": "c_rejected",
-        "domain": "policy", "review_state": "rejected",
+        "domain": "us_policy", "review_state": "rejected",
         "statement": "Rejected claim.",
         "support": [], "against": [], "confidence": 0.3,
         "t_valid_from": "2026-04-20T00:00:00+00:00",
@@ -144,7 +144,7 @@ class ClaimsStatsTests(unittest.TestCase):
             self.assertEqual(stats["by_state"]["superseded"], 1)
             self.assertEqual(stats["by_domain"]["research"], 3)
             self.assertEqual(stats["by_domain"]["finance"], 1)
-            self.assertEqual(stats["by_domain"]["policy"], 1)
+            self.assertEqual(stats["by_domain"]["us_policy"], 1)
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -1,0 +1,292 @@
+"""Task Router — conversational entry-point to the Skill Plane (v0.19).
+
+Routes an :class:`omni_hub.channels.InboundMessage` to the most relevant
+domain skill by keyword/heuristic match (no LLM call — v0.19 keeps the
+main repo stdlib-only).
+
+The router does NOT generate the answer.  It returns a
+:class:`RoutingDecision` containing:
+
+* the selected ``skill_id`` (one of the 19 registered skill domains),
+* a confidence score,
+* runner-up domains for human override,
+* a recommended ``OperationSpec`` the caller should run
+  (``context_pack_build`` for read-only queries,
+  ``task_enqueue --lane claude`` for generation),
+* an optional :class:`OutboundMessage` template that the caller can fill
+  in after the generation step.
+
+Downstream: the caller (CLI / channel pump) executes the OperationSpec,
+attaches the artifact, and dispatches the OutboundMessage via the channel
+that delivered the InboundMessage.
+
+For v0.19 the keyword map is hand-curated; v0.23 will swap in an
+LLM-as-Judge classifier that updates the map via PreferenceStore.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import asdict, dataclass, field
+from typing import Any
+
+from ..channels.base import InboundMessage, OutboundMessage
+
+
+# ---------------------------------------------------------------------------
+# Domain keyword map — keys match domain_schemas.DOMAIN_SCHEMAS keys.
+# Each list is ordered by specificity (rarer terms first; common ones last
+# act as fallbacks).  English + 中文 keywords are intentionally mixed because
+# the channel pump receives both.
+# ---------------------------------------------------------------------------
+
+
+_KEYWORDS: dict[str, list[str]] = {
+    "research": [
+        "paper", "arxiv", "openalex", "doi", "citation", "venue",
+        "论文", "投稿", "iclr", "neurips", "icml", "acl",
+    ],
+    "ai_progress": [
+        "claude", "gpt-5", "gemini", "llama", "anthropic", "openai",
+        "rag", "dspy", "gepa", "agent skill", "memory tool",
+        "ai 进展", "大模型",
+    ],
+    "engineering": [
+        "bug", "stack trace", "compile error", "type error", "test failure",
+        "framework", "library", "ide", "lsp", "ci pipeline",
+        "代码", "编译", "调试", "重构",
+    ],
+    "meta": [
+        "omni-hub", "this repo", "本仓库", "control plane", "knowledge plane",
+        "skill plane", "interface plane", "application plane",
+        "skill compile", "preference store", "wiki-lint",
+        "迭代系统", "改 omni",
+    ],
+    "fitness_wellness": [
+        "workout", "training", "rep", "set", "macro", "calorie", "rct",
+        "supplement", "sleep", "recovery",
+        "健身", "增肌", "减脂", "蛋白质", "营养", "睡眠", "康复",
+    ],
+    "cooking": [
+        "recipe", "knead", "braise", "ferment", "sous-vide",
+        "做饭", "菜谱", "食谱", "烘焙", "发酵", "调味",
+        "做什么菜", "今晚做什么", "做啥", "炒菜",
+        "红烧肉", "麻婆豆腐", "宫保鸡丁", "鱼香肉丝",
+    ],
+    "photography": [
+        "iso", "aperture", "shutter speed", "lens", "raw file", "lightroom",
+        "exposure", "composition", "光圈", "快门", "构图", "胶片",
+    ],
+    "fashion": [
+        "outfit", "ootd", "season", "ss26", "fw25", "tailoring",
+        "穿搭", "搭配", "时装", "穿衣",
+    ],
+    "chat_relationships": [
+        "relationship", "conversation", "social", "boundary",
+        "聊天", "回复", "对话", "关系",
+    ],
+    "travel": [
+        "itinerary", "visa", "flight", "hotel", "ryokan", "passport",
+        "旅游", "行程", "签证", "航班", "酒店",
+    ],
+    "marketing": [
+        "campaign", "ctr", "ltv", "cac", "growth hack", "viral",
+        "营销", "推广", "投放", "增长", "转化",
+    ],
+    "enterprise": [
+        "due diligence", "company report", "competitor analysis",
+        "funding round", "headcount",
+        "公司分析", "企业分析", "尽调", "竞品", "融资",
+    ],
+    "finance": [
+        "stock", "ticker", "earnings", "10-k", "fred series", "interest rate",
+        "options", "futures",
+        "股票", "美股", "a股", "财报", "利率",
+    ],
+    "us_policy": [
+        "federal register", "scotus", "congress", "bill", "regulation",
+        "us policy", "美政策", "美国政策",
+    ],
+    "cn_policy": [
+        "国务院", "央行", "证监会", "网信办", "五年规划", "中央财办",
+        "国发", "中政策", "中国政策",
+    ],
+    "international_relations": [
+        "geopolitics", "treaty", "sanction", "summit", "alliance",
+        "国际关系", "中美", "外交", "贸易战", "制裁",
+    ],
+    "agent_systems": [
+        "letta", "graphiti", "mem0", "swe-agent", "openhands", "promptfoo",
+        "agent 框架", "agent system",
+    ],
+    "social_en": [
+        "tweet", "twitter", "reddit", "hn", "hacker news",
+    ],
+    "social_zh": [
+        "微博", "小红书", "知乎", "公众号", "weixin",
+    ],
+}
+
+
+# Compile keyword patterns once at import time for cheap matching.
+_PATTERNS: dict[str, list[re.Pattern[str]]] = {
+    domain: [re.compile(rf"(?i){re.escape(kw)}") for kw in kws]
+    for domain, kws in _KEYWORDS.items()
+}
+
+
+@dataclass(slots=True)
+class RoutingDecision:
+    """The router's verdict for one InboundMessage."""
+
+    inbound_trace_id: str
+    selected_skill_id: str
+    confidence: float                         # 0..1 normalised by match count
+    matched_keywords: list[str] = field(default_factory=list)
+    runners_up: list[tuple[str, float]] = field(default_factory=list)
+    recommended_operation: str = ""           # e.g. "context_pack_build" / "task_enqueue"
+    recommended_payload: dict[str, Any] = field(default_factory=dict)
+    note: str = ""                            # human-readable explanation
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+class TaskRouter:
+    """Heuristic InboundMessage → skill_id router.
+
+    Stdlib-only.  Future versions will swap the keyword map for an
+    LLM-as-Judge classifier, but the Protocol stays stable.
+    """
+
+    DEFAULT_SKILL_ID = "research"             # fall-through default
+
+    def __init__(self, *, default_skill_id: str | None = None) -> None:
+        self.default_skill_id = default_skill_id or self.DEFAULT_SKILL_ID
+
+    def route(self, inbound: InboundMessage) -> RoutingDecision:
+        haystack = " ".join([inbound.body, inbound.subject]).strip()
+        if not haystack:
+            return RoutingDecision(
+                inbound_trace_id=inbound.trace_id,
+                selected_skill_id=self.default_skill_id,
+                confidence=0.0,
+                note="empty body — fell through to default skill",
+                recommended_operation="context_pack_build",
+                recommended_payload={
+                    "query": inbound.subject or "(empty)",
+                    "domain": self.default_skill_id,
+                    "tier": "standard",
+                },
+            )
+
+        scores: dict[str, tuple[int, list[str]]] = {}
+        for domain, patterns in _PATTERNS.items():
+            hits: list[str] = []
+            for pattern in patterns:
+                match = pattern.search(haystack)
+                if match:
+                    hits.append(match.group(0))
+            if hits:
+                scores[domain] = (len(hits), hits)
+
+        if not scores:
+            return RoutingDecision(
+                inbound_trace_id=inbound.trace_id,
+                selected_skill_id=self.default_skill_id,
+                confidence=0.0,
+                note="no keyword match — fell through to default skill",
+                recommended_operation="context_pack_build",
+                recommended_payload={
+                    "query": haystack[:200],
+                    "domain": self.default_skill_id,
+                    "tier": "standard",
+                },
+            )
+
+        ranked = sorted(scores.items(), key=lambda kv: -kv[1][0])
+        top_domain, (top_hits, top_words) = ranked[0]
+        total_hits = sum(c for c, _ in scores.values())
+        confidence = top_hits / max(total_hits, 1)
+        runners_up = [
+            (domain, hits / max(total_hits, 1))
+            for domain, (hits, _) in ranked[1:5]
+        ]
+
+        recommended_op, payload, note = self._recommend(top_domain, haystack)
+
+        return RoutingDecision(
+            inbound_trace_id=inbound.trace_id,
+            selected_skill_id=top_domain,
+            confidence=round(confidence, 3),
+            matched_keywords=top_words,
+            runners_up=runners_up,
+            recommended_operation=recommended_op,
+            recommended_payload=payload,
+            note=note,
+        )
+
+    def reply_template(
+        self,
+        inbound: InboundMessage,
+        decision: RoutingDecision,
+    ) -> OutboundMessage:
+        """Build an OutboundMessage acknowledging the routing decision.
+
+        Used by channel-pump scripts to send an immediate ack before the
+        actual generation runs through claude/codex.  The body intentionally
+        carries the trace_id so users can quote it back.
+        """
+
+        lines = [
+            f"已收到 (trace `{inbound.trace_id}`)",
+            "",
+            f"路由到 `{decision.selected_skill_id}` 技能 "
+            f"(confidence {decision.confidence:.2f},"
+            f" 匹配关键词: {', '.join(decision.matched_keywords) or '(无)'})",
+        ]
+        if decision.runners_up:
+            lines.append("候选: " + ", ".join(
+                f"`{d}` ({c:.2f})" for d, c in decision.runners_up
+            ))
+        lines.extend([
+            "",
+            f"下一步: `{decision.recommended_operation}`",
+        ])
+        return OutboundMessage.in_reply_to_msg(inbound, "\n".join(lines))
+
+    # ---- internals ----------------------------------------------
+
+    def _recommend(
+        self, domain: str, query: str,
+    ) -> tuple[str, dict[str, Any], str]:
+        """Pick a sensible default operation for the routed domain.
+
+        Most domains start with a context_pack_build (read-only); the
+        engineering / meta / enterprise domains often need write actions
+        and so are recommended to go through the claude/codex worker lane.
+        """
+
+        if domain in {"engineering", "meta", "enterprise"}:
+            return (
+                "task_enqueue",
+                {
+                    "lane": "claude",
+                    "task_type": domain,
+                    "domain_profile": domain,
+                    "goal": query[:200],
+                },
+                f"{domain} 涉及代码 / 长任务,建议走 claude/codex 异步 worker + Proposal[T]",
+            )
+        return (
+            "context_pack_build",
+            {
+                "query": query[:200],
+                "domain": domain,
+                "tier": "standard",
+            },
+            f"{domain} 是知识查询,先 build 一个 context pack",
+        )
+
+
+__all__ = ["RoutingDecision", "TaskRouter"]

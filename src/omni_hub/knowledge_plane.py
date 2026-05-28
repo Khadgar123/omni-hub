@@ -29,7 +29,7 @@ CLAIM_LEDGER_PATH = ".omni/claims.jsonl"
 CONTEXT_PACK_ROOT = ".omni/context_packs"
 RETRIEVAL_RUN_ROOT = ".omni/retrieval"
 
-WIKI_SCHEMA_VERSION = "v0.11"
+WIKI_SCHEMA_VERSION = "v0.19"
 
 WIKI_SCHEMA_BODY = """---
 omni_type: wiki_schema
@@ -75,9 +75,11 @@ frontmatter. Exemptions: `AGENTS.md`, `index.md`, `log.md`.
 ```yaml
 ---
 page_type: concept | entity | event | method | synthesis | domain_page
-domain: research | engineering | finance | policy | international_relations
-         | ai_progress | photography | fashion | chat_relationships
-         | agent_systems | social_en | social_zh
+domain: research | engineering | finance | us_policy | cn_policy
+         | international_relations | ai_progress | photography | fashion
+         | chat_relationships | agent_systems | social_en | social_zh
+         | meta | fitness_wellness | cooking | travel | marketing
+         | enterprise
 claim_ids: [c_a1b2c3d4, c_e5f6g7h8]      # cross-ref into .omni/claims.jsonl
 source_ids: [arxiv:2510.04618, doi:10.xx]  # canonical_id list backing this page
 t_valid_from: 2026-05-28                  # when content becomes correct (bitemporal)
@@ -183,12 +185,20 @@ WIKI_DIRS = (
     f"{WIKI_ROOT}/domains/fashion",
     f"{WIKI_ROOT}/domains/chat-relationships",
     f"{WIKI_ROOT}/domains/finance",
-    f"{WIKI_ROOT}/domains/policy",
+    f"{WIKI_ROOT}/domains/us-policy",
+    f"{WIKI_ROOT}/domains/cn-policy",
     f"{WIKI_ROOT}/domains/international-relations",
     f"{WIKI_ROOT}/domains/ai-progress",
     f"{WIKI_ROOT}/domains/agent-systems",
     f"{WIKI_ROOT}/domains/social-en",
     f"{WIKI_ROOT}/domains/social-zh",
+    # v0.19 additions: 6 new vertical-skill domains.
+    f"{WIKI_ROOT}/domains/meta",
+    f"{WIKI_ROOT}/domains/fitness-wellness",
+    f"{WIKI_ROOT}/domains/cooking",
+    f"{WIKI_ROOT}/domains/travel",
+    f"{WIKI_ROOT}/domains/marketing",
+    f"{WIKI_ROOT}/domains/enterprise",
 )
 
 

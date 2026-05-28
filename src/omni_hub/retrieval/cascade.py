@@ -65,9 +65,16 @@ DEFAULT_DOMAIN_CASCADES: dict[str, list[str]] = {
     "finance": [
         "edgar", "fred", "crossref", "wikidata", "openalex", "wikipedia",
     ],
-    "policy":                [
+    "us_policy":             [
         "federal_register", "regulations_gov", "congress_gov", "courtlistener",
         "brave_search", "gdelt", "internet_archive", "wikidata", "wikipedia",
+    ],
+    "cn_policy":             [
+        # gov_cn / stats_gov_cn / court_gov_cn / pbc_gov_cn connectors land
+        # in v0.21.  Until then the cascade falls through to the general
+        # search engines + wiki for context, and pages are populated by
+        # manual ``wiki-propose-research`` from user-curated PDF / link drops.
+        "brave_search", "gdelt", "wikidata", "wikipedia",
     ],
     "law": [
         "courtlistener", "federal_register", "regulations_gov", "congress_gov",
@@ -94,6 +101,30 @@ DEFAULT_DOMAIN_CASCADES: dict[str, list[str]] = {
     # don't burn budget or hit Chinese platforms unintentionally.
     "social_en":             ["x_twitter", "gdelt"],
     "social_zh":             ["xiaohongshu", "wechat_mp"],
+    # v0.19 new domain cascades.  Heavy connectors (xiaohongshu / bilibili /
+    # crunchbase / pubmed) land in v0.20-v0.22; the minimal lists below let
+    # pages exist NOW and pick up the richer sources when wired.
+    "meta": [
+        # Self-iteration skill — has no external cascade; introspects from
+        # omni-hub's own repo (git log, file walker).  Listed here so the
+        # cascade returns an empty result rather than KeyError.
+    ],
+    "fitness_wellness": [
+        "europe_pmc", "pubmed", "wikipedia",
+    ],
+    "cooking": [
+        "wikipedia",   # xiaohongshu / bilibili land v0.20
+    ],
+    "travel": [
+        "wikipedia",   # xiaohongshu / mafengwo land v0.20
+    ],
+    "marketing": [
+        "brave_search", "gdelt", "wikidata", "wikipedia",
+    ],
+    "enterprise": [
+        "edgar", "crossref", "brave_search", "wikidata", "wikipedia",
+        # crunchbase / linkedin / financial-PDF parser land v0.22.
+    ],
 }
 
 

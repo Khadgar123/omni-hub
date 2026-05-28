@@ -1,5 +1,7 @@
-"""Tests for the 12 per-domain wiki sub-schemas + materialise + per-domain
-stale_after_days lookup."""
+"""Tests for the 19 per-domain wiki sub-schemas (v0.13 had 12; v0.19 split
+``policy`` into ``us_policy`` + ``cn_policy`` and added 6 new verticals:
+meta / fitness_wellness / cooking / travel / marketing / enterprise) +
+materialise + per-domain stale_after_days lookup."""
 
 from __future__ import annotations
 
@@ -21,12 +23,17 @@ from omni_hub.domain_schemas import (
 
 
 class DomainSchemaCoverageTests(unittest.TestCase):
-    def test_all_twelve_domains_registered(self) -> None:
+    def test_all_nineteen_domains_registered(self) -> None:
         expected = {
+            # v0.13 (with policy renamed)
             "research", "engineering", "photography", "fashion",
-            "chat_relationships", "finance", "policy",
+            "chat_relationships", "finance", "us_policy",
             "international_relations", "ai_progress", "agent_systems",
             "social_en", "social_zh",
+            # v0.19 split + new
+            "cn_policy",
+            "meta", "fitness_wellness", "cooking", "travel",
+            "marketing", "enterprise",
         }
         self.assertEqual(set(DOMAIN_SCHEMAS.keys()), expected)
 
@@ -34,8 +41,7 @@ class DomainSchemaCoverageTests(unittest.TestCase):
         for slug, schema in DOMAIN_SCHEMAS.items():
             with self.subTest(slug=slug):
                 self.assertTrue(schema.position, f"{slug} missing position")
-                # social_zh might have empty authoritative_sources fine,
-                # but lint_hints must guide the user.
+                # Reactive-only domains may not need lint hints.
                 if slug not in {"chat_relationships"}:
                     self.assertTrue(schema.lint_hints, f"{slug} missing lint_hints")
 
@@ -62,7 +68,7 @@ class StaleAfterDaysLookupTests(unittest.TestCase):
 
 
 class MaterialiseTests(unittest.TestCase):
-    def test_materialise_creates_all_twelve_files(self) -> None:
+    def test_materialise_creates_all_nineteen_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             actions = materialise_all(root)
@@ -119,13 +125,24 @@ class InitLayoutMaterialisesDomainSchemasTests(unittest.TestCase):
             root = Path(tmp)
             status = knowledge_plane.init_layout(root)
             actions = status.get("domain_schemas") or {}
-            self.assertEqual(len(actions), 12)
+            self.assertEqual(len(actions), 19)
             for slug, schema in DOMAIN_SCHEMAS.items():
                 target = root / "vault" / "wiki" / "domains" / schema.folder / "_schema.md"
                 self.assertTrue(target.exists(), f"{slug} schema missing")
             # social_en / social_zh folder paths got added to WIKI_DIRS.
             self.assertTrue((root / "vault" / "wiki" / "domains" / "social-en").is_dir())
             self.assertTrue((root / "vault" / "wiki" / "domains" / "social-zh").is_dir())
+            # v0.19: policy split + 6 new vertical-skill folders.
+            self.assertTrue((root / "vault" / "wiki" / "domains" / "us-policy").is_dir())
+            self.assertTrue((root / "vault" / "wiki" / "domains" / "cn-policy").is_dir())
+            for folder in (
+                "meta", "fitness-wellness", "cooking", "travel",
+                "marketing", "enterprise",
+            ):
+                self.assertTrue(
+                    (root / "vault" / "wiki" / "domains" / folder).is_dir(),
+                    f"v0.19 domain folder missing: {folder}",
+                )
 
 
 if __name__ == "__main__":  # pragma: no cover

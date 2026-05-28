@@ -532,9 +532,13 @@ class CascadeTests(unittest.TestCase):
         result = cascade.retrieve("q", domain="x")
         self.assertEqual(result.errors[0]["source"], "nope")
 
-    def test_default_domain_cascades_cover_8_profiles(self) -> None:
-        for d in ("engineering", "research", "finance", "policy",
-                  "international_relations", "ai_progress", "default"):
+    def test_default_domain_cascades_cover_core_profiles(self) -> None:
+        # v0.19: policy split into us_policy + cn_policy + 6 new domains
+        for d in ("engineering", "research", "finance",
+                  "us_policy", "cn_policy",
+                  "international_relations", "ai_progress", "default",
+                  "meta", "fitness_wellness", "cooking", "travel",
+                  "marketing", "enterprise"):
             self.assertIn(d, DEFAULT_DOMAIN_CASCADES)
 
     def test_builtin_sources_registry_contains_all_free_connectors(self) -> None:
@@ -1960,7 +1964,7 @@ class V10CascadeIntegrationTests(unittest.TestCase):
         self.assertIn("edgar", DEFAULT_DOMAIN_CASCADES["finance"])
         self.assertIn("fred", DEFAULT_DOMAIN_CASCADES["finance"])
         self.assertIn("acled", DEFAULT_DOMAIN_CASCADES["international_relations"])
-        self.assertIn("federal_register", DEFAULT_DOMAIN_CASCADES["policy"])
+        self.assertIn("federal_register", DEFAULT_DOMAIN_CASCADES["us_policy"])
         self.assertIn("unsplash", DEFAULT_DOMAIN_CASCADES["photography"])
         # Tier-2 socials behind opt-in domains
         self.assertEqual(DEFAULT_DOMAIN_CASCADES["social_en"], ["x_twitter", "gdelt"])

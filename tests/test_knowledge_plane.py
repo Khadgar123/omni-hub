@@ -130,7 +130,7 @@ class KnowledgePlaneTests(unittest.TestCase):
             knowledge_plane.init_layout(root)
 
             new_body = schema.read_text(encoding="utf-8")
-            self.assertIn("schema_version: v0.11", new_body)
+            self.assertIn("schema_version: v0.19", new_body)
             self.assertIn("page_type: concept", new_body)
             self.assertIn("t_valid_from", new_body)
 

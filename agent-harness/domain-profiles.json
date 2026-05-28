@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "domains": {
     "engineering": {
       "goal": "Produce safe, tested, maintainable code changes from repository evidence.",
@@ -142,20 +142,45 @@
         "decision_usefulness"
       ]
     },
-    "policy": {
-      "goal": "Analyze policy questions by jurisdiction, actor incentives, legal text, implementation, and dates.",
+    "us_policy": {
+      "goal": "Analyze US federal / state policy by jurisdiction, actor incentives, legal text, implementation, and dates.",
       "required_context": [
-        "jurisdiction",
-        "policy text",
+        "jurisdiction (federal | state-XX | municipal-XX)",
+        "policy text / bill text",
         "effective dates",
-        "actors",
+        "actors (agencies, legislators, interest groups)",
         "implementation evidence",
         "opposing interpretations"
       ],
       "proposal_rules": [
-        "Use precise dates and source status.",
+        "Use precise dates and source status (proposed | active | superseded).",
         "Distinguish law, proposal, enforcement, and commentary.",
+        "Cite Federal Register / Congress.gov / CourtListener doc IDs.",
         "Represent competing interpretations without flattening them."
+      ],
+      "judge_dimensions": [
+        "source_precision",
+        "jurisdiction_fit",
+        "actor_modeling",
+        "implementation_awareness",
+        "balanced_uncertainty"
+      ]
+    },
+    "cn_policy": {
+      "goal": "分析中国政策 / 法规 / 五年规划 / 部委文件,按管辖、发布机构、生效日期、执行证据组织。",
+      "required_context": [
+        "管辖层级 (国家 | 省-XX | 直辖市-XX)",
+        "政策原文 / 文件号",
+        "生效日期 + 执行期限",
+        "发布机构 (国务院 / 央行 / 网信办 / 证监会 / ...)",
+        "执行证据 + 地方落地",
+        "对应五年规划"
+      ],
+      "proposal_rules": [
+        "引用准确文件号 (如 国发〔2026〕12号) 和生效日期。",
+        "区分国家法律、部门规章、行政决定、司法解释。",
+        "标注与上一版本的差异,不删旧版本 (走 wiki-supersede)。",
+        "对涉外政策同时链 us_policy / international_relations 的镜像页。"
       ],
       "judge_dimensions": [
         "source_precision",
@@ -187,6 +212,147 @@
         "source_reliability",
         "scenario_reasoning",
         "uncertainty_calibration"
+      ]
+    },
+    "meta": {
+      "goal": "Improve omni-hub itself by surfacing patterns from its own commit history, preference store, lint findings, and module structure.",
+      "required_context": [
+        "git log + commit messages",
+        "AGENTS.md / CLAUDE.md / docs/*",
+        "PreferenceStore accepted/rejected spans across all skills",
+        "wiki-lint finding patterns",
+        "open GitHub issues / TODO comments",
+        "module-level test coverage"
+      ],
+      "proposal_rules": [
+        "Cite specific commits / files / line numbers, not 'somewhere in the code'.",
+        "Tag every recommendation as BUILD | USE | PIN-AS-FORK | DEFER | REJECT.",
+        "Surface cross-skill patterns (a fix that helped research-wiki may apply to engineering-wiki).",
+        "Never write to vault/wiki/ directly — emit Proposal(kind=wiki_update) like every other skill."
+      ],
+      "judge_dimensions": [
+        "code_grounding",
+        "decision_clarity",
+        "cross_skill_transfer",
+        "concrete_actionability",
+        "schema_drift_awareness"
+      ]
+    },
+    "fitness_wellness": {
+      "goal": "Give actionable training / nutrition / recovery / sleep / mental-health guidance backed by RCT or meta-analysis citations.",
+      "required_context": [
+        "user goals (fat loss | hypertrophy | sport performance | rehab | sleep | mental)",
+        "current status (training history | sleep baseline | known conditions)",
+        "constraints (equipment | time | injuries | medications)",
+        "evidence grade required (RCT | meta-analysis | observational | n=1)",
+        "supplement / drug safety profile if applicable"
+      ],
+      "proposal_rules": [
+        "Causal 'do X to achieve Y' claims REQUIRE evidence_grade frontmatter + study link.",
+        "Distinguish protocols studied in lab from protocols extrapolated.",
+        "Flag any supplement / drug interaction risks.",
+        "Acknowledge individual response variance; offer ranges not point estimates."
+      ],
+      "judge_dimensions": [
+        "evidence_coverage",
+        "citation_support",
+        "safety_disclosure",
+        "individualization",
+        "actionability"
+      ]
+    },
+    "cooking": {
+      "goal": "Generate recipes / techniques / substitutions calibrated to user cuisine, equipment, time budget, and skill level.",
+      "required_context": [
+        "cuisine preference",
+        "available equipment + ingredients",
+        "time budget (active + total)",
+        "skill level",
+        "dietary constraints (allergies, vegetarian, low-sodium, ...)"
+      ],
+      "proposal_rules": [
+        "Include substitutions for hard-to-find ingredients.",
+        "Distinguish technique constraints (must-do) from style choices (taste).",
+        "Time estimates separate active from passive (rest / proof / braise).",
+        "Cite at least one source video / blog when not original."
+      ],
+      "judge_dimensions": [
+        "technique_correctness",
+        "substitution_quality",
+        "time_accuracy",
+        "flavor_balance",
+        "actionability"
+      ]
+    },
+    "travel": {
+      "goal": "Plan itineraries / lodging / transit / seasonal timing that match user goals, budget, and travel-style constraints.",
+      "required_context": [
+        "destination + duration",
+        "season + weather window",
+        "budget tier (shoestring | mid | premium | luxury)",
+        "travel style (slow | packed | foodie | nature | culture | luxury)",
+        "visa / health requirements",
+        "language barrier tolerance"
+      ],
+      "proposal_rules": [
+        "Cite government source for visa / safety claims.",
+        "Flag season mismatches (cherry-blossom claims must verify date).",
+        "Offer alternatives for sold-out / fully-booked options.",
+        "Distinguish 'tourist-must-see' from 'locals-rate-highly'."
+      ],
+      "judge_dimensions": [
+        "season_timing",
+        "budget_realism",
+        "transit_feasibility",
+        "cultural_awareness",
+        "alternative_coverage"
+      ]
+    },
+    "marketing": {
+      "goal": "Build / adapt marketing playbooks (positioning, copy, growth, channel mix) backed by recent case studies with ROI metrics.",
+      "required_context": [
+        "company stage + vertical",
+        "target audience + JTBD",
+        "current channel mix + spend",
+        "ROI target metric",
+        "recent case studies (< 6 months)"
+      ],
+      "proposal_rules": [
+        "Cite case studies with concrete ROI numbers.",
+        "Mark playbooks > 6 months old as 'verify still applicable'.",
+        "Distinguish tactics that scale from those that don't.",
+        "Flag platform-policy risks (e.g. ToS changes affecting ad approach)."
+      ],
+      "judge_dimensions": [
+        "case_recency",
+        "roi_specificity",
+        "platform_awareness",
+        "differentiation",
+        "actionability"
+      ]
+    },
+    "enterprise": {
+      "goal": "Build per-company dossiers (team + structure + funding + product + leadership change) backed by EDGAR / Crunchbase / LinkedIn evidence; support due-diligence and investment decisions.",
+      "required_context": [
+        "company name + Crunchbase UUID / LinkedIn slug / ticker",
+        "stage + vertical",
+        "headcount + funding history",
+        "product line + customer references",
+        "key personnel + recent changes",
+        "competitive set"
+      ],
+      "proposal_rules": [
+        "Cite EDGAR / Crunchbase / LinkedIn doc IDs, not blog posts.",
+        "Flag stale (> 90d) company data as needing refresh.",
+        "Track leadership departures as standalone events with date + source.",
+        "Avoid unsupported speculation about M&A / IPO timing."
+      ],
+      "judge_dimensions": [
+        "evidence_coverage",
+        "data_freshness",
+        "leadership_tracking",
+        "competitive_context",
+        "risk_disclosure"
       ]
     }
   }

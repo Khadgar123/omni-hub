@@ -11,9 +11,19 @@ Codex 或其他代码 agent 第一次进入仓库时，先读这个文件，再�
 - 主仓库只保留最小状态检查；新增网关能力优先改对应 fork，不要恢复旧 Provider Router 或 GUI。
 - 全项目当前默认 DeepSeek：配置声明在 `api-management/defaults.json`，真实 key 只允许写入 `local:omni-hub/api/deepseek/default`。
 
-## 操作模式
+## 操作模式 (v0.19 5-Plane 重组)
 
-本仓库是 **Control Plane + Worker Pool + Eval/Memory Flywheel** 三层架构，**不是聊天工具**：
+本仓库是 **5-Plane 架构**，**不是聊天工具**:
+
+- **Control Plane** — OperationRunner / TaskQueue / Proposal / Policy / Audit / WorkflowKernel / ProjectionRegistry
+- **Knowledge Plane** — Acquisition (18 connectors) + Storage (vault + ClaimLedger + projections) + Internal Retrieval (FTS5 + Graph + Context-Pack)
+- **Skill Plane** — Design Layer (DSPy 5-comp + Anthropic Skills) + Registry (19 vertical skills, see ``src/omni_hub/domain_schemas.py``) + Evolution Layer (GEPA + Preference + auto skill-sync)
+- **Interface Plane** — CLI + MCP + Email (stdlib `imaplib`/`smtplib`) + Feishu/Discord stubs (real impl in `agent-harness/integrations/`)
+- **Application Plane** — `ReportOrchestrator` (cross-skill 日/周/月报) + `TaskRouter` (对话任务路由器; LLM-free heuristic in v0.19, swap to LLM-as-Judge in v0.23)
+
+详细架构见 [docs/architecture-v0.19.md](docs/architecture-v0.19.md)。
+
+老的 3 层视图 (Control Plane + Worker Pool + Eval/Memory Flywheel) 仍然成立 — v0.19 是把它们重新组织成 5 个清晰的 Plane,旧契约 (TaskPacket / Artifact / Proposal[T]) 全部保留:
 
 ```
 TaskPacket
@@ -69,6 +79,14 @@ v0.11 起 `vault/wiki/` + `.omni/claims.jsonl` 是 Karpathy LLM-Wiki 母模板�
 - **schema 文档是代码生成的**：`vault/wiki/AGENTS.md` 由 `src/omni_hub/knowledge_plane.py::WIKI_SCHEMA_BODY` 生成，12 个 `domains/<x>/_schema.md` 由 `src/omni_hub/domain_schemas.py::DOMAIN_SCHEMAS` 生成。改 schema = 改代码 + bump `*_SCHEMA_VERSION`,**不要直接编辑生成的文件**(stale 会被 `wiki-init` 自动覆盖)。
 - **wiki-lint 六规则的域 override 写在 `DomainSchema.rule_overrides`**。新增/改 override = 改代码,不要在 finding 端 patch severity。
 - **`.omni/preference/<domain>.jsonl` 是飞轮真源**。`wiki-apply-proposal` 自动 append `decision=accepted` 一条;不要在其他路径直写 preference,确保 `harness-compile` / `harness-compile-skill` 能稳定消费。
+
+### 6. Interface + Application Plane (v0.19)
+
+- **新 Channel adapter 必须实现 `omni_hub.channels.Channel` Protocol** (`listen` / `reply` / `health_check` / `shutdown`)。
+- **重依赖 SDK 的 Channel** (lark-oapi / discord.py) 实现进 `agent-harness/integrations/<name>/`,主仓库只放 stub。Email channel 用 stdlib `imaplib`/`smtplib` 可以进主仓库。
+- **Application Plane 不直接调 LLM**。`ReportOrchestrator` 是纯数据聚合; `TaskRouter` 是关键词启发式 → 推荐 OperationSpec。需要 LLM 生成时 enqueue claude/codex lane,走 `Proposal[T]`。
+- **trace_id 必须跨 Channel + Application + Skill 全链路**。`InboundMessage.trace_id` → `OperationSpec.trace_id` → `OutboundMessage.trace_id` 三段都同值。
+- **新域要走 DOMAIN_SCHEMAS**。增加 domain = 改 `src/omni_hub/domain_schemas.py` + 改 `retrieval/cascade.py` DEFAULT_DOMAIN_CASCADES + 改 `agent-harness/domain-profiles.json` + `bump DOMAIN_SCHEMA_VERSION`,跑 `omni-hub skill-stubs-sync` 自动生成 SKILL.md。
 
 ## 本地检查
 

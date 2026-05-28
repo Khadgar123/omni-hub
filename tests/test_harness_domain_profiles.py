@@ -15,11 +15,17 @@ PROFILES_PATH = REPO / "agent-harness" / "domain-profiles.json"
 
 
 class DomainProfileLoaderTests(unittest.TestCase):
-    def test_all_eight_first_batch_domains_load(self) -> None:
+    def test_all_v019_domains_load(self) -> None:
         ids = domain_profiles.list_ids(PROFILES_PATH)
         self.assertEqual(set(ids), {
+            # v0.13 (policy renamed to us_policy in v0.19)
             "engineering", "research", "photography", "fashion",
-            "chat_relationships", "finance", "policy", "international_relations",
+            "chat_relationships", "finance",
+            "us_policy", "cn_policy",                # split in v0.19
+            "international_relations",
+            # v0.19 new verticals
+            "meta", "fitness_wellness", "cooking", "travel",
+            "marketing", "enterprise",
         })
 
     def test_each_profile_has_required_fields(self) -> None:
@@ -61,9 +67,16 @@ class TaskPacketTemplateTests(unittest.TestCase):
         self.assertIn("data_freshness", packet.judge_rubric.extras)
         self.assertIn("risk_disclosure", packet.judge_rubric.extras)
 
-    def test_policy_template_includes_jurisdiction_extras(self) -> None:
+    def test_us_policy_template_includes_jurisdiction_extras(self) -> None:
         packet = domain_profiles.build_task_packet_template(
-            "policy", path=PROFILES_PATH, goal="explain GDPR Art. 22",
+            "us_policy", path=PROFILES_PATH, goal="explain the EU AI Act fit",
+        )
+        self.assertIn("jurisdiction_fit", packet.judge_rubric.extras)
+        self.assertIn("source_precision", packet.judge_rubric.extras)
+
+    def test_cn_policy_template_includes_jurisdiction_extras(self) -> None:
+        packet = domain_profiles.build_task_packet_template(
+            "cn_policy", path=PROFILES_PATH, goal="解读最新央行规定",
         )
         self.assertIn("jurisdiction_fit", packet.judge_rubric.extras)
         self.assertIn("source_precision", packet.judge_rubric.extras)

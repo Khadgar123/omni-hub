@@ -325,9 +325,9 @@ class WeeklyScheduleTests(unittest.TestCase):
                             f"weekly should enqueue wiki-dream; got {keys}")
             self.assertTrue(any("weekly-compile-skill-research-" in k for k in keys),
                             f"weekly should compile-skill for research; got {keys}")
-            # Every domain should appear (12 in DOMAIN_SCHEMAS).
+            # Every domain should appear (19 in DOMAIN_SCHEMAS after v0.19).
             skill_tasks = [k for k in keys if k.startswith("weekly-compile-skill-")]
-            self.assertEqual(len(skill_tasks), 12)
+            self.assertEqual(len(skill_tasks), 19)
 
 
 if __name__ == "__main__":  # pragma: no cover

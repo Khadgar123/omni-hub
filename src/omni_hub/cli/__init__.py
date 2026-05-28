@@ -17,8 +17,10 @@ from ..builtins import build_default_registry
 from ..runner import OperationRunner
 from . import (
     api_management,
+    app,
     argilla,
     capture,
+    channel,
     claims,
     command,
     event,
@@ -43,6 +45,7 @@ _AREAS = [
     capture, memory, skill, api_management, policy, argilla,
     propose, task, worker, harness, reports, optimizer, event, mcp,
     retrieve, research_kb, wiki, claims, command, workflow, projection,
+    channel, app,                # v0.19 Interface + Application Plane
 ]
 
 

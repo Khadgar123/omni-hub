@@ -1850,4 +1850,145 @@ def build_default_registry(workspace: Path | str = ".") -> OperationRegistry:
     registry.register("build_daily_report", _make_build_report(workspace_path, "daily"))
     registry.register("build_weekly_report", _make_build_report(workspace_path, "weekly"))
     registry.register("build_monthly_report", _make_build_report(workspace_path, "monthly"))
+    # v0.19 Interface + Application Plane operations.
+    registry.register("channel_list", make_channel_list(workspace_path))
+    registry.register("channel_health", make_channel_health(workspace_path))
+    registry.register("app_report_build", make_app_report_build(workspace_path))
+    registry.register("app_route_task", make_app_route_task(workspace_path))
+    registry.register("skill_stubs_sync", make_skill_stubs_sync(workspace_path))
     return registry
+
+
+# ---------------------------------------------------------------------------
+# v0.19 — Interface Plane + Application Plane + skill-stub operations
+# ---------------------------------------------------------------------------
+
+
+def _default_channel_registry():
+    """Lazy-build a ChannelRegistry seeded with the stdlib channels we ship.
+
+    Imports inline so a builtins-import does not pull channels into every
+    cold start.
+    """
+
+    from .channels import (
+        CLIChannel,
+        DiscordChannel,
+        EmailChannel,
+        FeishuChannel,
+        MCPChannel,
+        ChannelRegistry,
+    )
+
+    registry = ChannelRegistry()
+    registry.register(CLIChannel())
+    registry.register(MCPChannel())
+    registry.register(EmailChannel())             # Email auto-detects env config
+    registry.register(FeishuChannel())
+    registry.register(DiscordChannel())
+    return registry
+
+
+def make_channel_list(workspace: Path):
+    def channel_list(spec: OperationSpec) -> dict:
+        registry = _default_channel_registry()
+        return {
+            "names": registry.names(),
+            "health": [h.to_dict() for h in registry.health()],
+        }
+
+    return channel_list
+
+
+def make_channel_health(workspace: Path):
+    def channel_health(spec: OperationSpec) -> dict:
+        name = str(spec.payload.get("name", "")).strip()
+        registry = _default_channel_registry()
+        if not name:
+            return {"names": registry.names(), "error": "name is required"}
+        channel = registry.get(name)
+        return channel.health_check().to_dict()
+
+    return channel_health
+
+
+def make_app_report_build(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def app_report_build(spec: OperationSpec) -> dict:
+        from .app import ReportOrchestrator, ReportPeriod
+
+        period_raw = str(spec.payload.get("period", "daily")).lower()
+        try:
+            period = ReportPeriod(period_raw)
+        except ValueError as exc:
+            raise ValueError(
+                f"unknown period {period_raw!r}; expected daily|weekly|monthly"
+            ) from exc
+        orchestrator = ReportOrchestrator(workspace_root)
+        summary = orchestrator.build(period)
+        persist = bool(spec.payload.get("persist", False))
+        persisted_path: str | None = None
+        if persist:
+            reports_dir = workspace_root / "vault" / "40_Reports" / "app"
+            reports_dir.mkdir(parents=True, exist_ok=True)
+            from datetime import UTC, datetime
+            stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+            target = reports_dir / f"{period.value}-{stamp}.md"
+            target.write_text(summary.markdown, encoding="utf-8")
+            persisted_path = str(target.relative_to(workspace_root))
+        out = summary.to_dict()
+        if persisted_path:
+            out["persisted_path"] = persisted_path
+        return out
+
+    return app_report_build
+
+
+def make_app_route_task(workspace: Path):
+    def app_route_task(spec: OperationSpec) -> dict:
+        from .app import TaskRouter
+        from .channels.base import InboundMessage
+
+        body = str(spec.payload.get("query") or spec.payload.get("body") or "").strip()
+        subject = str(spec.payload.get("subject", "")).strip()
+        sender = str(spec.payload.get("sender", "cli-user"))
+        channel = str(spec.payload.get("channel", "cli"))
+        if not body and not subject:
+            raise ValueError("query (or body) is required")
+        inbound = InboundMessage.new(
+            channel=channel, sender=sender, body=body, subject=subject,
+        )
+        router = TaskRouter()
+        decision = router.route(inbound)
+        return {
+            "inbound": inbound.to_dict(),
+            "decision": decision.to_dict(),
+            "reply_template": router.reply_template(inbound, decision).to_dict(),
+        }
+
+    return app_route_task
+
+
+def make_skill_stubs_sync(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def skill_stubs_sync(spec: OperationSpec) -> dict:
+        from .skill_stubs import regenerate_all
+
+        skills_root = str(spec.payload.get("skills_root", ".agents/skills"))
+        actions = regenerate_all(skills_root, workspace=workspace_root)
+        summary: dict[str, int] = {}
+        for action in actions:
+            summary[action.action] = summary.get(action.action, 0) + 1
+        return {
+            "skills_root": skills_root,
+            "total": len(actions),
+            "summary": summary,
+            "actions": [
+                {"skill_id": a.skill_id, "action": a.action}
+                for a in actions
+            ],
+        }
+
+    return skill_stubs_sync
