@@ -534,6 +534,241 @@ def ingest_retrieval_evidence(
     }
 
 
+def supersede_claim(
+    workspace: Path | str = ".",
+    *,
+    new_claim_id: str,
+    old_claim_id: str,
+    reason: str = "",
+) -> dict[str, object]:
+    """Close the old claim's validity window and link the new claim's
+    ``supersedes`` chain.  Bitemporal — old claim is NOT deleted, only
+    closed by setting ``t_valid_to`` (Graphiti / Zep pattern).
+
+    Atomically rewrites ``.omni/claims.jsonl`` via temp file + rename.
+    Appends a ``supersede`` entry to ``vault/wiki/log.md``.
+    """
+
+    if new_claim_id == old_claim_id:
+        raise ValueError("new_claim_id and old_claim_id must differ")
+
+    workspace_root = Path(workspace).resolve()
+    ledger = workspace_root / CLAIM_LEDGER_PATH
+    if not ledger.exists():
+        raise FileNotFoundError(f"claim ledger not found at {ledger}")
+
+    claims: list[dict[str, object]] = []
+    for line in ledger.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            claims.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+
+    new_claim: dict[str, object] | None = None
+    old_claim: dict[str, object] | None = None
+    for claim in claims:
+        cid = str(claim.get("claim_id", ""))
+        if cid == new_claim_id:
+            new_claim = claim
+        elif cid == old_claim_id:
+            old_claim = claim
+    if new_claim is None:
+        raise KeyError(f"new claim_id not found: {new_claim_id}")
+    if old_claim is None:
+        raise KeyError(f"old claim_id not found: {old_claim_id}")
+
+    timestamp = _utcnow()
+    old_claim["t_valid_to"] = timestamp
+    old_claim["superseded_by"] = new_claim_id
+    old_existing_state = str(old_claim.get("review_state", ""))
+    if old_existing_state != "rejected":
+        old_claim["review_state"] = "superseded"
+    old_claim["updated_at"] = timestamp
+
+    existing_supersedes = list(new_claim.get("supersedes", []) or [])
+    if old_claim_id not in existing_supersedes:
+        existing_supersedes.append(old_claim_id)
+    new_claim["supersedes"] = existing_supersedes
+    new_claim["updated_at"] = timestamp
+
+    # Atomic rewrite — temp file + os.replace.
+    tmp = ledger.with_suffix(".jsonl.tmp")
+    with tmp.open("w", encoding="utf-8") as handle:
+        for claim in claims:
+            handle.write(json.dumps(claim, ensure_ascii=False, sort_keys=True) + "\n")
+    tmp.replace(ledger)
+
+    append_log(
+        workspace_root,
+        op="supersede",
+        summary=f"{new_claim_id} supersedes {old_claim_id}"
+                + (f" — {reason}" if reason else ""),
+        source=f"claim:{old_claim_id}",
+    )
+
+    return {
+        "new_claim_id": new_claim_id,
+        "old_claim_id": old_claim_id,
+        "t_valid_to": timestamp,
+        "reason": reason,
+        "ledger_path": str(ledger.relative_to(workspace_root)),
+    }
+
+
+def resolve_conflict(
+    workspace: Path | str = ".",
+    *,
+    proposal_id: str,
+    decision: str,
+    new_claim_id: str = "",
+    old_claim_id: str = "",
+    reason: str = "",
+) -> dict[str, object]:
+    """Apply a resolution to a ``lint_finding`` proposal of rule
+    ``contradiction``.  Four decisions:
+
+    * ``keep_both``    — both claims kept, both marked ``review_state=conflict``.
+    * ``reject_old``   — older claim (lower t_valid_from) set ``review_state=rejected``.
+    * ``reject_new``   — newer claim set ``review_state=rejected``.
+    * ``supersede``    — newer claim supersedes older claim (bitemporal close).
+
+    The proposal itself is then approved with the decision recorded as the
+    approve reason; the lint pass on the next run will see the cleared
+    state.
+    """
+
+    workspace_root = Path(workspace).resolve()
+    store = ProposalStore(workspace_root)
+    proposal = store.load(proposal_id)
+    if proposal.kind != "lint_finding":
+        raise ValueError(
+            f"resolve_conflict only handles kind='lint_finding'; got {proposal.kind!r}"
+        )
+    payload = dict(proposal.payload or {})
+    if payload.get("rule") != "contradiction":
+        raise ValueError(
+            f"resolve_conflict only handles contradiction findings; got rule={payload.get('rule')!r}"
+        )
+
+    affected = list(payload.get("affected_claim_ids", []))
+    if len(affected) != 2:
+        raise ValueError(
+            f"contradiction finding must reference exactly 2 claim_ids; got {affected}"
+        )
+
+    resolved_new, resolved_old = _order_pair_by_time(workspace_root, affected, new_claim_id, old_claim_id)
+
+    decision = decision.strip().lower()
+    output: dict[str, object] = {
+        "proposal_id": proposal_id,
+        "decision": decision,
+        "new_claim_id": resolved_new,
+        "old_claim_id": resolved_old,
+    }
+
+    if decision == "keep_both":
+        _mark_claim_state(workspace_root, resolved_new, state="conflict")
+        _mark_claim_state(workspace_root, resolved_old, state="conflict")
+    elif decision == "reject_old":
+        _mark_claim_state(workspace_root, resolved_old, state="rejected")
+    elif decision == "reject_new":
+        _mark_claim_state(workspace_root, resolved_new, state="rejected")
+    elif decision == "supersede":
+        supersede_claim(
+            workspace_root,
+            new_claim_id=resolved_new,
+            old_claim_id=resolved_old,
+            reason=reason or f"conflict-resolve via {proposal_id}",
+        )
+    else:
+        raise ValueError(
+            f"unknown decision {decision!r}; expected keep_both|reject_old|reject_new|supersede"
+        )
+
+    store.approve(proposal_id, reason=f"resolved={decision}: {reason}", decided_by="local-user")
+    append_log(
+        workspace_root,
+        op="conflict-resolve",
+        summary=f"{decision}: {resolved_new} vs {resolved_old}"
+                + (f" — {reason}" if reason else ""),
+        source=f"proposal:{proposal_id}",
+    )
+    return output
+
+
+def _order_pair_by_time(
+    workspace: Path,
+    affected: list[str],
+    explicit_new: str,
+    explicit_old: str,
+) -> tuple[str, str]:
+    """Decide which of the two affected claim_ids is "new" and which "old".
+
+    Explicit overrides win when both are supplied; otherwise we sort by
+    ``t_valid_from`` (newer first).  Falls back to the order found in the
+    proposal's ``affected_claim_ids`` list (which is sorted by claim_id
+    text in the lint module).
+    """
+
+    if explicit_new and explicit_old:
+        if {explicit_new, explicit_old} != set(affected):
+            raise ValueError(
+                "explicit new/old claim_ids must match the affected pair "
+                f"{affected}"
+            )
+        return explicit_new, explicit_old
+
+    ledger = workspace / CLAIM_LEDGER_PATH
+    times: dict[str, str] = {}
+    if ledger.exists():
+        for line in ledger.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            cid = str(record.get("claim_id", ""))
+            if cid in affected:
+                times[cid] = str(record.get("t_valid_from") or record.get("updated_at") or "")
+
+    ordered = sorted(affected, key=lambda cid: times.get(cid, ""), reverse=True)
+    return ordered[0], ordered[1]
+
+
+def _mark_claim_state(workspace: Path, claim_id: str, *, state: str) -> None:
+    ledger = workspace / CLAIM_LEDGER_PATH
+    if not ledger.exists():
+        raise FileNotFoundError(f"claim ledger not found at {ledger}")
+    timestamp = _utcnow()
+    found = False
+    claims: list[dict[str, object]] = []
+    for line in ledger.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if str(record.get("claim_id", "")) == claim_id:
+            record["review_state"] = state
+            record["updated_at"] = timestamp
+            found = True
+        claims.append(record)
+    if not found:
+        raise KeyError(f"claim_id not found: {claim_id}")
+    tmp = ledger.with_suffix(".jsonl.tmp")
+    with tmp.open("w", encoding="utf-8") as handle:
+        for record in claims:
+            handle.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
+    tmp.replace(ledger)
+
+
 def build_context_pack(
     workspace: Path | str = ".",
     *,
@@ -623,6 +858,7 @@ def _claims_from_research_entry(
         str(entry.get("core_operator", "")).strip(),
         str(entry.get("primary_logic", "")).strip(),
     ]
+    now = _utcnow()
     claims: list[dict[str, object]] = []
     for statement in statements:
         if not statement:
@@ -637,6 +873,10 @@ def _claims_from_research_entry(
                 "confidence": 0.68,
                 "uncertainty": "single-source research evidence; keep open to later conflict checks",
                 "review_state": "proposed",
+                "t_valid_from": now,
+                "t_valid_to": None,
+                "supersedes": [],
+                "superseded_by": None,
             }
         )
     return claims
@@ -812,6 +1052,7 @@ def _claims_from_retrieval_records(
                 "t_valid_from": _utcnow(),
                 "t_valid_to": None,
                 "supersedes": [],
+                "superseded_by": None,
             }
         )
     return claims

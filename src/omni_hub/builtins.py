@@ -806,6 +806,64 @@ def make_wiki_ingest(workspace: Path):
     return wiki_ingest
 
 
+def make_wiki_lint(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def wiki_lint(spec: OperationSpec) -> dict[str, object]:
+        from .wiki_lint import lint_wiki
+
+        payload = spec.payload
+        domain = str(payload.get("domain", "")).strip() or None
+        rules_raw = payload.get("rules")
+        rules = list(rules_raw) if rules_raw else None
+        report = lint_wiki(
+            workspace_root,
+            domain=domain,
+            rules=rules,
+            stale_after_days=int(payload.get("stale_after_days", 30)),
+            persist_proposals=bool(payload.get("persist", False)),
+        )
+        return report.to_dict()
+
+    return wiki_lint
+
+
+def make_wiki_supersede(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def wiki_supersede(spec: OperationSpec) -> dict[str, object]:
+        from .knowledge_plane import supersede_claim
+
+        payload = spec.payload
+        return supersede_claim(
+            workspace_root,
+            new_claim_id=str(payload["new_claim_id"]),
+            old_claim_id=str(payload["old_claim_id"]),
+            reason=str(payload.get("reason", "")),
+        )
+
+    return wiki_supersede
+
+
+def make_wiki_conflict_resolve(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def wiki_conflict_resolve(spec: OperationSpec) -> dict[str, object]:
+        from .knowledge_plane import resolve_conflict
+
+        payload = spec.payload
+        return resolve_conflict(
+            workspace_root,
+            proposal_id=str(payload["proposal_id"]),
+            decision=str(payload["decision"]),
+            new_claim_id=str(payload.get("new_claim_id", "")),
+            old_claim_id=str(payload.get("old_claim_id", "")),
+            reason=str(payload.get("reason", "")),
+        )
+
+    return wiki_conflict_resolve
+
+
 def make_wiki_log_append(workspace: Path):
     workspace_root = workspace.resolve()
 
@@ -1340,6 +1398,9 @@ def build_default_registry(workspace: Path | str = ".") -> OperationRegistry:
     registry.register("wiki_propose_research", make_wiki_propose_research(workspace_path))
     registry.register("wiki_apply_proposal", make_wiki_apply_proposal(workspace_path))
     registry.register("wiki_ingest", make_wiki_ingest(workspace_path))
+    registry.register("wiki_lint", make_wiki_lint(workspace_path))
+    registry.register("wiki_supersede", make_wiki_supersede(workspace_path))
+    registry.register("wiki_conflict_resolve", make_wiki_conflict_resolve(workspace_path))
     registry.register("wiki_log_append", make_wiki_log_append(workspace_path))
     registry.register("context_pack_build", make_context_pack_build(workspace_path))
     registry.register("memory_remember_core", make_memory_remember_core(workspace_path))
