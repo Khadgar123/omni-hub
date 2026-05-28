@@ -305,24 +305,29 @@ source -> claim -> sentence -> judge -> human choice -> positive/negative exampl
 - 本地 pilot Opik。
 - 如果 trace/eval/cost dashboard 明显优于轻量自建，再 fork。
 
-## 立即可开发的主仓库模块
+## 当前已落地的主仓库模块
 
 已落地（2026-05-28）：
 
 ```text
-src/omni_hub/harness/__init__.py        # 包入口
 src/omni_hub/harness/models.py          # TaskPacket / GenerationRecord / Candidate / JudgeScore / HumanFeedback
-src/omni_hub/harness/ensemble.py        # 多模型 fanout via ccLoad（无权重自进化第一步）
-tests/test_harness_models.py            # contract 单测
-tests/test_harness_ensemble.py          # mock HTTP 单测
+src/omni_hub/harness/ensemble.py        # 多模型 fanout via ccLoad
+src/omni_hub/proposals.py               # 统一 Proposal[T] + SQLite ProposalStore
+src/omni_hub/queue.py                   # AgentJob Queue + visibility timeout + lease fencing
+src/omni_hub/workers/                   # Artifact / WorkerAdapter / builtin / claude / codex
+src/omni_hub/reports/                   # 日/周/月报构建
+scripts/launchd/                        # macOS 后台调度模板
 ```
 
 CLI 子命令已注册：
 
 - `harness-task-validate --file packet.json`：验证 Task Packet 字段+权重和
 - `harness-ensemble --prompt "..." --model A --model B [--dry-run]`：N 路 candidates，落 GenerationRecord JSON
+- `task-enqueue` / `task-list` / `worker --lane <lane>`：后台队列和 worker pool
+- `propose-list` / `propose-approve` / `propose-reject`：统一人工审批出口
+- `schedule-tick --period daily|weekly|monthly`：入队例行扫描和报表任务
 
-Makefile 目标已加：`make harness-status`、`make harness-add-pending dspy openhands opik`、`make harness-ensemble -- --prompt "..."`。
+Makefile 目标已加：`make harness-status`、`make harness-add-pending dspy openhands opik`、`make schedule-install-dry`、`make worker-python`。
 
 下一步（按 12 周路线）：
 
@@ -330,8 +335,8 @@ Makefile 目标已加：`make harness-status`、`make harness-add-pending dspy o
 src/omni_hub/harness/judge_ensemble.py  # 多 judge + BiasScope 五维偏差自检
 src/omni_hub/harness/grounding.py       # atomic claim + per-claim citation 强制
 src/omni_hub/harness/dspy_compile.py    # 调 agent-harness/dspy 跑 BootstrapFewShot
-src/omni_hub/harness/redundancy.py      # duplicate/stale/conflict/low_signal → proposal
-src/omni_hub/reports/                   # 日/周/月报模板（消费 memory）
+src/omni_hub/workers/openhands.py       # OpenHands adapter，lane=openhands
+src/omni_hub/mcp_server.py              # 将 task/proposal/memory/harness 暴露给 MCP client
 ```
 
 设计原则不变：先做主仓库 contract，再接外部服务。外部 fork 替换不动摇 `TaskPacket` / `GenerationRecord` 这两个核心契约。

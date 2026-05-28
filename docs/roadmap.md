@@ -8,14 +8,15 @@ v0.4（外部入口）与 v0.5（长任务队列）合并到这一阶段的最�
 | 模块 | 状态 | 关键文件 |
 | --- | --- | --- |
 | 统一 `Proposal[T]` + SQLite store + `propose-list/approve/reject` | ✅ | [proposals.py](../src/omni_hub/proposals.py)、[cli/propose.py](../src/omni_hub/cli/propose.py) |
-| `TaskQueue` + 原子 claim + visibility timeout | ✅ | [queue.py](../src/omni_hub/queue.py)、[cli/task.py](../src/omni_hub/cli/task.py) |
+| `TaskQueue` + 原子 claim + visibility timeout + lease fencing | ✅ | [queue.py](../src/omni_hub/queue.py)、[cli/task.py](../src/omni_hub/cli/task.py) |
 | `Artifact` + `WorkerAdapter` 协议 + `BuiltinAdapter` | ✅ | [workers/base.py](../src/omni_hub/workers/base.py)、[workers/builtin.py](../src/omni_hub/workers/builtin.py) |
 | `ClaudeAdapter` + `CodexAdapter` headless adapters | ✅ | [workers/claude.py](../src/omni_hub/workers/claude.py)、[workers/codex.py](../src/omni_hub/workers/codex.py) |
-| `omni-hub worker --lane <lane>` daemon + `schedule-tick --period ...` | ✅ | [cli/worker.py](../src/omni_hub/cli/worker.py) |
-| launchd plists + `make schedule-install/uninstall` | ✅ | [scripts/launchd/](../scripts/launchd/)、[scripts/install_launchd.py](../scripts/install_launchd.py) |
+| `omni-hub worker --lane <lane>` daemon + gated agent proposals | ✅ | [cli/worker.py](../src/omni_hub/cli/worker.py) |
+| `schedule-tick --period ...` + 日/周/月报任务 | ✅ | [builtins.py](../src/omni_hub/builtins.py)、[reports/](../src/omni_hub/reports/) |
+| launchd plists + Python 3.12 guard + `make schedule-install/uninstall` | ✅ | [scripts/launchd/](../scripts/launchd/)、[scripts/install_launchd.py](../scripts/install_launchd.py) |
 | AGENTS.md / CLAUDE.md 4 条工程硬约束 | ✅ | [AGENTS.md](../AGENTS.md) |
 
-测试覆盖：147 个单测（v0.6 的 101 个 + Phase 1 新增 46 个）。
+测试覆盖：162 个单测（v0.6 的 101 个 + Phase 1 和修复回归新增用例）。
 
 下一步候选（v0.8）：
 
