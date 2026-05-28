@@ -71,6 +71,39 @@ class RecallMemoryTests(unittest.TestCase):
             self.assertEqual(store.recall_search("  "), [])
 
 
+class ArchivalMemoryTests(unittest.TestCase):
+    def test_archival_search_forwards_to_full_search(self) -> None:
+        from omni_hub.proposals import (
+            EntityProposal,
+            Proposal,
+            RelationProposal,
+            PENDING,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = MemoryStore(tmp)
+            # Seed archival data through digest_proposal (standard path).
+            proposal = Proposal(
+                kind="knowledge",
+                state=PENDING,
+                title="Karpathy LLM Wiki",
+                summary="A compiled, file-first knowledge layer for agents.",
+                source_path="vault/00_Inbox/karpathy.md",
+                payload={
+                    "entities": [EntityProposal("LLM Wiki", "concept", "Karpathy proposal", 0.9).to_dict()],
+                    "relations": [RelationProposal("LLM Wiki", "evolves", "context", "gist quote", 0.8).to_dict()],
+                },
+            )
+            store.digest_proposal(proposal)
+
+            hits = store.archival_search("Karpathy")
+            self.assertGreaterEqual(len(hits), 1)
+            self.assertTrue(any(h.title.lower() == "llm wiki" or "karpathy" in h.title.lower() for h in hits))
+
+            # Empty query returns empty list (matches CLI semantics).
+            self.assertEqual(store.archival_search(""), [])
+
+
 class StatsExposesTierCountsTests(unittest.TestCase):
     def test_stats_includes_tier_counts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

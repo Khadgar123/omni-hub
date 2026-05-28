@@ -476,7 +476,7 @@ def make_memory_recall(workspace: Path):
         if tier == "archival":
             return {
                 "tier": "archival",
-                "results": [r.to_dict() for r in store.search(query, limit=limit)] if query else [],
+                "results": [r.to_dict() for r in store.archival_search(query, limit=limit)] if query else [],
             }
         raise ValueError(f"unknown tier: {tier!r}; expected core|recall|archival")
 
@@ -781,6 +781,46 @@ def make_wiki_apply_proposal(workspace: Path):
         )
 
     return wiki_apply_proposal
+
+
+def make_wiki_ingest(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def wiki_ingest(spec: OperationSpec) -> dict[str, object]:
+        from .knowledge_plane import ingest_retrieval_evidence
+
+        payload = spec.payload
+        domain = str(payload.get("domain", "")).strip() or None
+        result = ingest_retrieval_evidence(
+            workspace_root,
+            run_id=str(payload["run_id"]),
+            domain=domain,
+            title=str(payload.get("title", "")),
+            max_records=int(payload.get("max_records", 20)),
+        )
+        proposal = result.get("proposal")
+        if hasattr(proposal, "to_dict"):
+            result["proposal"] = proposal.to_dict()
+        return result
+
+    return wiki_ingest
+
+
+def make_wiki_log_append(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def wiki_log_append(spec: OperationSpec) -> dict[str, object]:
+        from .knowledge_plane import append_log
+
+        payload = spec.payload
+        return append_log(
+            workspace_root,
+            op=str(payload["op"]),
+            summary=str(payload["summary"]),
+            source=str(payload.get("source", "")),
+        )
+
+    return wiki_log_append
 
 
 def make_context_pack_build(workspace: Path):
@@ -1299,6 +1339,8 @@ def build_default_registry(workspace: Path | str = ".") -> OperationRegistry:
     registry.register("wiki_search", make_wiki_search(workspace_path))
     registry.register("wiki_propose_research", make_wiki_propose_research(workspace_path))
     registry.register("wiki_apply_proposal", make_wiki_apply_proposal(workspace_path))
+    registry.register("wiki_ingest", make_wiki_ingest(workspace_path))
+    registry.register("wiki_log_append", make_wiki_log_append(workspace_path))
     registry.register("context_pack_build", make_context_pack_build(workspace_path))
     registry.register("memory_remember_core", make_memory_remember_core(workspace_path))
     registry.register("memory_forget_core", make_memory_forget_core(workspace_path))

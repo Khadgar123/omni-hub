@@ -354,6 +354,25 @@ class MemoryStore:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def archival_search(
+        self,
+        query: str,
+        *,
+        limit: int = 20,
+    ) -> list[MemorySearchResult]:
+        """Archival tier search.
+
+        Letta convention: archival = unbounded long-term store of
+        documents/entities/relations. Implementation forwards to
+        :meth:`search` which already covers all three tables.
+
+        Kept as a named method so the three-tier contract (core / recall /
+        archival) is symmetric on the MemoryStore surface and the CLI
+        ``memory-recall --tier archival`` has a clear callee.
+        """
+
+        return self.search(query, limit=limit)
+
     def recall_search(
         self,
         query: str,

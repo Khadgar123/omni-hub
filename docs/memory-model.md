@@ -9,6 +9,20 @@
 .omni/audit/events.jsonl  ← 所有 operation 的审计日志
 ```
 
+v0.9 起新增 Knowledge Plane。它不是 MemoryStore 的替代品，而是更上层的
+Karpathy-style compiled wiki：
+
+```text
+vault/raw/          ← append-only source material
+vault/evidence/     ← parsed evidence
+vault/wiki/         ← human-readable compiled wiki
+.omni/claims.jsonl  ← approved atomic claims
+.omni/context_packs ← task-specific context bundles
+```
+
+因此边界是：`vault/wiki` 承担长期可读知识库，`MemoryStore` 承担 approved memory /
+实体关系 fallback，不再试图把所有 ResearchFlow / PaperBite 论文笔记灌入 SQLite。
+
 外加一个**派生层**（不是 source-of-truth）：
 
 ```

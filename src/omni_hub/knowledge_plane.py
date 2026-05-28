@@ -27,6 +27,142 @@ RAW_ROOT = "vault/raw"
 EVIDENCE_ROOT = "vault/evidence"
 CLAIM_LEDGER_PATH = ".omni/claims.jsonl"
 CONTEXT_PACK_ROOT = ".omni/context_packs"
+RETRIEVAL_RUN_ROOT = ".omni/retrieval"
+
+WIKI_SCHEMA_VERSION = "v0.11"
+
+WIKI_SCHEMA_BODY = """---
+omni_type: wiki_schema
+schema_version: {version}
+---
+
+# Omni Wiki Schema
+
+This is the contract every agent reads before writing into `vault/wiki/`.
+It is the Karpathy *schema layer* — the file that tells an LLM how the wiki
+is structured. Editing this file is a wiki-wide change: bump `schema_version`
+and append a migration note to `log.md`.
+
+## Three-Layer Lineage
+
+```
+vault/raw/          append-only source material (retrieval cascade output)
+vault/evidence/     parsed, normalised evidence (one record per source hit)
+vault/wiki/         compiled, human-readable knowledge (THIS directory)
+.omni/claims.jsonl  reviewed atomic claims, indexed by claim_id
+```
+
+The wiki is the **compiled layer**. It is rebuilt from raw+evidence on
+`wiki-ingest`; it is NOT re-derived per query. The retrieval cascade
+(`omni-hub retrieve`) is the upstream Ingest data source.
+
+## Page Types
+
+Every `.md` under `vault/wiki/` SHOULD declare a `page_type` in YAML
+frontmatter. Exemptions: `AGENTS.md`, `index.md`, `log.md`.
+
+| page_type     | Where                              | Purpose                                |
+|---------------|------------------------------------|----------------------------------------|
+| `concept`     | `concepts/<slug>.md`               | Named idea (e.g. context-engineering)  |
+| `entity`      | `entities/<slug>.md`               | Person / org / product / model         |
+| `event`       | `events/<slug>.md`                 | Conference / release / incident        |
+| `method`      | `methods/<slug>.md`                | Technique / algorithm / pattern        |
+| `synthesis`   | `syntheses/<slug>.md`              | Cross-source compiled findings         |
+| `domain_page` | `domains/<domain>/<slug>.md`      | Deep page (paper, product, policy)     |
+
+## Required Frontmatter
+
+```yaml
+---
+page_type: concept | entity | event | method | synthesis | domain_page
+domain: research | engineering | finance | policy | international_relations
+         | ai_progress | photography | fashion | chat_relationships
+         | agent_systems | social_en | social_zh
+claim_ids: [c_a1b2c3d4, c_e5f6g7h8]      # cross-ref into .omni/claims.jsonl
+source_ids: [arxiv:2510.04618, doi:10.xx]  # canonical_id list backing this page
+t_valid_from: 2026-05-28                  # when content becomes correct (bitemporal)
+t_valid_to: null                          # null = still valid; set on supersede
+superseded_by: null                       # path to replacement page, or null
+confidence: high | medium | low
+review_state: approved | proposed | conflict
+---
+```
+
+`t_valid_from / t_valid_to` follow the Graphiti / Zep bitemporal model: old
+facts are NEVER deleted, only closed by setting `t_valid_to`. This keeps the
+audit trail intact and lets queries pin a viewing date.
+
+## Linking Rules
+
+- **Internal links use wiki style**: `[[other-page-slug]]` or
+  `[[other-page-slug|Display Text]]`.
+- **Never use absolute filesystem paths** to other wiki pages.
+- **Evidence references use citation markers**: `[1]`, `[2]` corresponding to
+  a trailing `## References` section listing `source_id` + `vault/evidence/...`
+  path or external URL.
+- **Cross-domain references** are allowed but both pages SHOULD declare each
+  other in `claim_ids` to keep the graph consistent.
+
+## Write Boundary
+
+- **Agents propose, humans approve.** Agents write `Proposal(kind="wiki_update")`
+  via `wiki-ingest` or `wiki-propose-research`. The proposal carries the
+  target page body + a list of candidate claims. Only after human
+  `propose-approve` and `wiki-apply-proposal` does content land in `vault/wiki/`.
+- **Direct agent writes are forbidden.** The single exception: `log.md` is
+  append-only and may be written by `wiki-log` operations as an audit trail.
+- **Manual edits are first-class.** A human may edit any wiki page directly
+  in Obsidian / a text editor. After manual edits, run `wiki-lint` to surface
+  inconsistencies (broken refs, stale claims, conflicts).
+
+## Lint Rules (`wiki-lint`)
+
+`wiki-lint` produces `Proposal(kind="lint_finding")` for each issue. Rules:
+
+1. **Contradiction** — two claims sharing a statement key but opposite stance
+   (one in `support`, one in `against`).
+2. **Stale fact** — page with `t_valid_to < now()` and no `superseded_by`.
+3. **Orphan page** — page with no inbound `[[...]]` link from `index.md` or
+   from any other page.
+4. **Missing concept page** — a claim references an entity/concept slug that
+   has no dedicated page under `concepts/` or `entities/`.
+5. **Broken cross-ref** — frontmatter `claim_ids` entry absent from
+   `.omni/claims.jsonl`.
+6. **Data gap** — page tagged `confidence: low` for > 30 days with no
+   subsequent `wiki-ingest` enrichment.
+
+## Log Format
+
+`log.md` is append-only and chronological. Each entry header MUST be:
+
+```
+## [YYYY-MM-DDTHH:MM:SSZ] op | one-line summary
+- source: <path | proposal_id | run_id>
+```
+
+Where `op` is one of: `ingest`, `apply`, `lint`, `supersede`, `conflict-resolve`,
+`manual`. Tail with `grep "^## \\[" vault/wiki/log.md | tail -10`.
+
+## Index Format
+
+`index.md` is content-oriented navigation, not chronological. New entries
+auto-append on `wiki-apply-proposal`. Edit by hand to add topical groupings,
+"see also" sections, or to demote noisy pages.
+
+## Domain Sub-Schemas
+
+A domain MAY override or extend this schema by writing
+`domains/<domain>/_schema.md`. Domain sub-schemas can:
+
+- Add required frontmatter fields for that domain (e.g. research domain may
+  require `paper_link`).
+- Declare authoritative source priorities (e.g. policy domain prefers
+  `federal_register` over `gdelt`).
+- Define domain-specific lint rules.
+
+A page's domain sub-schema takes precedence over this global schema where they
+conflict; the global schema sets the floor.
+""".format(version=WIKI_SCHEMA_VERSION)
 
 WIKI_DIRS = (
     RAW_ROOT,
@@ -104,15 +240,20 @@ def init_layout(workspace: Path | str = ".") -> dict[str, object]:
         "# Omni Wiki Log\n\n"
         "Append-only operation log for ingest, query, lint, and apply events.\n",
     )
-    _write_if_missing(
-        workspace_root / WIKI_ROOT / "AGENTS.md",
-        "# Omni Wiki Schema\n\n"
-        "- Raw sources are append-only evidence.\n"
-        "- The wiki is the compiled, human-readable knowledge layer.\n"
-        "- Agent-written wiki changes must be proposed before being applied.\n"
-        "- Claims must keep source refs, uncertainty, and conflict state.\n",
-    )
+    # AGENTS.md is canonical schema — overwrite if stale (older than current version).
+    schema_path = workspace_root / WIKI_ROOT / "AGENTS.md"
+    if not schema_path.exists() or _schema_is_stale(schema_path):
+        schema_path.write_text(WIKI_SCHEMA_BODY, encoding="utf-8")
     return status(workspace_root)
+
+
+def _schema_is_stale(path: Path) -> bool:
+    """True if AGENTS.md is older than the current WIKI_SCHEMA_VERSION marker."""
+    try:
+        head = path.read_text(encoding="utf-8")[:400]
+    except OSError:
+        return True
+    return f"schema_version: {WIKI_SCHEMA_VERSION}" not in head
 
 
 def status(workspace: Path | str = ".") -> dict[str, object]:
@@ -259,7 +400,7 @@ def apply_wiki_proposal(
     target.parent.mkdir(parents=True, exist_ok=True)
     body = str(proposal.payload["body"])
     target.write_text(body.rstrip() + "\n", encoding="utf-8")
-    _append_log(workspace_root, f"apply | {proposal.title}", proposal.source_path)
+    append_log(workspace_root, op="apply", summary=proposal.title, source=proposal.source_path)
     _upsert_index_entry(workspace_root, target.relative_to(workspace_root), proposal.title, proposal.summary)
     claims_written = _append_claims(
         workspace_root,
@@ -273,6 +414,123 @@ def apply_wiki_proposal(
         "target_path": str(target.relative_to(workspace_root)),
         "claims_written": claims_written,
         "log_path": f"{WIKI_ROOT}/log.md",
+    }
+
+
+def ingest_retrieval_evidence(
+    workspace: Path | str = ".",
+    *,
+    run_id: str,
+    domain: str | None = None,
+    title: str = "",
+    max_records: int = 20,
+) -> dict[str, object]:
+    """Bridge a retrieval cascade run into the wiki Ingest pipeline.
+
+    Reads ``.omni/retrieval/<run_id>/{run_manifest.json,evidence.jsonl}``,
+    writes one normalised file per record under ``vault/evidence/<domain>/``,
+    and emits a single ``Proposal(kind="wiki_update")`` whose ``payload``
+    carries a synthesis page body + N candidate claims. Approve via
+    ``propose-approve`` then materialise via ``wiki-apply-proposal``.
+
+    This is the Karpathy ``Ingest`` operation. It is the only path by which
+    raw retrieval output becomes wiki content; direct writes to ``vault/wiki``
+    are forbidden by the schema.
+    """
+
+    workspace_root = Path(workspace).resolve()
+    init_layout(workspace_root)
+
+    run_dir = safe_workspace_path(workspace_root, f"{RETRIEVAL_RUN_ROOT}/{run_id}")
+    manifest_path = run_dir / "run_manifest.json"
+    evidence_path = run_dir / "evidence.jsonl"
+    if not manifest_path.exists():
+        raise FileNotFoundError(f"no retrieval run manifest at {manifest_path}")
+    if not evidence_path.exists():
+        raise FileNotFoundError(f"no evidence file at {evidence_path}")
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    query = str(manifest.get("query", "")).strip()
+    resolved_domain = (domain or str(manifest.get("domain", "default"))).strip() or "default"
+    resolved_title = (title or query or f"ingest-{run_id}").strip()
+
+    records: list[dict[str, object]] = []
+    for line in evidence_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            records.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+        if len(records) >= max_records:
+            break
+
+    evidence_files = _write_evidence_files(workspace_root, resolved_domain, run_id, records)
+
+    target_path = _synthesis_target_path(resolved_title, run_id)
+    claims = _claims_from_retrieval_records(
+        records,
+        domain=resolved_domain,
+        query=query,
+    )
+    body = _render_synthesis_page(
+        title=resolved_title,
+        run_id=run_id,
+        query=query,
+        domain=resolved_domain,
+        manifest=manifest,
+        records=records,
+        evidence_files=evidence_files,
+        claims=claims,
+    )
+    summary = (
+        f"retrieval ingest: {len(records)} records / {len(claims)} claim candidates "
+        f"from run {run_id} [{resolved_domain}]"
+    )
+
+    proposal = Proposal(
+        kind="wiki_update",
+        state=PENDING,
+        title=resolved_title,
+        summary=summary[:500],
+        source_path=f"{RETRIEVAL_RUN_ROOT}/{run_id}",
+        confidence=0.55,
+        suggested_action="review_and_apply_wiki_patch",
+        payload={
+            "target_path": target_path,
+            "domain": resolved_domain,
+            "body": body,
+            "claims": claims,
+            "ingest": {
+                "run_id": run_id,
+                "query": query,
+                "record_count": len(records),
+                "evidence_files": evidence_files,
+                "fusion": manifest.get("fusion", ""),
+                "sources_succeeded": list(manifest.get("sources_succeeded", [])),
+            },
+        },
+    )
+    paths = ProposalStore(workspace_root).store(proposal, write_card=False)
+
+    append_log(
+        workspace_root,
+        op="ingest",
+        summary=summary,
+        source=f"{RETRIEVAL_RUN_ROOT}/{run_id}",
+    )
+
+    return {
+        "proposal_id": proposal.proposal_id,
+        "proposal": proposal,
+        "run_id": run_id,
+        "domain": resolved_domain,
+        "target_path": target_path,
+        "record_count": len(records),
+        "claim_count": len(claims),
+        "evidence_files": evidence_files,
+        **paths,
     }
 
 
@@ -431,10 +689,33 @@ def _render_research_wiki_page(
     return "\n".join(lines) + "\n"
 
 
-def _append_log(workspace: Path, title: str, source_path: str) -> None:
-    log_path = workspace / WIKI_ROOT / "log.md"
+def append_log(
+    workspace: Path | str,
+    *,
+    op: str,
+    summary: str,
+    source: str = "",
+) -> dict[str, object]:
+    """Append an audit entry to vault/wiki/log.md (Karpathy log format).
+
+    Header pattern: ``## [YYYY-MM-DDTHH:MM:SSZ] op | summary``.
+    ``op`` is one of ingest | apply | lint | supersede | conflict-resolve | manual.
+    """
+    workspace_root = Path(workspace).resolve()
+    log_path = workspace_root / WIKI_ROOT / "log.md"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    timestamp = _utcnow()
+    line_summary = summary.replace("\n", " ").strip()[:200]
+    source_line = f"- source: {source}\n" if source else "- source: (none)\n"
     with log_path.open("a", encoding="utf-8") as handle:
-        handle.write(f"\n## [{_utcnow()}] {title}\n\n- source: {source_path}\n")
+        handle.write(f"\n## [{timestamp}] {op} | {line_summary}\n{source_line}")
+    return {
+        "log_path": f"{WIKI_ROOT}/log.md",
+        "op": op,
+        "summary": line_summary,
+        "source": source,
+        "timestamp": timestamp,
+    }
 
 
 def _upsert_index_entry(workspace: Path, relative_path: Path, title: str, summary: str) -> None:
@@ -445,6 +726,205 @@ def _upsert_index_entry(workspace: Path, relative_path: Path, title: str, summar
         return
     with index_path.open("a", encoding="utf-8") as handle:
         handle.write(f"\n{marker} — {summary[:180]}\n")
+
+
+def _write_evidence_files(
+    workspace: Path,
+    domain: str,
+    run_id: str,
+    records: list[dict[str, object]],
+) -> list[str]:
+    """Persist one normalised JSON per retrieval record under vault/evidence/<domain>/.
+
+    Each file is the durable evidence anchor that a wiki page cites.  Filename
+    pattern keeps run provenance: ``<run_id>__<idx>__<canonical_hash>.json``.
+    """
+
+    domain_dir = safe_workspace_path(workspace, f"{EVIDENCE_ROOT}/{_slugify(domain)}")
+    domain_dir.mkdir(parents=True, exist_ok=True)
+    written: list[str] = []
+    for idx, record in enumerate(records, start=1):
+        canonical = str(record.get("canonical_id") or record.get("url") or f"r{idx}")
+        digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:10]
+        evidence_record = {
+            "run_id": run_id,
+            "record_idx": idx,
+            "cite_id": record.get("cite_id", ""),
+            "source": record.get("source", ""),
+            "title": record.get("title", ""),
+            "url": record.get("url", ""),
+            "snippet": record.get("snippet", ""),
+            "canonical_id": canonical,
+            "fetched_at": record.get("fetched_at", _utcnow()),
+            "score": record.get("score"),
+        }
+        file_name = f"{run_id}__{idx:03d}__{digest}.json"
+        target = domain_dir / file_name
+        target.write_text(
+            json.dumps(evidence_record, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        written.append(str(target.relative_to(workspace)))
+    return written
+
+
+def _claims_from_retrieval_records(
+    records: list[dict[str, object]],
+    *,
+    domain: str,
+    query: str,
+) -> list[dict[str, object]]:
+    """Generate one candidate claim per record.
+
+    Conservative: confidence 0.5 (web evidence, single-source),
+    review_state=proposed, bitemporal fields populated.  Lint + human review
+    sharpen these later.
+    """
+
+    claims: list[dict[str, object]] = []
+    seen_statements: set[str] = set()
+    for record in records:
+        snippet = str(record.get("snippet", "")).strip()
+        if not snippet:
+            continue
+        statement = _first_sentence(snippet, max_chars=280)
+        if not statement or statement.lower() in seen_statements:
+            continue
+        seen_statements.add(statement.lower())
+        canonical = str(record.get("canonical_id") or record.get("url") or "")
+        claims.append(
+            {
+                "claim_id": _stable_id("claim", domain, query, canonical, statement),
+                "domain": domain,
+                "statement": statement,
+                "support": [
+                    {
+                        "source_id": canonical,
+                        "cite_id": record.get("cite_id", ""),
+                        "url": record.get("url", ""),
+                        "source": record.get("source", ""),
+                    }
+                ],
+                "against": [],
+                "confidence": 0.5,
+                "uncertainty": "single-source retrieval evidence; awaits cross-source confirmation",
+                "review_state": "proposed",
+                "t_valid_from": _utcnow(),
+                "t_valid_to": None,
+                "supersedes": [],
+            }
+        )
+    return claims
+
+
+def _synthesis_target_path(title: str, run_id: str) -> str:
+    slug = _slugify(title) or _slugify(run_id)
+    return f"{WIKI_ROOT}/syntheses/{slug}.md"
+
+
+def _first_sentence(text: str, *, max_chars: int = 280) -> str:
+    compact = re.sub(r"\s+", " ", text).strip()
+    if not compact:
+        return ""
+    match = re.search(r"[。.!?！？]\s", compact[:max_chars + 60])
+    if match:
+        return compact[: match.end()].strip()
+    return compact[:max_chars].strip()
+
+
+def _render_synthesis_page(
+    *,
+    title: str,
+    run_id: str,
+    query: str,
+    domain: str,
+    manifest: dict[str, object],
+    records: list[dict[str, object]],
+    evidence_files: list[str],
+    claims: list[dict[str, object]],
+) -> str:
+    source_ids = [
+        str(r.get("canonical_id") or r.get("url") or f"r{idx}")
+        for idx, r in enumerate(records, start=1)
+    ]
+    claim_id_list = [c["claim_id"] for c in claims]
+
+    lines = [
+        "---",
+        "page_type: synthesis",
+        f"domain: {domain}",
+        f"claim_ids: {json.dumps(claim_id_list, ensure_ascii=False)}",
+        f"source_ids: {json.dumps(source_ids, ensure_ascii=False)}",
+        f"t_valid_from: {_utcnow()}",
+        "t_valid_to: null",
+        "superseded_by: null",
+        "confidence: medium",
+        "review_state: proposed",
+        f"ingest_run_id: {run_id}",
+        "---",
+        "",
+        f"# {title}",
+        "",
+        "## Question",
+        "",
+        query or "(no query recorded)",
+        "",
+        "## Sources",
+        "",
+    ]
+    for idx, record in enumerate(records, start=1):
+        cite = record.get("cite_id") or f"R{idx}"
+        src = record.get("source", "")
+        rec_title = str(record.get("title", "")).strip() or "(untitled)"
+        url = record.get("url", "")
+        lines.append(f"- [{cite}] **{rec_title}** — {src} — {url}")
+
+    lines.extend(["", "## Compiled Findings", ""])
+    if records:
+        for idx, record in enumerate(records, start=1):
+            cite = record.get("cite_id") or f"R{idx}"
+            snippet = str(record.get("snippet", "")).strip()
+            if not snippet:
+                continue
+            lines.append(f"- [{cite}] {snippet[:600]}")
+    else:
+        lines.append("- (no retrieval records — manifest may be stale)")
+
+    lines.extend(["", "## Candidate Claims", ""])
+    if claims:
+        for claim in claims:
+            lines.append(f"- `{claim['claim_id']}` ({claim['confidence']:.2f}) {claim['statement']}")
+    else:
+        lines.append("- (no candidate claims extracted)")
+
+    lines.extend(["", "## Evidence Files", ""])
+    for path in evidence_files:
+        lines.append(f"- `{path}`")
+
+    lines.extend([
+        "",
+        "## References",
+        "",
+    ])
+    for idx, record in enumerate(records, start=1):
+        cite = record.get("cite_id") or f"R{idx}"
+        url = record.get("url", "")
+        src = record.get("source", "")
+        canonical = record.get("canonical_id", "")
+        lines.append(f"- [{cite}] {src} · {canonical} · {url}")
+
+    fusion = manifest.get("fusion", "")
+    sources_succeeded = ", ".join(map(str, manifest.get("sources_succeeded", []) or []))
+    lines.extend([
+        "",
+        "## Ingest Metadata",
+        "",
+        f"- run_id: `{run_id}`",
+        f"- fusion: {fusion or '(none)'}",
+        f"- sources_succeeded: {sources_succeeded or '(none)'}",
+        f"- record_count: {len(records)}",
+    ])
+    return "\n".join(lines) + "\n"
 
 
 def _append_claims(

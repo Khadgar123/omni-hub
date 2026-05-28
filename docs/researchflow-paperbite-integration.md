@@ -51,6 +51,9 @@ into the main repository and are not routed through a personal fork.
 ```text
 TaskPacket / user research task
   -> research-kb-search over ResearchFlow + PaperBite
+  -> wiki-propose-research for selected evidence
+  -> Proposal(kind="wiki_update") -> human approve -> wiki-apply-proposal
+  -> vault/wiki/domains/research/* + .omni/claims.jsonl
   -> context pack with cited analysis_path rows
   -> Claude / Codex / OpenHands worker generation
   -> GroundingReport: citation density + low-signal spans
@@ -89,6 +92,20 @@ PYTHONPATH=src python -m omni_hub.cli researchflow-skills
 
 This makes the ResearchFlow demo vault and PaperBite evidence vault part of the
 omni-hub knowledge plane without copying their notes into `vault/`.
+
+The compiled-wiki surface is:
+
+```bash
+PYTHONPATH=src python -m omni_hub.cli wiki-init
+PYTHONPATH=src python -m omni_hub.cli wiki-propose-research --source paperbite --path "analysis/ICLR_2026/<note>.md"
+PYTHONPATH=src python -m omni_hub.cli propose-approve --id <proposal-id> --reason "reviewed"
+PYTHONPATH=src python -m omni_hub.cli wiki-apply-proposal --proposal <proposal-id>
+PYTHONPATH=src python -m omni_hub.cli context-pack-build --query "agent context engineering" --domain research --persist
+```
+
+ResearchFlow remains the research workflow engine; PaperBite remains the
+read-only evidence vault; Omni Hub compiles selected evidence into the global
+wiki only after the Proposal gate.
 
 ## Development Rule
 
