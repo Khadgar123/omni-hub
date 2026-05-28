@@ -22,12 +22,17 @@ Only skills tightly coupled to **this repository's domain**: API management,
 vault capture, memory search, registry orchestration. One subdirectory per
 skill, each with its own `SKILL.md`.
 
-| skill id                | scope                                              |
-| ----------------------- | -------------------------------------------------- |
-| api-management-status   | inspect metapi + ccLoad local stack                |
-| url-capture (TODO)      | wrap omni_hub.cli capture-url                      |
-| memory-search (TODO)    | wrap omni_hub.cli memory-search                    |
-| skill-registry (TODO)   | wrap omni_hub.cli skill-register / skill-list      |
+| skill id                       | scope                                                                |
+| ------------------------------ | -------------------------------------------------------------------- |
+| api-management-status          | inspect metapi + ccLoad local stack                                  |
+| retrieve                       | router for the federated Retrieval Plane (cascade + RRF + grader)    |
+| retrieve-cascade               | run cascade with parallel fan-out + RRF / concat fusion              |
+| retrieve-domain-source-map     | pure lookup — which sources serve which domain                       |
+| retrieve-grade-and-fuse        | CRAG-style grader + RRF post-cascade quality gate                    |
+| retrieve-evidence-pin          | persist `.omni/retrieval/<run_id>/{manifest,sources,evidence.jsonl}` |
+| url-capture (TODO)             | wrap omni_hub.cli capture-url                                        |
+| memory-search (TODO)           | wrap omni_hub.cli memory-search                                      |
+| skill-registry (TODO)          | wrap omni_hub.cli skill-register / skill-list                        |
 
 ## Anti-patterns
 
