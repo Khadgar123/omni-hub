@@ -1010,6 +1010,167 @@ def make_wiki_reindex(workspace: Path):
     return wiki_reindex
 
 
+def make_wiki_graph_query(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def wiki_graph_query(spec: OperationSpec) -> dict[str, object]:
+        from .wiki_graph import query_community, query_neighbours
+
+        payload = spec.payload
+        if payload.get("community"):
+            return query_community(workspace_root, community_id=str(payload["community"]))
+        if payload.get("node"):
+            return query_neighbours(
+                workspace_root,
+                node_id=str(payload["node"]),
+                limit=int(payload.get("limit", 20)),
+            )
+        raise ValueError("wiki_graph_query requires 'node' or 'community' in payload")
+
+    return wiki_graph_query
+
+
+def make_projection_list(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def projection_list(spec: OperationSpec) -> dict[str, object]:
+        from .projection import build_default_projection_registry
+
+        registry = build_default_projection_registry(workspace_root)
+        return registry.overview()
+
+    return projection_list
+
+
+def make_projection_rebuild(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def projection_rebuild(spec: OperationSpec) -> dict[str, object]:
+        from .projection import build_default_projection_registry
+
+        registry = build_default_projection_registry(workspace_root)
+        snapshot = registry.rebuild(str(spec.payload["target"]))
+        return snapshot.to_dict()
+
+    return projection_rebuild
+
+
+def make_projection_snapshots(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def projection_snapshots(spec: OperationSpec) -> dict[str, object]:
+        from .projection import build_default_projection_registry
+
+        registry = build_default_projection_registry(workspace_root)
+        snaps = registry.list_snapshots(
+            str(spec.payload["target"]),
+            limit=int(spec.payload.get("limit", 20)),
+        )
+        return {"count": len(snaps), "snapshots": [s.to_dict() for s in snaps]}
+
+    return projection_snapshots
+
+
+def make_projection_rollback(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def projection_rollback(spec: OperationSpec) -> dict[str, object]:
+        from .projection import build_default_projection_registry
+
+        registry = build_default_projection_registry(workspace_root)
+        snap = registry.rollback(
+            str(spec.payload["target"]),
+            str(spec.payload["snapshot"]),
+        )
+        return snap.to_dict()
+
+    return projection_rollback
+
+
+def make_workflow_list(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def workflow_list(spec: OperationSpec) -> dict[str, object]:
+        from .workflow import WorkflowStore
+
+        store = WorkflowStore(workspace_root)
+        runs = store.list_workflows(
+            state=spec.payload.get("state"),
+            limit=int(spec.payload.get("limit", 50)),
+        )
+        return {
+            "count": len(runs),
+            "workflows": [r.to_dict() for r in runs],
+        }
+
+    return workflow_list
+
+
+def make_workflow_show(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def workflow_show(spec: OperationSpec) -> dict[str, object]:
+        from .workflow import WorkflowStore
+
+        store = WorkflowStore(workspace_root)
+        run_id = str(spec.payload["run_id"])
+        wf = store.get_workflow(run_id)
+        steps = store.list_steps(run_id)
+        return {
+            "workflow": wf.to_dict(),
+            "steps": [s.to_dict() for s in steps],
+        }
+
+    return workflow_show
+
+
+def make_workflow_signal(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def workflow_signal(spec: OperationSpec) -> dict[str, object]:
+        from .workflow import WorkflowStore
+
+        payload = spec.payload
+        store = WorkflowStore(workspace_root)
+        signal_id = store.send_signal(
+            str(payload["run_id"]),
+            str(payload["name"]),
+            dict(payload.get("payload", {})),
+        )
+        return {"signal_id": signal_id, "trace_id": spec.trace_id}
+
+    return workflow_signal
+
+
+def make_workflow_query(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def workflow_query(spec: OperationSpec) -> dict[str, object]:
+        from .workflow import WorkflowStore
+
+        payload = spec.payload
+        store = WorkflowStore(workspace_root)
+        return store.serve_query(
+            str(payload["run_id"]),
+            str(payload.get("name", "state")),
+        )
+
+    return workflow_query
+
+
+def make_workflow_resume(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def workflow_resume(spec: OperationSpec) -> dict[str, object]:
+        from .workflow import WorkflowStore
+
+        store = WorkflowStore(workspace_root)
+        wf = store.resume(str(spec.payload["run_id"]))
+        return wf.to_dict()
+
+    return workflow_resume
+
+
 def make_wiki_log_append(workspace: Path):
     workspace_root = workspace.resolve()
 
@@ -1669,6 +1830,16 @@ def build_default_registry(workspace: Path | str = ".") -> OperationRegistry:
     registry.register("claims_list", make_claims_list(workspace_path))
     registry.register("claims_show", make_claims_show(workspace_path))
     registry.register("claims_stats", make_claims_stats(workspace_path))
+    registry.register("wiki_graph_query", make_wiki_graph_query(workspace_path))
+    registry.register("projection_list", make_projection_list(workspace_path))
+    registry.register("projection_rebuild", make_projection_rebuild(workspace_path))
+    registry.register("projection_snapshots", make_projection_snapshots(workspace_path))
+    registry.register("projection_rollback", make_projection_rollback(workspace_path))
+    registry.register("workflow_list", make_workflow_list(workspace_path))
+    registry.register("workflow_show", make_workflow_show(workspace_path))
+    registry.register("workflow_signal", make_workflow_signal(workspace_path))
+    registry.register("workflow_query", make_workflow_query(workspace_path))
+    registry.register("workflow_resume", make_workflow_resume(workspace_path))
     registry.register("wiki_log_append", make_wiki_log_append(workspace_path))
     registry.register("context_pack_build", make_context_pack_build(workspace_path))
     registry.register("memory_tool", make_memory_tool(workspace_path))

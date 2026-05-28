@@ -38,6 +38,20 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         ),
     )
 
+    graph = subparsers.add_parser(
+        "wiki-graph",
+        help=(
+            "Query the GraphRAG-style projection (v0.18-J).  --node returns "
+            "co-cited neighbours (local mode);  --community returns a "
+            "Leiden-style community summary (global mode)."
+        ),
+    )
+    graph.add_argument("--node", default="",
+                        help="Node id (canonical_id or entity slug)")
+    graph.add_argument("--community", default="",
+                        help="Community id (returned by --node lookup)")
+    graph.add_argument("--limit", type=int, default=20)
+
     propose = subparsers.add_parser("wiki-propose-research")
     propose.add_argument("--source", required=True, choices=["researchflow", "paperbite"])
     propose.add_argument("--path", required=True)
@@ -188,6 +202,23 @@ def _reindex(args, *, runner, workspace) -> int:
             action="reindex",
             payload={},
             risk_level=RiskLevel.LOCAL_WRITE,
+        ),
+    )
+
+
+def _graph(args, *, runner, workspace) -> int:
+    payload: dict[str, object] = {"limit": args.limit}
+    if args.community:
+        payload["community"] = args.community
+    elif args.node:
+        payload["node"] = args.node
+    else:
+        raise SystemExit("--node or --community required")
+    return run_and_print(
+        runner,
+        OperationSpec(
+            name="wiki_graph_query", action="query",
+            payload=payload, risk_level=RiskLevel.READ_ONLY,
         ),
     )
 
@@ -370,6 +401,7 @@ COMMANDS = {
     "wiki-lint": _lint,
     "wiki-reindex": _reindex,
     "wiki-doctor": _doctor,
+    "wiki-graph": _graph,
     "wiki-supersede": _supersede,
     "wiki-conflict-resolve": _conflict_resolve,
     "context-pack-build": _context_pack,

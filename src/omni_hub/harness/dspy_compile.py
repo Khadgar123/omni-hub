@@ -270,6 +270,106 @@ def _bump_version(version: str) -> str:
 
 
 @dataclass(slots=True)
+class SkillSignature:
+    """v0.18-K: DSPy-style typed I/O signature for a compiled skill.
+
+    Carries the input/output schema so a Skills-aware runtime (Claude
+    Code / Codex / Cursor) can wire the compiled skill as a typed tool.
+    """
+
+    skill_id: str
+    domain: str
+    inputs: dict = field(default_factory=lambda: {
+        "task": {"type": "string", "description": "task description"},
+        "context": {"type": "string", "description": "compiled context pack"},
+    })
+    outputs: dict = field(default_factory=lambda: {
+        "answer": {"type": "string", "description": "ground-truth answer with citations"},
+    })
+    schema_version: str = "v0.18"
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+@dataclass(slots=True)
+class SkillMetric:
+    """v0.18-K: objective the optimizer is tuning."""
+
+    name: str = "preference_accuracy"
+    description: str = "rate of human accept on next sample after compile"
+    higher_is_better: bool = True
+    last_score: float | None = None
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+@dataclass(slots=True)
+class SkillModule:
+    """v0.18-K: composition unit (think DSPy Module).  For now we have
+    one Module per skill (system prompt + few-shot demos);  v0.19+ can
+    introduce ChainOfThought / ReAct subclasses without touching the
+    Signature/Metric/Optimizer/CompiledSkill surface."""
+
+    module_type: str = "PromptedFewShot"
+    demos_hash: str = ""
+    prompt_hash: str = ""
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+@dataclass(slots=True)
+class SkillOptimizer:
+    """v0.18-K: optimizer that compiled the current artifact.
+
+    ``backend`` mirrors CompileReport.backend (manual-fewshot / dspy /
+    gepa);  ``trace_count`` is how many preference traces fed the
+    optimizer (positive + negative)."""
+
+    backend: str = "manual-fewshot"
+    trace_count: int = 0
+    parameters: dict = field(default_factory=dict)
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+@dataclass(slots=True)
+class CompiledSkill:
+    """v0.18-K: the artifact subtype emitted by compile_skill_md.
+
+    Pulls Signature/Module/Metric/Optimizer into one typed envelope so
+    downstream consumers (SkillRegistry / MCP exposure / DSPy
+    integration later) get a stable contract.
+    """
+
+    skill_id: str
+    domain: str
+    target_path: str
+    signature: SkillSignature
+    module: SkillModule
+    metric: SkillMetric
+    optimizer: SkillOptimizer
+    bytes_written: int
+    created_at: str = field(default_factory=_utcnow)
+
+    def to_dict(self) -> dict:
+        return {
+            "skill_id": self.skill_id,
+            "domain": self.domain,
+            "target_path": self.target_path,
+            "signature": self.signature.to_dict(),
+            "module": self.module.to_dict(),
+            "metric": self.metric.to_dict(),
+            "optimizer": self.optimizer.to_dict(),
+            "bytes_written": self.bytes_written,
+            "created_at": self.created_at,
+        }
+
+
+@dataclass(slots=True)
 class SkillCompileReport:
     skill_id: str
     domain: str
@@ -280,6 +380,7 @@ class SkillCompileReport:
     negative_used: int
     bytes_written: int
     skill_sync: dict = field(default_factory=dict)            # v0.17-D
+    compiled_skill: dict = field(default_factory=dict)        # v0.18-K
     created_at: str = field(default_factory=_utcnow)
 
     def to_dict(self) -> dict:
@@ -374,6 +475,31 @@ def compile_skill_md(
     except Exception as exc:                                    # noqa: BLE001
         sync_result = {"error": f"{type(exc).__name__}: {exc}"}
 
+    # v0.18-K: emit a typed CompiledSkill artifact alongside the markdown.
+    import hashlib as _hashlib
+    body_hash = _hashlib.sha256(body.encode("utf-8")).hexdigest()[:16]
+    demos_hash = _hashlib.sha256(
+        ("|".join(p.candidate_text for p in positives)).encode("utf-8")
+    ).hexdigest()[:16]
+    compiled = CompiledSkill(
+        skill_id=skill_id,
+        domain=domain,
+        target_path=str(target),
+        signature=SkillSignature(skill_id=skill_id, domain=domain),
+        module=SkillModule(
+            module_type="PromptedFewShot",
+            demos_hash=demos_hash,
+            prompt_hash=body_hash,
+        ),
+        metric=SkillMetric(),
+        optimizer=SkillOptimizer(
+            backend=prompt_compile_report.backend,
+            trace_count=len(positives) + len(negatives),
+            parameters={"max_positive": max_positive, "max_negative": max_negative},
+        ),
+        bytes_written=target.stat().st_size,
+    )
+
     return SkillCompileReport(
         skill_id=skill_id,
         domain=domain,
@@ -384,6 +510,7 @@ def compile_skill_md(
         negative_used=len(negatives),
         bytes_written=target.stat().st_size,
         skill_sync=sync_result,
+        compiled_skill=compiled.to_dict(),
     )
 
 

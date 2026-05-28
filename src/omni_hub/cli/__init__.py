@@ -31,16 +31,18 @@ from . import (
     reports,
     research_kb,
     retrieve,
+    projection,
     skill,
     task,
     wiki,
     worker,
+    workflow,
 )
 
 _AREAS = [
     capture, memory, skill, api_management, policy, argilla,
     propose, task, worker, harness, reports, optimizer, event, mcp,
-    retrieve, research_kb, wiki, claims, command,
+    retrieve, research_kb, wiki, claims, command, workflow, projection,
 ]
 
 
