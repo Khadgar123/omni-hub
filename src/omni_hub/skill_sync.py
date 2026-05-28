@@ -45,6 +45,7 @@ from pathlib import Path
 from typing import Any
 
 from ._storage import safe_workspace_path
+from .models import RiskLevel
 from .skills import SkillKind, SkillSpec, SkillStatus
 
 
@@ -255,7 +256,10 @@ def _spec_from_md(
         version=str(omni.get("version", "0.1.0")),
         status=SkillStatus(str(omni.get("status", "active"))),
         entrypoint=str(omni.get("entrypoint", "")),
-        risk_level=str(omni.get("risk_level", "L0")),
+        # v0.39 — parse MD-side risk_level through RiskLevel so the diff
+        # against registry/skills.json compares enum-to-enum, not
+        # string-to-int.
+        risk_level=RiskLevel.parse(omni.get("risk_level", "L0")),
         required_permissions=list(permissions),
         connectors=list(connectors),
         tags=list(tags),
@@ -263,6 +267,26 @@ def _spec_from_md(
         outputs=dict(omni.get("outputs", {})),
         source_path=source_path,
     )
+
+
+def _normalise_for_diff(field: str, value: Any) -> str:
+    """Canonical-stringify a field value so MD-side / registry-side
+    representations compare equal.
+
+    Without this, ``risk_level`` drifted as "L0" (MD) vs "0" (registry)
+    because IntEnum.value returns the int while string-from-MD stays a
+    string — flagged in the v0.37 review as the last skill-sync noise.
+    """
+
+    if field == "risk_level":
+        try:
+            return RiskLevel.parse(value).code
+        except Exception:                                      # noqa: BLE001
+            return str(value)
+    # Enum / IntEnum — use .value for canonical form.
+    if hasattr(value, "value"):
+        return str(value.value)
+    return str(value)
 
 
 def _registry_specs(registry_path: Path) -> dict[str, SkillSpec]:
@@ -361,16 +385,14 @@ def sync_skills(
         md = md_specs[skill_id]
         reg = reg_specs[skill_id]
         diffs: dict[str, dict[str, Any]] = {}
-        # Diff a handful of important fields
+        # Diff a handful of important fields.  ``_normalise_for_diff``
+        # collapses Enum / IntEnum / RiskLevel to a canonical string so
+        # the v0.37 review's "L0 vs 0" drift disappears.
         for field in ("name", "description", "kind", "entrypoint", "risk_level"):
             md_value = getattr(md, field, "")
             reg_value = getattr(reg, field, "")
-            md_str = (
-                md_value.value if hasattr(md_value, "value") else str(md_value)
-            )
-            reg_str = (
-                reg_value.value if hasattr(reg_value, "value") else str(reg_value)
-            )
+            md_str = _normalise_for_diff(field, md_value)
+            reg_str = _normalise_for_diff(field, reg_value)
             if md_str != reg_str:
                 diffs[field] = {"md": md_str, "registry": reg_str}
         if diffs:

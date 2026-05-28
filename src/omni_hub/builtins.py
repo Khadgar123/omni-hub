@@ -1874,7 +1874,265 @@ def build_default_registry(workspace: Path | str = ".") -> OperationRegistry:
     registry.register("task_add", make_task_add(workspace_path))
     registry.register("finance_screen", make_finance_screen(workspace_path))
     registry.register("order_propose", make_order_propose(workspace_path))
+    # v0.39 — read paths + missing CRUD so CLI commands map 1:1.
+    registry.register("user_list", make_user_list(workspace_path))
+    registry.register("user_enroll", make_user_enroll(workspace_path))
+    registry.register("user_approve", make_user_approve(workspace_path))
+    registry.register("user_set_persona", make_user_set_persona(workspace_path))
+    registry.register("user_memory_recall", make_user_memory_recall(workspace_path))
+    registry.register("user_memory_archival", make_user_memory_archival(workspace_path))
+    registry.register("calendar_list", make_calendar_list(workspace_path))
+    registry.register("task_list_personal", make_task_list_personal(workspace_path))
+    registry.register("task_done", make_task_done(workspace_path))
+    registry.register("project_list", make_project_list(workspace_path))
+    registry.register("project_show", make_project_show(workspace_path))
+    registry.register("finance_watch_create", make_finance_watch_create(workspace_path))
+    registry.register("finance_watch_list", make_finance_watch_list(workspace_path))
+    registry.register("finance_portfolio_stats", make_finance_portfolio_stats(workspace_path))
     return registry
+
+
+# ---------------------------------------------------------------------------
+# v0.39 — read paths + CRUD wrappers (so CLI subcommands map 1:1)
+# ---------------------------------------------------------------------------
+
+
+def make_user_list(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def user_list(spec: OperationSpec) -> dict:
+        from .users import UserProfileStore
+        store = UserProfileStore(workspace_root)
+        users = store.list()
+        return {"count": len(users), "users": [u.to_dict() for u in users]}
+
+    return user_list
+
+
+def make_user_enroll(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def user_enroll(spec: OperationSpec) -> dict:
+        from .users import UserProfileStore
+        handle = str(spec.payload.get("handle", "")).strip()
+        if not handle:
+            raise ValueError("handle is required")
+        store = UserProfileStore(workspace_root)
+        return store.enroll(handle=handle).to_dict()
+
+    return user_enroll
+
+
+def make_user_approve(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def user_approve(spec: OperationSpec) -> dict:
+        from .users import UserProfileStore
+        user_id = str(spec.payload.get("user_id", "")).strip()
+        if not user_id:
+            raise ValueError("user_id is required")
+        store = UserProfileStore(workspace_root)
+        return store.approve(user_id).to_dict()
+
+    return user_approve
+
+
+def make_user_set_persona(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def user_set_persona(spec: OperationSpec) -> dict:
+        from .users import UserProfileStore
+        user_id = str(spec.payload.get("user_id", "")).strip()
+        block = str(spec.payload.get("block", ""))
+        if not user_id:
+            raise ValueError("user_id is required")
+        return UserProfileStore(workspace_root).set_persona_block(user_id, block).to_dict()
+
+    return user_set_persona
+
+
+def make_user_memory_recall(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def user_memory_recall(spec: OperationSpec) -> dict:
+        from .users import PerUserMemoryStore
+        user_id = str(spec.payload.get("user_id", "")).strip()
+        if not user_id:
+            raise ValueError("user_id is required")
+        entries = PerUserMemoryStore(workspace_root).list_recall(
+            user_id, limit=int(spec.payload.get("limit", 50)),
+        )
+        return {"count": len(entries), "entries": [e.to_dict() for e in entries]}
+
+    return user_memory_recall
+
+
+def make_user_memory_archival(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def user_memory_archival(spec: OperationSpec) -> dict:
+        from .users import PerUserMemoryStore
+        user_id = str(spec.payload.get("user_id", "")).strip()
+        query = str(spec.payload.get("query", "")).strip()
+        if not user_id or not query:
+            raise ValueError("user_id and query are required")
+        hits = PerUserMemoryStore(workspace_root).search_archival(
+            user_id, query, limit=int(spec.payload.get("limit", 20)),
+        )
+        return {"count": len(hits), "hits": [h.to_dict() for h in hits]}
+
+    return user_memory_archival
+
+
+def make_calendar_list(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def calendar_list(spec: OperationSpec) -> dict:
+        from datetime import UTC, datetime, timedelta
+        from .scheduling import CalendarStore
+        user_id = str(spec.payload.get("user_id", "")).strip()
+        if not user_id:
+            raise ValueError("user_id is required")
+        days_ahead = int(spec.payload.get("days_ahead", 7))
+        now = datetime.now(UTC)
+        events = CalendarStore(workspace_root).list_events(
+            user_id, window_start=now, window_end=now + timedelta(days=days_ahead),
+        )
+        return {"count": len(events), "events": [e.to_dict() for e in events]}
+
+    return calendar_list
+
+
+def make_task_list_personal(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def task_list_personal(spec: OperationSpec) -> dict:
+        from .scheduling import PersonalTaskStore, TaskStatus
+        user_id = str(spec.payload.get("user_id", "")).strip()
+        if not user_id:
+            raise ValueError("user_id is required")
+        status_raw = spec.payload.get("status")
+        status = None
+        if status_raw:
+            try:
+                status = TaskStatus(str(status_raw))
+            except ValueError:
+                status = None
+        tasks = PersonalTaskStore(workspace_root).list(
+            user_id=user_id, status=status,
+            limit=int(spec.payload.get("limit", 50)),
+        )
+        return {"count": len(tasks), "tasks": [t.to_dict() for t in tasks]}
+
+    return task_list_personal
+
+
+def make_task_done(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def task_done(spec: OperationSpec) -> dict:
+        from .scheduling import PersonalTaskStore, TaskStatus
+        task_id = str(spec.payload.get("task_id", "")).strip()
+        if not task_id:
+            raise ValueError("task_id is required")
+        return PersonalTaskStore(workspace_root).update_status(
+            task_id, TaskStatus.DONE,
+        ).to_dict()
+
+    return task_done
+
+
+def make_project_list(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def project_list(spec: OperationSpec) -> dict:
+        from .projects import ProjectStatus, ProjectStore
+        status_raw = spec.payload.get("status")
+        status = None
+        if status_raw:
+            try:
+                status = ProjectStatus(str(status_raw))
+            except ValueError:
+                status = None
+        projects = ProjectStore(workspace_root).list(
+            user_id=spec.payload.get("user_id") or None,
+            status=status,
+            limit=int(spec.payload.get("limit", 50)),
+        )
+        return {"count": len(projects), "projects": [p.to_dict() for p in projects]}
+
+    return project_list
+
+
+def make_project_show(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def project_show(spec: OperationSpec) -> dict:
+        from .projects import ProjectStore
+        project_id = str(spec.payload.get("project_id", "")).strip()
+        if not project_id:
+            raise ValueError("project_id is required")
+        store = ProjectStore(workspace_root)
+        project = store.get(project_id)
+        if project is None:
+            return {"project_id": project_id, "found": False}
+        subtasks = store.list_subtasks(project_id)
+        return {
+            "found": True, "project": project.to_dict(),
+            "subtask_count": len(subtasks),
+            "subtasks": [s.to_dict() for s in subtasks],
+        }
+
+    return project_show
+
+
+def make_finance_watch_create(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def finance_watch_create(spec: OperationSpec) -> dict:
+        import secrets
+        from .finance_ops import AlertRule, FinanceAnalyst
+        user_id = str(spec.payload.get("user_id", "")).strip()
+        instrument = str(spec.payload.get("instrument", "")).strip()
+        expression = str(spec.payload.get("expression", "")).strip()
+        if not all((user_id, instrument, expression)):
+            raise ValueError("user_id, instrument, expression all required")
+        rule = AlertRule(
+            rule_id=f"al_{secrets.token_hex(6)}",
+            user_id=user_id, instrument=instrument,
+            expression=expression,
+            channel=str(spec.payload.get("channel", "email")),
+        )
+        FinanceAnalyst(workspace_root).watch_create(rule)
+        return rule.to_dict()
+
+    return finance_watch_create
+
+
+def make_finance_watch_list(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def finance_watch_list(spec: OperationSpec) -> dict:
+        from .finance_ops import FinanceAnalyst
+        rules = FinanceAnalyst(workspace_root).list_alerts(
+            user_id=spec.payload.get("user_id"),
+        )
+        return {"count": len(rules), "rules": [r.to_dict() for r in rules]}
+
+    return finance_watch_list
+
+
+def make_finance_portfolio_stats(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def finance_portfolio_stats(spec: OperationSpec) -> dict:
+        from .finance_ops import FinanceAnalyst
+        user_id = str(spec.payload.get("user_id", "")).strip()
+        if not user_id:
+            raise ValueError("user_id is required")
+        return FinanceAnalyst(workspace_root).portfolio_stats(user_id).to_dict()
+
+    return finance_portfolio_stats
 
 
 # ---------------------------------------------------------------------------

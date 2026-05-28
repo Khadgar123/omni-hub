@@ -25,20 +25,26 @@ from . import (
     claims,
     command,
     event,
+    finance,
     harness,
+    inbox,
     judge,
     mcp,
     memory,
     meta,
     optimizer,
     policy,
+    pptx,
+    projects,
     propose,
     reports,
     research_kb,
     retrieve,
     projection,
+    scheduling,
     skill,
     task,
+    users,
     wiki,
     worker,
     workflow,
@@ -52,6 +58,8 @@ _AREAS = [
     judge,                       # v0.23 Judge LLM framework
     meta,                        # v0.28 Cross-skill transfer
     ab,                          # v0.29 A/B test framework
+    users, scheduling, inbox,    # v0.39 — expose v0.31-v0.33 to CLI
+    projects, pptx, finance,     # v0.39 — expose v0.34-v0.36 to CLI
 ]
 
 

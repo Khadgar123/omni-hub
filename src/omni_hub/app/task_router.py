@@ -102,6 +102,11 @@ _KEYWORDS: dict[str, list[str]] = {
         "stock", "ticker", "earnings", "10-k", "fred series", "interest rate",
         "options", "futures",
         "股票", "美股", "a股", "财报", "利率",
+        # v0.39 — review case ("分析 BTC 和 NVDA 走势 复盘") needs the
+        # specific instrument tokens.
+        "btc", "eth", "nvda", "aapl", "tsla", "msft", "goog", "amzn",
+        "走势", "k线", "candle", "rsi", "macd",
+        "市值", "估值", "目标价",
     ],
     "us_policy": [
         "federal register", "scotus", "congress", "bill", "regulation",
@@ -218,6 +223,110 @@ INTENT_WEIGHT = 3.0
 KEYWORD_WEIGHT = 1.0
 
 
+# ---------------------------------------------------------------------------
+# v0.39 — App-intent layer.
+#
+# A user query carries TWO orthogonal signals: which **domain** owns the
+# subject matter (finance / engineering / cooking / ...), and which
+# **app intent** the user wants the system to perform (schedule a
+# task / build a PPT / forward to inbox / write a report / ...).
+#
+# The v0.37 router only modelled the domain axis.  This map adds the
+# orthogonal app-intent axis so:
+#
+#   "明天上午提醒我复盘 BTC 和 NVDA 走势并安排日程"
+#       → domain=finance (BTC/NVDA/走势)
+#       → app_intents=[schedule, report]
+#       → recommendation: cal-add + finance-screen + app-report-build
+#
+# The 8 functional skills + 1 chat fallback map 1:1 to these intents.
+# Each query may carry multiple intents (we return the top N).
+# ---------------------------------------------------------------------------
+
+
+_APP_INTENT_PHRASES: dict[str, list[str]] = {
+    "schedule": [
+        # scheduling / reminders / calendar
+        "提醒我", "记得提醒", "明天", "今晚", "今天", "周末",
+        "几点", "排日程", "安排日程", "加到日历", "schedule",
+        "remind me", "calendar", "block out", "find time",
+    ],
+    "task": [
+        # todo-style task add
+        "todo", "task", "记一个任务", "加个 todo", "remind me to",
+        "deadline", "due date", "before friday", "下周完成",
+    ],
+    "report": [
+        # synthesis / digest / review / 复盘
+        "复盘", "回顾", "总结", "日报", "周报", "月报", "summary",
+        "digest", "review", "weekly recap", "synthesis",
+    ],
+    "pptx": [
+        # slide / deck
+        "ppt", "幻灯片", "deck", "slides", "做一份 ppt",
+        "presentation", "做个 deck",
+    ],
+    "project": [
+        # multi-step project plan
+        "项目计划", "拆成子任务", "分阶段", "多周",
+        "long-running plan", "decompose into",
+    ],
+    "inbox": [
+        # forwarded content
+        "转发", "这条链接", "这个 URL", "存到 KB",
+        "把这个加到知识库", "forward this", "capture this",
+    ],
+    "finance_op": [
+        # finance reads + propose actions
+        "下单", "买入", "卖出", "建仓", "止损", "限价", "市价",
+        "place a", "buy at", "sell at", "limit order", "stop loss",
+    ],
+    "chat": [
+        # explicit chat-route fallback
+        "聊一下", "讨论", "咨询", "let's chat", "talk about",
+    ],
+}
+
+
+_APP_INTENT_PATTERNS: dict[str, list[re.Pattern[str]]] = {
+    intent: [re.compile(rf"(?i){re.escape(kw)}") for kw in kws]
+    for intent, kws in _APP_INTENT_PHRASES.items()
+}
+
+
+# When an intent fires, what functional skill / op should the router
+# recommend? — mapping is fixed; multi-intent picks the highest-score one.
+_INTENT_OPERATION: dict[str, tuple[str, str]] = {
+    "schedule":   ("calendar_add",         "schedule"),
+    "task":       ("task_add",             "personal-task"),
+    "report":     ("app_report_build",     "weekly digest"),
+    "pptx":       ("pptx_build",           "deck"),
+    "project":    ("project_plan",         "multi-step plan"),
+    "inbox":      ("inbox_classify",       "forwarded content"),
+    "finance_op": ("order_propose",        "order intent — Proposal"),
+    "chat":       ("context_pack_build",   "conversational"),
+}
+
+
+@dataclass(slots=True)
+class AppIntent:
+    """One detected app-level intent (v0.39).
+
+    Distinct from the domain (which subject area) — this is *what the
+    user wants done*: schedule a task, build a PPT, write a digest...
+    A query may carry several intents at once.
+    """
+
+    intent: str                               # one of _APP_INTENT_PHRASES keys
+    confidence: float                         # 0..1 normalised across detected intents
+    matched_phrases: list[str] = field(default_factory=list)
+    operation: str = ""                       # canonical builtin name
+    operation_label: str = ""                 # human-readable hint
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
 @dataclass(slots=True)
 class RoutingDecision:
     """The router's verdict for one InboundMessage."""
@@ -231,6 +340,12 @@ class RoutingDecision:
     recommended_payload: dict[str, Any] = field(default_factory=dict)
     note: str = ""                            # human-readable explanation
     history_bias_applied: bool = False        # v0.27 — set when prior-turn skill broke a tie
+    # v0.39 — orthogonal app-intent axis.  ``app_intents`` is the top N
+    # detected intents; ``primary_intent`` is the highest-score one
+    # (empty when no intent verb fired — falls back to a domain-only
+    # context-pack recommendation).
+    app_intents: list[AppIntent] = field(default_factory=list)
+    primary_intent: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -357,7 +472,31 @@ class TaskRouter:
             if domain != top_domain
         ]
 
-        recommended_op, payload, note = self._recommend(top_domain, haystack)
+        # v0.39 — orthogonal app-intent detection (multi-intent allowed).
+        app_intents = self._classify_intents(haystack)
+        primary_intent = app_intents[0].intent if app_intents else ""
+
+        # Recommendation: if an app intent fired, override the domain-based
+        # recommendation with the intent's canonical functional operation.
+        # Otherwise fall back to the old domain → context_pack/task_enqueue
+        # mapping.
+        if app_intents:
+            primary = app_intents[0]
+            recommended_op = primary.operation
+            payload = {
+                "intent": primary.intent,
+                "domain": top_domain,
+                "query": haystack[:200],
+            }
+            note = (
+                f"primary intent={primary.intent} ({primary.operation_label}); "
+                f"domain={top_domain}"
+            )
+            if len(app_intents) > 1:
+                secondary = [a.intent for a in app_intents[1:3]]
+                note += f"; also detected: {', '.join(secondary)}"
+        else:
+            recommended_op, payload, note = self._recommend(top_domain, haystack)
         if history_bias_applied:
             note = f"{note} [history-bias: matched recent skill]"
 
@@ -371,6 +510,8 @@ class TaskRouter:
             recommended_payload=payload,
             note=note,
             history_bias_applied=history_bias_applied,
+            app_intents=app_intents,
+            primary_intent=primary_intent,
         )
 
     def reply_template(
@@ -403,6 +544,37 @@ class TaskRouter:
         return OutboundMessage.in_reply_to_msg(inbound, "\n".join(lines))
 
     # ---- internals ----------------------------------------------
+
+    def _classify_intents(self, haystack: str) -> list[AppIntent]:
+        """Detect app-level intents (orthogonal to domain).  Returns up
+        to top-5 by hit count.  Empty list ⇒ fall back to domain-only
+        recommendation.
+        """
+
+        scores: dict[str, list[str]] = {}
+        for intent, patterns in _APP_INTENT_PATTERNS.items():
+            hits: list[str] = []
+            for pattern in patterns:
+                match = pattern.search(haystack)
+                if match:
+                    hits.append(match.group(0))
+            if hits:
+                scores[intent] = hits
+        if not scores:
+            return []
+        ranked = sorted(scores.items(), key=lambda kv: -len(kv[1]))
+        total_hits = sum(len(h) for h in scores.values())
+        out: list[AppIntent] = []
+        for intent, hits in ranked[:5]:
+            op, label = _INTENT_OPERATION.get(intent, ("", ""))
+            out.append(AppIntent(
+                intent=intent,
+                confidence=round(len(hits) / max(total_hits, 1), 3),
+                matched_phrases=hits,
+                operation=op,
+                operation_label=label,
+            ))
+        return out
 
     def _recommend(
         self, domain: str, query: str,
