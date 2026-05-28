@@ -1,0 +1,1 @@
+Capability checks the right period is selected; calibration weights actionability of the rendered markdown summary.

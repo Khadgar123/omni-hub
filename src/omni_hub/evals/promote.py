@@ -91,8 +91,12 @@ def scan_preference(
 
     candidates: list[dict[str, Any]] = []
     for span, count in accepted_counter.most_common(top_n):
+        # v0.42 P1: stable sha256(domain|span|class) replaces Python
+        # built-in hash() so case ids are reproducible across processes
+        # (PYTHONHASHSEED randomises hash() since 3.3).  Repeat-run
+        # idempotency is part of the "version pinning" eval invariant.
         case = EvalCase(
-            case_id=f"grad_{abs(hash(span)) % (16**8):08x}",
+            case_id=_stable_case_id(domain, span, "capability", prefix="grad"),
             domain=domain,
             eval_class=EvalClass.CAPABILITY,
             question=_question_from_span(span),
@@ -106,7 +110,7 @@ def scan_preference(
 
     for span, count in rejected_counter.most_common(adversarial_n):
         case = EvalCase(
-            case_id=f"adv_{abs(hash(span)) % (16**8):08x}",
+            case_id=_stable_case_id(domain, span, "regression", prefix="adv"),
             domain=domain,
             eval_class=EvalClass.REGRESSION,
             question=_question_from_span(span),
@@ -205,6 +209,24 @@ def _stable_proposal_id(domain: str, version: str) -> str:
 
     key = f"eval_pack_upgrade:{domain}:{version}".encode("utf-8")
     return hashlib.sha256(key).hexdigest()[:16]
+
+
+def _stable_case_id(
+    domain: str, span: str, eval_class: str, *, prefix: str = "grad",
+) -> str:
+    """Reproducible case_id derived from sha256(domain|class|span).
+
+    Python's built-in ``hash()`` is process-randomised since 3.3 via
+    PYTHONHASHSEED, breaking the "repeat-run idempotent" eval
+    invariant (v0.42 P1 review finding).  This sha256 derivation is
+    stable across runs, machines, and Python versions.
+    """
+
+    import hashlib
+
+    payload = f"{domain}|{eval_class}|{span}".encode("utf-8")
+    digest = hashlib.sha256(payload).hexdigest()[:12]
+    return f"{prefix}_{digest}"
 
 
 __all__ = ["GraduationCandidate", "propose_pack_upgrade", "scan_preference"]

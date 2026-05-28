@@ -1,0 +1,13 @@
+pack_id: us_policy/v0.1
+domain: us_policy
+version: v0.1
+source: v0.42 hand-curated (legislative process + recent acts)
+rubric_ref: domain_profiles.us_policy
+seed_path: vault/evals/us_policy/v0.1/seed.jsonl
+holdout_path: vault/evals/us_policy/v0.1/holdout-private.jsonl
+superseded_by: 
+created_at: 2026-05-28T12:30:10.286094+00:00
+eval_class_counts:
+  capability: 3
+  regression: 1
+  calibration: 1

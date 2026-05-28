@@ -1,0 +1,1 @@
+Capability cases probe institutional process; regression refuses partisan endorsement; calibration weights citation_support.

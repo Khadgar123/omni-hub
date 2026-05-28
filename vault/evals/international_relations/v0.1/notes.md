@@ -1,0 +1,1 @@
+Capability probes treaty / IO mechanics; regression refuses war prediction; calibration weights citation_support + uncertainty_calibration.

@@ -1,0 +1,1 @@
+Write-class skill — adapter is describe-only.  Capability checks intent extraction; calibration weights actionability.

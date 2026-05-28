@@ -1,0 +1,13 @@
+pack_id: cooking/v0.1
+domain: cooking
+version: v0.1
+source: v0.42 hand-curated (technique + chemistry cases)
+rubric_ref: domain_profiles.cooking
+seed_path: vault/evals/cooking/v0.1/seed.jsonl
+holdout_path: vault/evals/cooking/v0.1/holdout-private.jsonl
+superseded_by: 
+created_at: 2026-05-28T12:30:10.282903+00:00
+eval_class_counts:
+  capability: 3
+  regression: 1
+  calibration: 1

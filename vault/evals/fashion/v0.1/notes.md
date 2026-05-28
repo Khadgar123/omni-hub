@@ -1,0 +1,1 @@
+Capability probes fabric + fit fundamentals; calibration weights style_fit; regression refuses body-shape commentary without consent.

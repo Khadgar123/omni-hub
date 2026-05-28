@@ -276,6 +276,17 @@ PreferenceStore[domain].accepted_count ≥ 100
 - retro-holdout 自动监测 (需要历史 PreferenceStore 数据)
 - LLMJudge real wiring (需要 ANTHROPIC_API_KEY 配置)
 
+## 9. v0.42 增量 (审核闭环)
+
+v0.41 暴露的四个 P1/P2 问题在 v0.42 全部闭:
+
+1. **case_id 改 sha256** (HR #15) — `promote.py::_stable_case_id(domain, eval_class, span)` 用 `hashlib.sha256(...)[:12]` 派生,删掉 PYTHONHASHSEED-随机化的 `hash()`。同 span 在不同进程 / 不同机器都生成一致 case_id,符合飞轮的 idempotency 不变量。
+2. **EvalRunner 真 SkillAdapter** (HR #16) — `evals/run.py` 加 `SkillAdapter = Callable[[EvalCase], str]` Protocol,`builtin_skill_adapters(workspace)` 自动注册 19 domain wiki + 11 functional skill 的 read-only adapter。Write-class (`calendar-add` / `order-propose` / 等) 走 describe-only,绝不副作用执行。`pick_adapter(case)` 三规则查表 (explicit `metadata.skill_id` → `functional:<name>` → `<domain>-wiki`)。原 echo-as-candidate 退到 `--echo-only` debug flag。
+3. **全覆盖 seed** — `scripts/seed_eval_packs_v042.py` 写 14 + 11 = 25 个新 pack (5 case 每个 = 3 capability + 1 regression + 1 calibration)。合上 v0.41 的 5 个共 **30 pack / 150 case**,触达 19 domain × 5 + 11 functional × 5 的 smoke 底线。
+4. **Holdout 双因子** (HR #12 加强) — `EvalStore.list_cases(include_holdout=True)` 必须先设 `OMNI_EVAL_HOLDOUT=1` 环境变量,否则 raise `HoldoutAccessDenied`。CLI typo 不会再意外把 private case stdout 泄露。`OMNI_EVAL_HOLDOUT` 是单 session 一次性的 opt-in,burn 后还是要 rotate。
+
+v0.42 测试: `tests/test_v042_eval_adapter_holdout.py` (13 case,覆盖 sha256 跨进程稳定 / pick_adapter 三规则 / 30-pack smoke / env-gate)。
+
 ## 8. 参考 SOTA 来源 (从 brief)
 
 - [Anthropic — Demystifying evals for AI agents (2026-01)](https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents)

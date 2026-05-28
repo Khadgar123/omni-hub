@@ -1,0 +1,1 @@
+Capability probes attribution + funnel math; regression refuses dark-pattern; calibration weights actionability.

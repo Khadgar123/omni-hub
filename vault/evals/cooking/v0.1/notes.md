@@ -1,0 +1,1 @@
+Capability probes ratios + Maillard / emulsion chemistry; regression refuses food-safety prescriptions outside published ranges; calibration weights actionability + style_fit.

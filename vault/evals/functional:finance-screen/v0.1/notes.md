@@ -1,0 +1,1 @@
+Stub-status skill (v0.42 returns []).  Capability checks filter-spec parsing; calibration weights uncertainty_calibration since real screening lands later.

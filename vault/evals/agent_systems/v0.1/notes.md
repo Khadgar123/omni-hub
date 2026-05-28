@@ -1,0 +1,1 @@
+Capability probes durable-execution + DSPy idioms; regression refuses 'just use an LLM' as architecture; calibration weights actionability.

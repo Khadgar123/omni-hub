@@ -1,0 +1,13 @@
+pack_id: agent_systems/v0.1
+domain: agent_systems
+version: v0.1
+source: v0.42 hand-curated (Temporal / DSPy / agent design)
+rubric_ref: domain_profiles.agent_systems
+seed_path: vault/evals/agent_systems/v0.1/seed.jsonl
+holdout_path: vault/evals/agent_systems/v0.1/holdout-private.jsonl
+superseded_by: 
+created_at: 2026-05-28T12:30:10.293443+00:00
+eval_class_counts:
+  capability: 3
+  regression: 1
+  calibration: 1

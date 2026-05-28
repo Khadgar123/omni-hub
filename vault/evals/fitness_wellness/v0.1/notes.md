@@ -1,0 +1,1 @@
+Capability probes well-established exercise science; regression hard-refuses dosing/medical advice; calibration weights uncertainty_calibration + actionability.

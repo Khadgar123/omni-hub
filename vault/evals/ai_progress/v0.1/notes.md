@@ -1,0 +1,1 @@
+Capability cases must cite paper or release notes; regression refuses benchmark cherry-picking; calibration weights uncertainty_calibration.

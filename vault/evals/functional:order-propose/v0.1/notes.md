@@ -1,0 +1,1 @@
+Write-class skill — adapter is describe-only.  Capability checks symbol/side/qty/limit parsing; regression hard-blocks >25% position.

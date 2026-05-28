@@ -12,6 +12,7 @@ goes in ``metadata``.
 from __future__ import annotations
 
 import json
+import os
 import re
 import secrets
 from dataclasses import asdict, dataclass, field
@@ -19,6 +20,13 @@ from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any, Iterable
+
+
+HOLDOUT_ENV_GATE = "OMNI_EVAL_HOLDOUT"
+
+
+class HoldoutAccessDenied(PermissionError):
+    """v0.42 — refusing to read private holdout without explicit opt-in."""
 
 
 EVAL_ROOT = "vault/evals"
@@ -236,6 +244,7 @@ class EvalStore:
         if seed_path.exists():
             out.extend(self._read_jsonl(seed_path))
         if include_holdout:
+            assert_holdout_access_allowed(pack)
             holdout_path = self.workspace / pack.holdout_path
             if holdout_path.exists():
                 out.extend(self._read_jsonl(holdout_path))
@@ -328,6 +337,25 @@ class EvalStore:
         )
 
 
+def assert_holdout_access_allowed(pack: EvalPack | None = None) -> None:
+    """v0.42 HR #12 enforcement.
+
+    Burned-private holdouts must not be read accidentally — a CLI typo
+    that pipes them to stdout effectively turns the private set public.
+    Require ``OMNI_EVAL_HOLDOUT=1`` in the environment as the second
+    factor.  The pack is accepted as an argument so future revisions can
+    apply per-pack rotation rules without breaking the signature.
+    """
+
+    gate = os.environ.get(HOLDOUT_ENV_GATE, "").strip().lower()
+    if gate not in {"1", "true", "yes", "on"}:
+        ref = f" for pack {pack.pack_id}" if pack else ""
+        raise HoldoutAccessDenied(
+            f"refusing holdout access{ref}: set {HOLDOUT_ENV_GATE}=1 to opt in "
+            f"(HR #12 — burning a holdout requires explicit operator intent)."
+        )
+
+
 __all__ = [
     "DEFAULT_VERSION",
     "EVAL_ROOT",
@@ -335,6 +363,9 @@ __all__ = [
     "EvalClass",
     "EvalPack",
     "EvalStore",
+    "HOLDOUT_ENV_GATE",
     "HOLDOUT_FILENAME",
+    "HoldoutAccessDenied",
     "SEED_FILENAME",
+    "assert_holdout_access_allowed",
 ]

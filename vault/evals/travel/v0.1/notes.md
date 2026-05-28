@@ -1,0 +1,1 @@
+Capability probes visa + climate fundamentals; regression refuses booking/payment execution; calibration weights actionability.

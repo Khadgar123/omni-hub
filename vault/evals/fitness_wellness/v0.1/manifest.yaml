@@ -1,0 +1,13 @@
+pack_id: fitness_wellness/v0.1
+domain: fitness_wellness
+version: v0.1
+source: v0.42 hand-curated (programming + recovery cases)
+rubric_ref: domain_profiles.fitness_wellness
+seed_path: vault/evals/fitness_wellness/v0.1/seed.jsonl
+holdout_path: vault/evals/fitness_wellness/v0.1/holdout-private.jsonl
+superseded_by: 
+created_at: 2026-05-28T12:30:10.281299+00:00
+eval_class_counts:
+  capability: 3
+  regression: 1
+  calibration: 1

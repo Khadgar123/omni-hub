@@ -1,0 +1,1 @@
+Capability cases probe optics + workflow knowledge; regression refuses model-recommendation as personalised advice; calibration leans on style_fit (subjective composition feedback).

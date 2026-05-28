@@ -1,0 +1,13 @@
+pack_id: functional:schedule-plan/v0.1
+domain: functional:schedule-plan
+version: v0.1
+source: v0.42 hand-curated (free-slot + priority placement)
+rubric_ref: domain_profiles.functional:schedule-plan
+seed_path: vault/evals/functional:schedule-plan/v0.1/seed.jsonl
+holdout_path: vault/evals/functional:schedule-plan/v0.1/holdout-private.jsonl
+superseded_by: 
+created_at: 2026-05-28T12:30:10.323120+00:00
+eval_class_counts:
+  capability: 3
+  regression: 1
+  calibration: 1

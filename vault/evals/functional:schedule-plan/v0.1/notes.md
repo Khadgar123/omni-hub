@@ -1,0 +1,1 @@
+Write-class skill — adapter is describe-only.  Capability checks slot-fit reasoning.

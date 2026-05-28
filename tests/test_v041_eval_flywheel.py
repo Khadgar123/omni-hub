@@ -81,6 +81,9 @@ class EvalStoreTests(unittest.TestCase):
             self.assertEqual(refreshed.eval_class_counts.get("calibration", 0), 1)
 
     def test_hr12_holdout_writes_to_separate_file(self) -> None:
+        import os as _os
+        from omni_hub.evals.store import HOLDOUT_ENV_GATE
+
         with tempfile.TemporaryDirectory() as tmp:
             store = EvalStore(tmp)
             pack = store.create_pack(domain="research", version="v0.1")
@@ -96,7 +99,16 @@ class EvalStoreTests(unittest.TestCase):
             ), holdout=True)
             seed = store.list_cases(pack)
             self.assertEqual([c.case_id for c in seed], ["public_1"])
-            both = store.list_cases(pack, include_holdout=True)
+            # v0.42 HR #12 — opt-in via env-gate to read holdout.
+            prior = _os.environ.pop(HOLDOUT_ENV_GATE, None)
+            _os.environ[HOLDOUT_ENV_GATE] = "1"
+            try:
+                both = store.list_cases(pack, include_holdout=True)
+            finally:
+                if prior is None:
+                    _os.environ.pop(HOLDOUT_ENV_GATE, None)
+                else:
+                    _os.environ[HOLDOUT_ENV_GATE] = prior
             self.assertEqual({c.case_id for c in both},
                               {"public_1", "hidden_1"})
             # Class counts only reflect public seed (private holdout is

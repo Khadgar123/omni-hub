@@ -34,9 +34,11 @@ def register(subparsers: argparse._SubParsersAction) -> None:
 
     run_p = subparsers.add_parser(
         "eval-run",
-        help="Run an EvalPack against an echo candidate (no LLM) and "
-             "persist the EvalRun to .omni/eval_runs.sqlite3.  Pass "
-             "--judge llm to route through ccLoad / Anthropic SDK.",
+        help="Run an EvalPack through the resolved SkillAdapter (real "
+             "skill output) and persist the EvalRun to "
+             ".omni/eval_runs.sqlite3.  --echo-only bypasses the "
+             "adapter for primitive smoke tests; --judge llm routes "
+             "through ccLoad / Anthropic SDK.",
     )
     run_p.add_argument("--domain", required=True)
     run_p.add_argument("--version", default="v0.1")
@@ -44,7 +46,13 @@ def register(subparsers: argparse._SubParsersAction) -> None:
                        choices=["heuristic", "llm"])
     run_p.add_argument("--skill-version", default="",
                        help="Tag the run with the skill version under test.")
-    run_p.add_argument("--include-holdout", action="store_true")
+    run_p.add_argument("--include-holdout", action="store_true",
+                       help="Read the private holdout too (requires "
+                            "OMNI_EVAL_HOLDOUT=1; burns the holdout — "
+                            "rotate after).")
+    run_p.add_argument("--echo-only", action="store_true",
+                       help="Skip adapter routing — score the echoed "
+                            "expected text (sanity check).")
 
     promote = subparsers.add_parser(
         "eval-promote",
@@ -92,6 +100,7 @@ def _eval_run(args, *, runner, workspace) -> int:
                 "judge": args.judge,
                 "skill_version": args.skill_version,
                 "include_holdout": bool(args.include_holdout),
+                "echo_only": bool(getattr(args, "echo_only", False)),
             },
             risk_level=RiskLevel.LOCAL_WRITE,
         ),

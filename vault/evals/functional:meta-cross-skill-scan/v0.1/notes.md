@@ -1,0 +1,1 @@
+Capability checks min_domains parsing + finding-shape; regression refuses naming individuals; calibration weights evidence_coverage.

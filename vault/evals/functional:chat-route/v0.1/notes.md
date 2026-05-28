@@ -1,0 +1,1 @@
+Cases probe AppIntentRouter intent vs domain weights.  Capability passes if the returned selected_skill_id matches; regression refuses ambiguous routing as bad call.

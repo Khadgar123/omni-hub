@@ -79,5 +79,430 @@
     "notes_path": "vault/evals/chat-relationships/v0.1/notes.md",
     "superseded_by": "",
     "created_at": "2026-05-28T11:55:37.268759+00:00"
+  },
+  "photography/v0.1": {
+    "pack_id": "photography/v0.1",
+    "domain": "photography",
+    "version": "v0.1",
+    "eval_class_counts": {
+      "capability": 3,
+      "regression": 1,
+      "calibration": 1
+    },
+    "source": "v0.42 hand-curated (canonical reference + technique cases)",
+    "rubric_ref": "domain_profiles.photography",
+    "seed_path": "vault/evals/photography/v0.1/seed.jsonl",
+    "holdout_path": "vault/evals/photography/v0.1/holdout-private.jsonl",
+    "notes_path": "vault/evals/photography/v0.1/notes.md",
+    "superseded_by": "",
+    "created_at": "2026-05-28T12:30:10.277228+00:00"
+  },
+  "fashion/v0.1": {
+    "pack_id": "fashion/v0.1",
+    "domain": "fashion",
+    "version": "v0.1",
+    "eval_class_counts": {
+      "capability": 3,
+      "regression": 1,
+      "calibration": 1
+    },
+    "source": "v0.42 hand-curated (fabric + season + capsule wardrobe)",
+    "rubric_ref": "domain_profiles.fashion",
+    "seed_path": "vault/evals/fashion/v0.1/seed.jsonl",
+    "holdout_path": "vault/evals/fashion/v0.1/holdout-private.jsonl",
+    "notes_path": "vault/evals/fashion/v0.1/notes.md",
+    "superseded_by": "",
+    "created_at": "2026-05-28T12:30:10.279721+00:00"
+  },
+  "fitness_wellness/v0.1": {
+    "pack_id": "fitness_wellness/v0.1",
+    "domain": "fitness_wellness",
+    "version": "v0.1",
+    "eval_class_counts": {
+      "capability": 3,
+      "regression": 1,
+      "calibration": 1
+    },
+    "source": "v0.42 hand-curated (programming + recovery cases)",
+    "rubric_ref": "domain_profiles.fitness_wellness",
+    "seed_path": "vault/evals/fitness_wellness/v0.1/seed.jsonl",
+    "holdout_path": "vault/evals/fitness_wellness/v0.1/holdout-private.jsonl",
+    "notes_path": "vault/evals/fitness_wellness/v0.1/notes.md",
+    "superseded_by": "",
+    "created_at": "2026-05-28T12:30:10.281299+00:00"
+  },
+  "cooking/v0.1": {
+    "pack_id": "cooking/v0.1",
+    "domain": "cooking",
+    "version": "v0.1",
+    "eval_class_counts": {
+      "capability": 3,
+      "regression": 1,
+      "calibration": 1
+    },
+    "source": "v0.42 hand-curated (technique + chemistry cases)",
+    "rubric_ref": "domain_profiles.cooking",
+    "seed_path": "vault/evals/cooking/v0.1/seed.jsonl",
+    "holdout_path": "vault/evals/cooking/v0.1/holdout-private.jsonl",
+    "notes_path": "vault/evals/cooking/v0.1/notes.md",
+    "superseded_by": "",
+    "created_at": "2026-05-28T12:30:10.282903+00:00"
+  },
+  "travel/v0.1": {
+    "pack_id": "travel/v0.1",
+    "domain": "travel",
+    "version": "v0.1",
+    "eval_class_counts": {
+      "capability": 3,
+      "regression": 1,
+      "calibration": 1
+    },
+    "source": "v0.42 hand-curated (logistics + visa + season cases)",
+    "rubric_ref": "domain_profiles.travel",
+    "seed_path": "vault/evals/travel/v0.1/seed.jsonl",
+    "holdout_path": "vault/evals/travel/v0.1/holdout-private.jsonl",
+    "notes_path": "vault/evals/travel/v0.1/notes.md",
+    "superseded_by": "",
+    "created_at": "2026-05-28T12:30:10.284467+00:00"
+  },
+  "us_policy/v0.1": {
+    "pack_id": "us_policy/v0.1",
+    "domain": "us_policy",
+    "version": "v0.1",
+    "eval_class_counts": {
+      "capability": 3,
+      "regression": 1,
+      "calibration": 1
+    },
+    "source": "v0.42 hand-curated (legislative process + recent acts)",
+    "rubric_ref": "domain_profiles.us_policy",
+    "seed_path": "vault/evals/us_policy/v0.1/seed.jsonl",
+    "holdout_path": "vault/evals/us_policy/v0.1/holdout-private.jsonl",
+    "notes_path": "vault/evals/us_policy/v0.1/notes.md",
+    "superseded_by": "",
+    "created_at": "2026-05-28T12:30:10.286094+00:00"
+  },
+  "cn_policy/v0.1": {
+    "pack_id": "cn_policy/v0.1",
+    "domain": "cn_policy",
+    "version": "v0.1",
+    "eval_class_counts": {
+      "capability": 3,
+      "regression": 1,
+      "calibration": 1
+    },
+    "source": "v0.42 hand-curated (五年规划 + 央地关系 + 监管)",
+    "rubric_ref": "domain_profiles.cn_policy",
+    "seed_path": "vault/evals/cn_policy/v0.1/seed.jsonl",
+    "holdout_path": "vault/evals/cn_policy/v0.1/holdout-private.jsonl",
+    "notes_path": "vault/evals/cn_policy/v0.1/notes.md",
+    "superseded_by": "",
+    "created_at": "2026-05-28T12:30:10.287746+00:00"
+  },
+  "international_relations/v0.1": {
+    "pack_id": "international_relations/v0.1",
+    "domain": "international_relations",
+    "version": "v0.1",
+    "eval_class_counts": {
+      "capability": 3,
+      "regression": 1,
+      "calibration": 1
+    },
+    "source": "v0.42 hand-curated (treaties + multilateral institutions)",
+    "rubric_ref": "domain_profiles.international_relations",
+    "seed_path": "vault/evals/international_relations/v0.1/seed.jsonl",
+    "holdout_path": "vault/evals/international_relations/v0.1/holdout-private.jsonl",
+    "notes_path": "vault/evals/international_relations/v0.1/notes.md",
+    "superseded_by": "",
+    "created_at": "2026-05-28T12:30:10.289539+00:00"
+  },
+  "ai_progress/v0.1": {
+    "pack_id": "ai_progress/v0.1",
+    "domain": "ai_progress",
+    "version": "v0.1",
+    "eval_class_counts": {
+      "capability": 3,
+      "regression": 1,
+      "calibration": 1
+    },
+    "source": "v0.42 hand-curated (Anthropic + GDM + Meta + open models)",
+    "rubric_ref": "domain_profiles.ai_progress",
+    "seed_path": "vault/evals/ai_progress/v0.1/seed.jsonl",
+    "holdout_path": "vault/evals/ai_progress/v0.1/holdout-private.jsonl",
+    "notes_path": "vault/evals/ai_progress/v0.1/notes.md",
+    "superseded_by": "",
+    "created_at": "2026-05-28T12:30:10.291327+00:00"
+  },
+  "agent_systems/v0.1": {
+    "pack_id": "agent_systems/v0.1",
+    "domain": "agent_systems",
+    "version": "v0.1",
+    "eval_class_counts": {
+      "capability": 3,
+      "regression": 1,
+      "calibration": 1
+    },
+    "source": "v0.42 hand-curated (Temporal / DSPy / agent design)",
+    "rubric_ref": "domain_profiles.agent_systems",
+    "seed_path": "vault/evals/agent_systems/v0.1/seed.jsonl",
+    "holdout_path": "vault/evals/agent_systems/v0.1/holdout-private.jsonl",
+    "notes_path": "vault/evals/agent_systems/v0.1/notes.md",
+    "superseded_by": "",
+    "created_at": "2026-05-28T12:30:10.293443+00:00"
+  },
+  "social_en/v0.1": {
+    "pack_id": "social_en/v0.1",
+    "domain": "social_en",
+    "version": "v0.1",
+    "eval_class_counts": {
+      "capability": 3,
+      "regression": 1,
+      "calibration": 1
+    },
+    "source": "v0.42 hand-curated (small-talk + tone calibration)",
+    "rubric_ref": "domain_profiles.social_en",
+    "seed_path": "vault/evals/social_en/v0.1/seed.jsonl",
+    "holdout_path": "vault/evals/social_en/v0.1/holdout-private.jsonl",
+    "notes_path": "vault/evals/social_en/v0.1/notes.md",
+    "superseded_by": "",
+    "created_at": "2026-05-28T12:30:10.295606+00:00"
+  },
+  "social_zh/v0.1": {
+    "pack_id": "social_zh/v0.1",
+    "domain": "social_zh",
+    "version": "v0.1",
+    "eval_class_counts": {
+      "capability": 3,
+      "regression": 1,
+      "calibration": 1
+    },
+    "source": "v0.42 hand-curated (中文社交语境 / 场景 / 称谓)",
+    "rubric_ref": "domain_profiles.social_zh",
+    "seed_path": "vault/evals/social_zh/v0.1/seed.jsonl",
+    "holdout_path": "vault/evals/social_zh/v0.1/holdout-private.jsonl",
+    "notes_path": "vault/evals/social_zh/v0.1/notes.md",
+    "superseded_by": "",
+    "created_at": "2026-05-28T12:30:10.298017+00:00"
+  },
+  "marketing/v0.1": {
+    "pack_id": "marketing/v0.1",
+    "domain": "marketing",
+    "version": "v0.1",
+    "eval_class_counts": {
+      "capability": 3,
+      "regression": 1,
+      "calibration": 1
+    },
+    "source": "v0.42 hand-curated (positioning + attribution + funnel)",
+    "rubric_ref": "domain_profiles.marketing",
+    "seed_path": "vault/evals/marketing/v0.1/seed.jsonl",
+    "holdout_path": "vault/evals/marketing/v0.1/holdout-private.jsonl",
+    "notes_path": "vault/evals/marketing/v0.1/notes.md",
+    "superseded_by": "",
+    "created_at": "2026-05-28T12:30:10.300734+00:00"
+  },
+  "enterprise/v0.1": {
+    "pack_id": "enterprise/v0.1",
+    "domain": "enterprise",
+    "version": "v0.1",
+    "eval_class_counts": {
+      "capability": 3,
+      "regression": 1,
+      "calibration": 1
+    },
+    "source": "v0.42 hand-curated (org design + change mgmt + compliance)",
+    "rubric_ref": "domain_profiles.enterprise",
+    "seed_path": "vault/evals/enterprise/v0.1/seed.jsonl",
+    "holdout_path": "vault/evals/enterprise/v0.1/holdout-private.jsonl",
+    "notes_path": "vault/evals/enterprise/v0.1/notes.md",
+    "superseded_by": "",
+    "created_at": "2026-05-28T12:30:10.303122+00:00"
+  },
+  "functional:chat-route/v0.1": {
+    "pack_id": "functional:chat-route/v0.1",
+    "domain": "functional:chat-route",
+    "version": "v0.1",
+    "eval_class_counts": {
+      "capability": 3,
+      "regression": 1,
+      "calibration": 1
+    },
+    "source": "v0.42 hand-curated (intent routing — covers 11 functional)",
+    "rubric_ref": "domain_profiles.functional:chat-route",
+    "seed_path": "vault/evals/functional:chat-route/v0.1/seed.jsonl",
+    "holdout_path": "vault/evals/functional:chat-route/v0.1/holdout-private.jsonl",
+    "notes_path": "vault/evals/functional:chat-route/v0.1/notes.md",
+    "superseded_by": "",
+    "created_at": "2026-05-28T12:30:10.305492+00:00"
+  },
+  "functional:app-report-build/v0.1": {
+    "pack_id": "functional:app-report-build/v0.1",
+    "domain": "functional:app-report-build",
+    "version": "v0.1",
+    "eval_class_counts": {
+      "capability": 3,
+      "regression": 1,
+      "calibration": 1
+    },
+    "source": "v0.42 hand-curated (daily / weekly / monthly rollups)",
+    "rubric_ref": "domain_profiles.functional:app-report-build",
+    "seed_path": "vault/evals/functional:app-report-build/v0.1/seed.jsonl",
+    "holdout_path": "vault/evals/functional:app-report-build/v0.1/holdout-private.jsonl",
+    "notes_path": "vault/evals/functional:app-report-build/v0.1/notes.md",
+    "superseded_by": "",
+    "created_at": "2026-05-28T12:30:10.309372+00:00"
+  },
+  "functional:inbox-route/v0.1": {
+    "pack_id": "functional:inbox-route/v0.1",
+    "domain": "functional:inbox-route",
+    "version": "v0.1",
+    "eval_class_counts": {
+      "capability": 3,
+      "regression": 1,
+      "calibration": 1
+    },
+    "source": "v0.42 hand-curated (forwarded URL / PDF / task / ICS)",
+    "rubric_ref": "domain_profiles.functional:inbox-route",
+    "seed_path": "vault/evals/functional:inbox-route/v0.1/seed.jsonl",
+    "holdout_path": "vault/evals/functional:inbox-route/v0.1/holdout-private.jsonl",
+    "notes_path": "vault/evals/functional:inbox-route/v0.1/notes.md",
+    "superseded_by": "",
+    "created_at": "2026-05-28T12:30:10.312214+00:00"
+  },
+  "functional:project-plan/v0.1": {
+    "pack_id": "functional:project-plan/v0.1",
+    "domain": "functional:project-plan",
+    "version": "v0.1",
+    "eval_class_counts": {
+      "capability": 3,
+      "regression": 1,
+      "calibration": 1
+    },
+    "source": "v0.42 hand-curated (decomposition + sequencing)",
+    "rubric_ref": "domain_profiles.functional:project-plan",
+    "seed_path": "vault/evals/functional:project-plan/v0.1/seed.jsonl",
+    "holdout_path": "vault/evals/functional:project-plan/v0.1/holdout-private.jsonl",
+    "notes_path": "vault/evals/functional:project-plan/v0.1/notes.md",
+    "superseded_by": "",
+    "created_at": "2026-05-28T12:30:10.314859+00:00"
+  },
+  "functional:pptx-build/v0.1": {
+    "pack_id": "functional:pptx-build/v0.1",
+    "domain": "functional:pptx-build",
+    "version": "v0.1",
+    "eval_class_counts": {
+      "capability": 3,
+      "regression": 1,
+      "calibration": 1
+    },
+    "source": "v0.42 hand-curated (outline → deck)",
+    "rubric_ref": "domain_profiles.functional:pptx-build",
+    "seed_path": "vault/evals/functional:pptx-build/v0.1/seed.jsonl",
+    "holdout_path": "vault/evals/functional:pptx-build/v0.1/holdout-private.jsonl",
+    "notes_path": "vault/evals/functional:pptx-build/v0.1/notes.md",
+    "superseded_by": "",
+    "created_at": "2026-05-28T12:30:10.317635+00:00"
+  },
+  "functional:calendar-add/v0.1": {
+    "pack_id": "functional:calendar-add/v0.1",
+    "domain": "functional:calendar-add",
+    "version": "v0.1",
+    "eval_class_counts": {
+      "capability": 3,
+      "regression": 1,
+      "calibration": 1
+    },
+    "source": "v0.42 hand-curated (RFC 5545 fields + timezones)",
+    "rubric_ref": "domain_profiles.functional:calendar-add",
+    "seed_path": "vault/evals/functional:calendar-add/v0.1/seed.jsonl",
+    "holdout_path": "vault/evals/functional:calendar-add/v0.1/holdout-private.jsonl",
+    "notes_path": "vault/evals/functional:calendar-add/v0.1/notes.md",
+    "superseded_by": "",
+    "created_at": "2026-05-28T12:30:10.320383+00:00"
+  },
+  "functional:schedule-plan/v0.1": {
+    "pack_id": "functional:schedule-plan/v0.1",
+    "domain": "functional:schedule-plan",
+    "version": "v0.1",
+    "eval_class_counts": {
+      "capability": 3,
+      "regression": 1,
+      "calibration": 1
+    },
+    "source": "v0.42 hand-curated (free-slot + priority placement)",
+    "rubric_ref": "domain_profiles.functional:schedule-plan",
+    "seed_path": "vault/evals/functional:schedule-plan/v0.1/seed.jsonl",
+    "holdout_path": "vault/evals/functional:schedule-plan/v0.1/holdout-private.jsonl",
+    "notes_path": "vault/evals/functional:schedule-plan/v0.1/notes.md",
+    "superseded_by": "",
+    "created_at": "2026-05-28T12:30:10.323120+00:00"
+  },
+  "functional:task-add/v0.1": {
+    "pack_id": "functional:task-add/v0.1",
+    "domain": "functional:task-add",
+    "version": "v0.1",
+    "eval_class_counts": {
+      "capability": 3,
+      "regression": 1,
+      "calibration": 1
+    },
+    "source": "v0.42 hand-curated (intent → PersonalTask row)",
+    "rubric_ref": "domain_profiles.functional:task-add",
+    "seed_path": "vault/evals/functional:task-add/v0.1/seed.jsonl",
+    "holdout_path": "vault/evals/functional:task-add/v0.1/holdout-private.jsonl",
+    "notes_path": "vault/evals/functional:task-add/v0.1/notes.md",
+    "superseded_by": "",
+    "created_at": "2026-05-28T12:30:10.326332+00:00"
+  },
+  "functional:finance-screen/v0.1": {
+    "pack_id": "functional:finance-screen/v0.1",
+    "domain": "functional:finance-screen",
+    "version": "v0.1",
+    "eval_class_counts": {
+      "capability": 3,
+      "regression": 1,
+      "calibration": 1
+    },
+    "source": "v0.42 hand-curated (filter spec → candidate symbol set)",
+    "rubric_ref": "domain_profiles.functional:finance-screen",
+    "seed_path": "vault/evals/functional:finance-screen/v0.1/seed.jsonl",
+    "holdout_path": "vault/evals/functional:finance-screen/v0.1/holdout-private.jsonl",
+    "notes_path": "vault/evals/functional:finance-screen/v0.1/notes.md",
+    "superseded_by": "",
+    "created_at": "2026-05-28T12:30:10.328741+00:00"
+  },
+  "functional:order-propose/v0.1": {
+    "pack_id": "functional:order-propose/v0.1",
+    "domain": "functional:order-propose",
+    "version": "v0.1",
+    "eval_class_counts": {
+      "capability": 3,
+      "regression": 1,
+      "calibration": 1
+    },
+    "source": "v0.42 hand-curated (OrderIntent + RiskCheck)",
+    "rubric_ref": "domain_profiles.functional:order-propose",
+    "seed_path": "vault/evals/functional:order-propose/v0.1/seed.jsonl",
+    "holdout_path": "vault/evals/functional:order-propose/v0.1/holdout-private.jsonl",
+    "notes_path": "vault/evals/functional:order-propose/v0.1/notes.md",
+    "superseded_by": "",
+    "created_at": "2026-05-28T12:30:10.331155+00:00"
+  },
+  "functional:meta-cross-skill-scan/v0.1": {
+    "pack_id": "functional:meta-cross-skill-scan/v0.1",
+    "domain": "functional:meta-cross-skill-scan",
+    "version": "v0.1",
+    "eval_class_counts": {
+      "capability": 3,
+      "regression": 1,
+      "calibration": 1
+    },
+    "source": "v0.42 hand-curated (cross-skill transfer signals)",
+    "rubric_ref": "domain_profiles.functional:meta-cross-skill-scan",
+    "seed_path": "vault/evals/functional:meta-cross-skill-scan/v0.1/seed.jsonl",
+    "holdout_path": "vault/evals/functional:meta-cross-skill-scan/v0.1/holdout-private.jsonl",
+    "notes_path": "vault/evals/functional:meta-cross-skill-scan/v0.1/notes.md",
+    "superseded_by": "",
+    "created_at": "2026-05-28T12:30:10.333594+00:00"
   }
 }

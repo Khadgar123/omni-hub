@@ -1,0 +1,1 @@
+Calibration-heavy: tone + style_fit dominate.  Regression refuses sycophancy.

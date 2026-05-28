@@ -1923,7 +1923,7 @@ def make_eval_show(workspace: Path):
     workspace_root = workspace.resolve()
 
     def eval_show(spec: OperationSpec) -> dict:
-        from .evals import EvalStore
+        from .evals.store import EvalStore, HoldoutAccessDenied
         domain = str(spec.payload.get("domain", "")).strip()
         version = str(spec.payload.get("version", "v0.1"))
         if not domain:
@@ -1932,15 +1932,23 @@ def make_eval_show(workspace: Path):
         pack = store.get_pack(domain, version)
         if pack is None:
             return {"domain": domain, "version": version, "found": False}
-        cases = store.list_cases(
-            pack,
-            include_holdout=bool(spec.payload.get("include_holdout", False)),
-        )
+        include_holdout = bool(spec.payload.get("include_holdout", False))
+        try:
+            cases = store.list_cases(pack, include_holdout=include_holdout)
+        except HoldoutAccessDenied as exc:
+            return {
+                "found": True,
+                "pack": pack.to_dict(),
+                "case_count": 0,
+                "cases": [],
+                "holdout_denied": str(exc),
+            }
         return {
             "found": True,
             "pack": pack.to_dict(),
             "case_count": len(cases),
             "cases": [c.to_dict() for c in cases],
+            "include_holdout": include_holdout,
         }
 
     return eval_show
@@ -1951,6 +1959,7 @@ def make_eval_run(workspace: Path):
 
     def eval_run(spec: OperationSpec) -> dict:
         from .evals import EvalRunner, EvalStore
+        from .evals.store import HoldoutAccessDenied
         domain = str(spec.payload.get("domain", "")).strip()
         version = str(spec.payload.get("version", "v0.1"))
         if not domain:
@@ -1963,14 +1972,29 @@ def make_eval_run(workspace: Path):
             workspace=workspace_root,
             judge=str(spec.payload.get("judge", "heuristic")),
         )
-        run = runner_.run(
-            pack,
-            skill_version=str(spec.payload.get("skill_version", "")),
-            trace_id=str(spec.trace_id or ""),
-            include_holdout=bool(spec.payload.get("include_holdout", False)),
-        )
+        try:
+            run = runner_.run(
+                pack,
+                skill_version=str(spec.payload.get("skill_version", "")),
+                trace_id=str(spec.trace_id or ""),
+                include_holdout=bool(spec.payload.get("include_holdout", False)),
+                use_echo_only=bool(spec.payload.get("echo_only", False)),
+            )
+        except HoldoutAccessDenied as exc:
+            return {
+                "pack_id": pack.pack_id,
+                "holdout_denied": str(exc),
+                "run_id": "",
+                "case_count": 0,
+                "pass_rate": 0.0,
+            }
         # Trim per_case_results from CLI payload — full detail lands in
         # .omni/eval_runs.sqlite3 (use ``omni-hub eval-run-show`` v0.42+).
+        adapter_counts: dict[str, int] = {}
+        for r in run.per_case_results:
+            adapter_counts[r.adapter_used or "unknown"] = (
+                adapter_counts.get(r.adapter_used or "unknown", 0) + 1
+            )
         return {
             "run_id": run.run_id,
             "pack_id": run.pack_id,
@@ -1979,6 +2003,7 @@ def make_eval_run(workspace: Path):
             "pass_rate": run.pass_rate,
             "pass_rate_by_class": run.pass_rate_by_class,
             "case_count": len(run.per_case_results),
+            "adapter_counts": adapter_counts,
         }
 
     return eval_run

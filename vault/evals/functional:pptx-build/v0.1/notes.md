@@ -1,0 +1,1 @@
+Write-class skill — adapter is describe-only (requires pptx-omni broker).  Capability checks outline parsing.

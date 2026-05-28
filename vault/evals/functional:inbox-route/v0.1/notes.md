@@ -1,0 +1,1 @@
+Cases inject typical forwarded payloads; expected output is the classifier's `kind` field.
