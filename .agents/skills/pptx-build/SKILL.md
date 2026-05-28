@@ -2,7 +2,9 @@
 name: pptx-build
 status: active-functional
 description: |
-  Render a typed DeckOutline → real .pptx via the python-pptx shim in agent-harness/integrations/pptx/.  Never generates raw OOXML.
+  Render a typed DeckOutline → real .pptx via the python-pptx shim in agent-harness/integrations/pptx/.  Never generates raw OOXML.  Requires the ``pptx-omni`` binary on PATH; without it the operation returns ``skipped: true`` (no error).
+
+  > **Status: broker_required** — install the matching broker under ``agent-harness/integrations/`` for end-to-end execution.  Without it the operation returns ``skipped=true``.
 
   Triggers — invoke this skill when the user says any of:
   - "build a pptx from this outline"
@@ -14,11 +16,12 @@ description: |
   flow.  Domain knowledge stays in the routed ``*-wiki`` skills; this
   layer is the cross-domain glue.
 license: MIT
-schema_version: v0.38
+schema_version: v0.40
 omni_hub:
   layer: functional
+  namespace: functional
   display_name: "PPTX Build"
-  status: active
+  status: broker_required
   version: 0.1.0
   entrypoint: "operation:pptx_build"
   risk_level: L1
@@ -28,13 +31,14 @@ omni_hub:
   tags:
     - functional
     - orchestrator
+    - broker_required
 ---
 
-<!-- omni-skill-stub: v0.38 -->
+<!-- omni-skill-stub: v0.40 -->
 
 # PPTX Build
 
-Render a typed DeckOutline → real .pptx via the python-pptx shim in agent-harness/integrations/pptx/.  Never generates raw OOXML.
+Render a typed DeckOutline → real .pptx via the python-pptx shim in agent-harness/integrations/pptx/.  Never generates raw OOXML.  Requires the ``pptx-omni`` binary on PATH; without it the operation returns ``skipped: true`` (no error).
 
 ## What it composes
 
@@ -57,5 +61,5 @@ PYTHONPATH=src python3 -m omni_hub.cli pptx-build [--help]
 
 ---
 
-_Auto-generated stub.  Remove the ``<!-- omni-skill-stub: v0.38 -->`` marker line to
+_Auto-generated stub.  Remove the ``<!-- omni-skill-stub: v0.40 -->`` marker line to
 opt out of regeneration._

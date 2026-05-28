@@ -2,7 +2,9 @@
 name: inbox-route
 status: active-functional
 description: |
-  Classify a forwarded item (URL / PDF / .ics / task / wiki) and dispatch to the right handler (capture-url, calendar-add, task-add, wiki-propose-research).
+  Classify a forwarded item (URL / PDF / .ics / task / wiki).  v0.40: classifier only — does NOT yet dispatch to the typed handlers (url-capture, calendar-add, task-add, wiki-propose-research).  Dispatch lands in v0.41 once each downstream handler returns a Proposal so audit + approval apply uniformly.
+
+  > **Status: stub** — contracts exist but the operation returns placeholder data.  See description for what's missing.
 
   Triggers — invoke this skill when the user says any of:
   - "I just forwarded this — handle it"
@@ -14,11 +16,12 @@ description: |
   flow.  Domain knowledge stays in the routed ``*-wiki`` skills; this
   layer is the cross-domain glue.
 license: MIT
-schema_version: v0.38
+schema_version: v0.40
 omni_hub:
   layer: functional
+  namespace: functional
   display_name: "Inbox Route (Forwarded Content)"
-  status: active
+  status: stub
   version: 0.1.0
   entrypoint: "operation:inbox_classify"
   risk_level: L0
@@ -31,13 +34,14 @@ omni_hub:
   tags:
     - functional
     - orchestrator
+    - stub
 ---
 
-<!-- omni-skill-stub: v0.38 -->
+<!-- omni-skill-stub: v0.40 -->
 
 # Inbox Route (Forwarded Content)
 
-Classify a forwarded item (URL / PDF / .ics / task / wiki) and dispatch to the right handler (capture-url, calendar-add, task-add, wiki-propose-research).
+Classify a forwarded item (URL / PDF / .ics / task / wiki).  v0.40: classifier only — does NOT yet dispatch to the typed handlers (url-capture, calendar-add, task-add, wiki-propose-research).  Dispatch lands in v0.41 once each downstream handler returns a Proposal so audit + approval apply uniformly.
 
 ## What it composes
 
@@ -63,5 +67,5 @@ PYTHONPATH=src python3 -m omni_hub.cli inbox-route [--help]
 
 ---
 
-_Auto-generated stub.  Remove the ``<!-- omni-skill-stub: v0.38 -->`` marker line to
+_Auto-generated stub.  Remove the ``<!-- omni-skill-stub: v0.40 -->`` marker line to
 opt out of regeneration._

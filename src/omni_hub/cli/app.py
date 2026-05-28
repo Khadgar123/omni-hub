@@ -52,6 +52,19 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     route.add_argument("--channel", default="cli",
                        choices=["cli", "mcp", "email", "feishu", "discord"])
 
+    intent = subparsers.add_parser(
+        "app-intent-route",
+        help="v0.40: 2-level router (intent first, domain second, "
+             "foundation_tools third).  Returns AppRouteDecision with the "
+             "three axes explicitly separated — used by functional skills "
+             "to pick which orchestrator to dispatch into.",
+    )
+    intent.add_argument("--query", required=True)
+    intent.add_argument("--subject", default="")
+    intent.add_argument("--sender", default="cli-user")
+    intent.add_argument("--channel", default="cli",
+                         choices=["cli", "mcp", "email", "feishu", "discord"])
+
     sync = subparsers.add_parser(
         "skill-stubs-sync",
         help="Regenerate .agents/skills/<slug>-wiki/SKILL.md stubs from "
@@ -112,8 +125,26 @@ def _skill_stubs_sync(args, *, runner, workspace) -> int:
     )
 
 
+def _app_intent_route(args, *, runner, workspace) -> int:
+    return run_and_print(
+        runner,
+        OperationSpec(
+            name="app_intent_route",
+            action="route",
+            payload={
+                "query": args.query,
+                "subject": args.subject,
+                "sender": args.sender,
+                "channel": args.channel,
+            },
+            risk_level=RiskLevel.READ_ONLY,
+        ),
+    )
+
+
 COMMANDS = {
     "app-report-build": _app_report_build,
     "app-route-task": _app_route_task,
+    "app-intent-route": _app_intent_route,
     "skill-stubs-sync": _skill_stubs_sync,
 }

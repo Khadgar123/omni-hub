@@ -27,8 +27,30 @@ from pathlib import Path
 from .domain_schemas import DOMAIN_SCHEMAS, DomainSchema
 
 
-SKILL_STUB_MARKER = "<!-- omni-skill-stub: v0.38 -->"
-SKILL_STUB_VERSION = "v0.38"
+SKILL_STUB_MARKER = "<!-- omni-skill-stub: v0.40 -->"
+SKILL_STUB_VERSION = "v0.40"
+
+
+# v0.40 — every skill carries a status that the router / UI can read.
+# Lets the system distinguish "actually ships" from "scaffolded but
+# returns stub data" from "needs an external broker on PATH".
+SKILL_STATUSES = (
+    "active",            # works end-to-end
+    "stub",              # contracts exist; implementation returns placeholder
+    "broker_required",   # works only when agent-harness/integrations/<x>/ installed
+    "deprecated",        # superseded by another skill; kept for backward compat
+)
+
+
+# v0.40 — namespace hint for future lazy loading (OpenAI tool_search
+# pattern: < 10 active per namespace, deferred for the rest).
+SKILL_NAMESPACES = (
+    "foundation_core",     # read-only, always-on (~6)
+    "foundation_write",    # mutation primitives, deferred + approval-gated
+    "foundation_eval",     # judge / ab / harness-compile / cross-skill
+    "functional",          # cross-domain orchestrators
+    "domain",              # the 19 wiki domains, task-routed
+)
 
 
 # ---------------------------------------------------------------------------
@@ -216,6 +238,10 @@ def render_skill_stub(domain_slug: str, schema: DomainSchema) -> str:
         for rule, severity in sorted(schema.rule_overrides.items())
     ) or "  _(none — uses global defaults)_"
 
+    eval_dimensions = (
+        "evidence_coverage / information_density / citation_support / "
+        "style_fit / uncertainty_calibration"
+    )
     return f"""---
 name: {skill_id}
 status: active-domain
@@ -231,10 +257,12 @@ description: |
   Do NOT trigger for: queries that match a different domain's keywords
   (the task_router in src/omni_hub/app/task_router.py picks the right
   one).  Do NOT use this for writing — all writes go through
-  Proposal[T] (see "Write boundary" below).
+  Proposal[T] (see "Write Policy" below).
 license: MIT
 schema_version: {SKILL_STUB_VERSION}
 omni_hub:
+  layer: domain
+  namespace: domain
   kind: domain_wiki
   display_name: "{schema.display_name} — Wiki Domain Skill"
   status: active
@@ -248,12 +276,6 @@ omni_hub:
     - wiki
     - domain
     - {domain_slug}
-  inputs:
-    query: "user question text"
-    domain: "{domain_slug}"
-    tier: "minimal | standard | expanded"
-  outputs:
-    context_pack: "ContextPack with cited wiki + research results"
 ---
 
 {SKILL_STUB_MARKER}
@@ -265,72 +287,92 @@ This is the **{domain_slug}** domain skill, auto-generated from
 
 > {schema.position}
 
-## When to use
+Every domain skill ships the v0.40 **5-section contract** — Retrieve /
+Apply / Guardrails / Eval Metric / Write Policy — so reviewers can audit
+each domain to the same checklist.
 
-Triggers (subset):
-
-- {triggers_md}
-
-## Reading
+## 1. Retrieve Knowledge
 
 ```bash
-# Targeted query in this domain
+# In-wiki query (FTS5 + substring fallback; filters superseded by default)
 PYTHONPATH=src python3 -m omni_hub.cli wiki-search \\
   --query "..." --backend fts5
 
-# Build a context pack (progressive disclosure: minimal / standard / expanded)
+# Tier-bounded context bundle (minimal / standard / expanded)
 PYTHONPATH=src python3 -m omni_hub.cli context-pack-build \\
   --query "..." --domain {domain_slug} --tier standard
 
-# Inspect the domain's GraphRAG community structure (v0.18-J)
+# GraphRAG-style community probe (v0.18-J)
 PYTHONPATH=src python3 -m omni_hub.cli wiki-graph \\
   --node <canonical_id_or_slug>
 ```
 
-## Ingesting new evidence
+Authoritative cascade: {sources}.  When in doubt, default to ``tier=standard``.
 
-```bash
-# 1) Run the federated retrieval cascade for this domain
-PYTHONPATH=src python3 -m omni_hub.cli retrieve \\
-  --query "..." --domain {domain_slug} --persist-evidence
+## 2. Apply Knowledge
 
-# 2) Bridge the retrieval evidence into a wiki_update Proposal
-PYTHONPATH=src python3 -m omni_hub.cli wiki-ingest \\
-  --run-id <run_id> --domain {domain_slug}
+What this skill **does** with the retrieved context (the contract a
+caller can rely on):
 
-# 3) Human approves the Proposal
-PYTHONPATH=src python3 -m omni_hub.cli propose-list --state pending
-PYTHONPATH=src python3 -m omni_hub.cli propose-approve --id <pid>
+- Synthesise a cited answer to the user's question, drawing only from
+  pages whose ``review_state == approved`` and ``t_valid_to`` either
+  null or in the future.
+- For factual claims, cite ``claim_id`` from ``.omni/claims.jsonl`` —
+  callers can re-resolve via ``claims-show``.
+- For methodological / procedural questions, walk the
+  ``methods/`` + ``concepts/`` subfolders before falling back to
+  ``syntheses/``.
+- If the context pack returns empty, surface "no claims yet" rather
+  than hallucinating — let the user choose to ingest more evidence
+  via the section below.
 
-# 4) Land the approved Proposal — writes vault/wiki/domains/{schema.folder}/...
-PYTHONPATH=src python3 -m omni_hub.cli wiki-apply-proposal --proposal <pid>
-```
-
-## Write boundary (hard rule from AGENTS.md §5)
-
-**Agents propose, humans approve.**  This skill MAY NOT write to
-`vault/wiki/domains/{schema.folder}/` directly.  All page changes go
-through `Proposal(kind=wiki_update)`.  All claim retirements go
-through `wiki-supersede` (bitemporal window close, never delete).
-
-## Domain-specific lint hints
+## 3. Guardrails
 
 {chr(10).join(f"- {hint}" for hint in schema.lint_hints) if schema.lint_hints else "- _(no domain-specific hints — uses global rules)_"}
 
-### Severity overrides
+Lint severity overrides:
 
 {rule_overrides_md}
 
-## Required frontmatter on new pages
+## 4. Eval Metric
+
+- Composite score = Judge composite ({eval_dimensions}) computed by
+  ``omni-hub judge-evaluate --domain {domain_slug} --candidate ...``.
+- Per-domain rubric weights live in
+  ``src/omni_hub/harness/domain_profiles.py::_DOMAIN_RUBRIC_OVERRIDES``.
+- PreferenceStore at ``.omni/preference/{domain_slug}.jsonl`` —
+  ``harness-compile-skill --domain {domain_slug}`` consumes this weekly
+  and proposes SKILL.md body updates as DSPy 5-component artifacts.
+- A/B test variants with ``omni-hub ab-test --domain {domain_slug}``.
+
+## 5. Write Policy
+
+**Agents propose, humans approve.**  This skill MAY NOT write to
+`vault/wiki/domains/{schema.folder}/` directly.
+
+```bash
+# 1) Cascade retrieves evidence (read-only)
+PYTHONPATH=src python3 -m omni_hub.cli retrieve \\
+  --query "..." --domain {domain_slug} --persist-evidence
+
+# 2) Bridge to a Proposal(kind=wiki_update) — humans review
+PYTHONPATH=src python3 -m omni_hub.cli wiki-ingest \\
+  --run-id <run_id> --domain {domain_slug}
+
+# 3) Human review
+PYTHONPATH=src python3 -m omni_hub.cli propose-list --state pending
+PYTHONPATH=src python3 -m omni_hub.cli propose-approve --id <pid>
+
+# 4) Land approved Proposal → vault/wiki/domains/{schema.folder}/ + claims.jsonl
+PYTHONPATH=src python3 -m omni_hub.cli wiki-apply-proposal --proposal <pid>
+
+# Retire stale claims: bitemporal close, never delete.
+PYTHONPATH=src python3 -m omni_hub.cli wiki-supersede --old <id> --new <id>
+```
+
+### Required frontmatter on new pages
 
 {_render_frontmatter_block(schema)}
-
-## Eval metric (Skill Evolution Layer)
-
-Preference records for this skill land at
-`.omni/preference/{domain_slug}.jsonl`.  `harness-compile-skill --domain
-{domain_slug}` reads them weekly (see launchd weekly schedule) and
-proposes prompt updates as new versions of this SKILL.md body.
 
 ---
 
@@ -400,6 +442,8 @@ class FoundationSkill:
     risk_level: str = "L0"   # default read-only
     bucket: str = "knowledge_access"   # knowledge_access | knowledge_update | eval | workflow | channel
     body_md: str = ""        # additional markdown body beyond the auto frontmatter
+    status: str = "active"   # active | stub | broker_required | deprecated
+    namespace: str = "foundation_core"   # foundation_core | foundation_write | foundation_eval
 
 
 @dataclass(slots=True)
@@ -415,10 +459,15 @@ class FunctionalSkill:
     composes: list[str]      # foundation/domain skill_ids this orchestrates
     risk_level: str = "L0"
     body_md: str = ""
+    status: str = "active"   # active | stub | broker_required | deprecated
+    namespace: str = "functional"
 
 
 FOUNDATION_SKILLS: list[FoundationSkill] = [
     # Knowledge access (5) ---------------------------------------------
+    # The list below is iterated and each item gets its namespace
+    # auto-derived from `bucket` at module import time (see
+    # ``_apply_namespace_defaults`` further down).
     FoundationSkill(
         skill_id="context-pack",
         display_name="Context Pack Builder",
@@ -656,6 +705,23 @@ FOUNDATION_SKILLS: list[FoundationSkill] = [
 ]
 
 
+def _apply_namespace_defaults() -> None:
+    """v0.40: assign each foundation skill its namespace from its bucket."""
+
+    bucket_to_namespace = {
+        "knowledge_access": "foundation_core",
+        "knowledge_update": "foundation_write",
+        "workflow":         "foundation_write",
+        "eval":             "foundation_eval",
+        "channel":          "foundation_core",
+    }
+    for skill in FOUNDATION_SKILLS:
+        skill.namespace = bucket_to_namespace.get(skill.bucket, "foundation_core")
+
+
+_apply_namespace_defaults()
+
+
 FUNCTIONAL_SKILLS: list[FunctionalSkill] = [
     FunctionalSkill(
         skill_id="chat-route",
@@ -687,9 +753,12 @@ FUNCTIONAL_SKILLS: list[FunctionalSkill] = [
     FunctionalSkill(
         skill_id="inbox-route",
         display_name="Inbox Route (Forwarded Content)",
-        hero="Classify a forwarded item (URL / PDF / .ics / task / wiki) and "
-             "dispatch to the right handler (capture-url, calendar-add, "
-             "task-add, wiki-propose-research).",
+        hero="Classify a forwarded item (URL / PDF / .ics / task / wiki).  "
+             "v0.40: classifier only — does NOT yet dispatch to the typed "
+             "handlers (url-capture, calendar-add, task-add, "
+             "wiki-propose-research).  Dispatch lands in v0.41 once each "
+             "downstream handler returns a Proposal so audit + approval "
+             "apply uniformly.",
         triggers=[
             "I just forwarded this — handle it",
             "把这个内容收进 KB",
@@ -697,13 +766,15 @@ FUNCTIONAL_SKILLS: list[FunctionalSkill] = [
         ],
         entrypoint="operation:inbox_classify",
         composes=["url-capture", "calendar-add", "task-add", "wiki-propose-research"],
+        status="stub",
     ),
     FunctionalSkill(
         skill_id="project-plan",
         display_name="Project Plan",
-        hero="Create a high-level Project; enqueue a claude lane planner "
-             "task that emits a plan_markdown + subtask decomposition as "
-             "Proposal(kind=project_plan).",
+        hero="Create a high-level Project row.  v0.40: stub — only persists "
+             "the Project; does NOT yet enqueue a claude-lane planner task "
+             "or emit a Proposal(kind=project_plan).  Full planner+decompose "
+             "flow lands in v0.41.",
         triggers=[
             "plan a project to ship X",
             "decompose this multi-week effort",
@@ -712,13 +783,15 @@ FUNCTIONAL_SKILLS: list[FunctionalSkill] = [
         entrypoint="operation:project_plan",
         composes=["task-add"],
         risk_level="L1",
+        status="stub",
     ),
     FunctionalSkill(
         skill_id="pptx-build",
         display_name="PPTX Build",
         hero="Render a typed DeckOutline → real .pptx via the python-pptx "
              "shim in agent-harness/integrations/pptx/.  Never generates "
-             "raw OOXML.",
+             "raw OOXML.  Requires the ``pptx-omni`` binary on PATH; without "
+             "it the operation returns ``skipped: true`` (no error).",
         triggers=[
             "build a pptx from this outline",
             "做一份 deck",
@@ -727,6 +800,7 @@ FUNCTIONAL_SKILLS: list[FunctionalSkill] = [
         entrypoint="operation:pptx_build",
         composes=["context-pack"],
         risk_level="L1",
+        status="broker_required",
     ),
     FunctionalSkill(
         skill_id="calendar-add",
@@ -774,8 +848,11 @@ FUNCTIONAL_SKILLS: list[FunctionalSkill] = [
         skill_id="finance-screen",
         display_name="Finance Screen",
         hero="Read-only stock screening against existing connectors (EDGAR / "
-             "FRED / Tushare / Crunchbase).  Returns typed StockSignal list. "
-             "Never places orders.",
+             "FRED / Tushare / Crunchbase).  v0.40: stub — returns ``[]`` "
+             "because real screening requires connector API keys + a "
+             "structured-query pathway (Tushare is API-only, EDGAR returns "
+             "filings not screens).  v0.41 lands a thin SQL-style screen "
+             "over locally-cached evidence.",
         triggers=[
             "screen US large-cap AI plays",
             "找 A 股新能源",
@@ -783,6 +860,7 @@ FUNCTIONAL_SKILLS: list[FunctionalSkill] = [
         ],
         entrypoint="operation:finance_screen",
         composes=["retrieve", "context-pack"],
+        status="stub",
     ),
     FunctionalSkill(
         skill_id="order-propose",
@@ -840,9 +918,10 @@ license: MIT
 schema_version: {SKILL_STUB_VERSION}
 omni_hub:
   layer: foundation
+  namespace: {skill.namespace}
   bucket: {skill.bucket}
   display_name: "{skill.display_name}"
-  status: active
+  status: {skill.status}
   version: 0.1.0
   entrypoint: "{skill.entrypoint}"
   risk_level: {skill.risk_level}
@@ -851,6 +930,7 @@ omni_hub:
   tags:
     - foundation
     - {skill.bucket}
+    - {skill.namespace}
 ---
 
 {SKILL_STUB_MARKER}
@@ -895,11 +975,28 @@ opt out of regeneration (the v0.32 ``materialise_all`` rule)._
 def render_functional_stub(skill: FunctionalSkill) -> str:
     triggers_md = "\n  - ".join(f'"{t}"' for t in skill.triggers)
     composes_md = ", ".join(f"`{c}`" for c in skill.composes) or "_(none — pure orchestrator)_"
+    status_banner = ""
+    if skill.status == "stub":
+        status_banner = (
+            "\n\n  > **Status: stub** — contracts exist but the operation "
+            "returns placeholder data.  See description for what's missing."
+        )
+    elif skill.status == "broker_required":
+        status_banner = (
+            "\n\n  > **Status: broker_required** — install the matching "
+            "broker under ``agent-harness/integrations/`` for end-to-end "
+            "execution.  Without it the operation returns ``skipped=true``."
+        )
+    elif skill.status == "deprecated":
+        status_banner = (
+            "\n\n  > **Status: deprecated** — kept for backward compat; "
+            "use the canonical replacement listed in the description."
+        )
     return f"""---
 name: {skill.skill_id}
 status: active-functional
 description: |
-  {skill.hero}
+  {skill.hero}{status_banner}
 
   Triggers — invoke this skill when the user says any of:
   - {triggers_md}
@@ -912,8 +1009,9 @@ license: MIT
 schema_version: {SKILL_STUB_VERSION}
 omni_hub:
   layer: functional
+  namespace: {skill.namespace}
   display_name: "{skill.display_name}"
-  status: active
+  status: {skill.status}
   version: 0.1.0
   entrypoint: "{skill.entrypoint}"
   risk_level: {skill.risk_level}
@@ -923,6 +1021,7 @@ omni_hub:
   tags:
     - functional
     - orchestrator
+    - {skill.status}
 ---
 
 {SKILL_STUB_MARKER}

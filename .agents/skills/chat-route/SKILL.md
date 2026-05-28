@@ -14,9 +14,10 @@ description: |
   flow.  Domain knowledge stays in the routed ``*-wiki`` skills; this
   layer is the cross-domain glue.
 license: MIT
-schema_version: v0.38
+schema_version: v0.40
 omni_hub:
   layer: functional
+  namespace: functional
   display_name: "Chat Route"
   status: active
   version: 0.1.0
@@ -29,9 +30,10 @@ omni_hub:
   tags:
     - functional
     - orchestrator
+    - active
 ---
 
-<!-- omni-skill-stub: v0.38 -->
+<!-- omni-skill-stub: v0.40 -->
 
 # Chat Route
 
@@ -59,5 +61,5 @@ PYTHONPATH=src python3 -m omni_hub.cli chat-route [--help]
 
 ---
 
-_Auto-generated stub.  Remove the ``<!-- omni-skill-stub: v0.38 -->`` marker line to
+_Auto-generated stub.  Remove the ``<!-- omni-skill-stub: v0.40 -->`` marker line to
 opt out of regeneration._

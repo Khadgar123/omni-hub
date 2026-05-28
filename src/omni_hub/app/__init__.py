@@ -30,6 +30,7 @@ from .report_orchestrator import (
     ReportSection,
     ReportSummary,
 )
+from .intent_router import AppIntentRouter, AppRouteDecision
 from .task_router import (
     AppIntent,
     ConversationTurn,
@@ -39,6 +40,8 @@ from .task_router import (
 
 __all__ = [
     "AppIntent",
+    "AppIntentRouter",
+    "AppRouteDecision",
     "ConversationTurn",
     "NarrativeRequest",
     "ReportOrchestrator",

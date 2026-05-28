@@ -16,19 +16,20 @@
     ],
     "tags": [
       "foundation",
-      "eval"
+      "eval",
+      "foundation_eval"
     ],
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/ab-test/SKILL.md",
-    "created_at": "2026-05-28T11:14:34.718938+00:00",
-    "updated_at": "2026-05-28T11:14:34.725626+00:00"
+    "created_at": "2026-05-28T11:37:48.173948+00:00",
+    "updated_at": "2026-05-28T11:37:48.181227+00:00"
   },
   {
     "skill_id": "agent-systems-wiki",
     "name": "Agent Systems — Wiki Domain Skill",
     "kind": "domain_wiki",
-    "description": "Agent frameworks / SDKs / BUILD-vs-USE decisions.\n\nTriggers — invoke this skill when the user asks any of:\n- \"Letta vs Mem0 怎么选\"\n- \"DSPy GEPA 真的有用吗\"\n- \"OpenHands worker 怎么部署\"\n- \"应该 fork 还是 pin\"\n\nSource corpus: vault/wiki/domains/agent-systems/.  Authoritative\ncascade: `wikipedia`, `openalex`, `gdelt`.  Stale threshold: 30 days.\n\nDo NOT trigger for: queries that match a different domain's keywords\n(the task_router in src/omni_hub/app/task_router.py picks the right\none).  Do NOT use this for writing — all writes go through\nProposal[T] (see \"Write boundary\" below).",
+    "description": "Agent frameworks / SDKs / BUILD-vs-USE decisions.\n\nTriggers — invoke this skill when the user asks any of:\n- \"Letta vs Mem0 怎么选\"\n- \"DSPy GEPA 真的有用吗\"\n- \"OpenHands worker 怎么部署\"\n- \"应该 fork 还是 pin\"\n\nSource corpus: vault/wiki/domains/agent-systems/.  Authoritative\ncascade: `wikipedia`, `openalex`, `gdelt`.  Stale threshold: 30 days.\n\nDo NOT trigger for: queries that match a different domain's keywords\n(the task_router in src/omni_hub/app/task_router.py picks the right\none).  Do NOT use this for writing — all writes go through\nProposal[T] (see \"Write Policy\" below).",
     "version": "0.1.0",
     "status": "active",
     "entrypoint": "operation:context_pack_build",
@@ -46,23 +47,17 @@
       "domain",
       "agent_systems"
     ],
-    "inputs": {
-      "query": "user question text",
-      "domain": "agent_systems",
-      "tier": "minimal | standard | expanded"
-    },
-    "outputs": {
-      "context_pack": "ContextPack with cited wiki + research results"
-    },
+    "inputs": {},
+    "outputs": {},
     "source_path": ".agents/skills/agent-systems-wiki/SKILL.md",
-    "created_at": "2026-05-28T11:14:34.719173+00:00",
-    "updated_at": "2026-05-28T11:14:34.725641+00:00"
+    "created_at": "2026-05-28T11:37:48.174142+00:00",
+    "updated_at": "2026-05-28T11:37:48.181238+00:00"
   },
   {
     "skill_id": "ai-progress-wiki",
     "name": "AI Progress — Wiki Domain Skill",
     "kind": "domain_wiki",
-    "description": "Frontier AI — models, papers, releases.\n\nTriggers — invoke this skill when the user asks any of:\n- \"Claude 4.7 有什么新特性\"\n- \"DSPy 3 怎么用\"\n- \"GPT-5 / Gemini 3 / Llama 5 对比\"\n- \"Anthropic Skills 怎么写\"\n\nSource corpus: vault/wiki/domains/ai-progress/.  Authoritative\ncascade: `hf_daily_papers`, `arxiv`, `openalex`, `wikipedia`.  Stale threshold: 14 days.\n\nDo NOT trigger for: queries that match a different domain's keywords\n(the task_router in src/omni_hub/app/task_router.py picks the right\none).  Do NOT use this for writing — all writes go through\nProposal[T] (see \"Write boundary\" below).",
+    "description": "Frontier AI — models, papers, releases.\n\nTriggers — invoke this skill when the user asks any of:\n- \"Claude 4.7 有什么新特性\"\n- \"DSPy 3 怎么用\"\n- \"GPT-5 / Gemini 3 / Llama 5 对比\"\n- \"Anthropic Skills 怎么写\"\n\nSource corpus: vault/wiki/domains/ai-progress/.  Authoritative\ncascade: `hf_daily_papers`, `arxiv`, `openalex`, `wikipedia`.  Stale threshold: 14 days.\n\nDo NOT trigger for: queries that match a different domain's keywords\n(the task_router in src/omni_hub/app/task_router.py picks the right\none).  Do NOT use this for writing — all writes go through\nProposal[T] (see \"Write Policy\" below).",
     "version": "0.1.0",
     "status": "active",
     "entrypoint": "operation:context_pack_build",
@@ -81,17 +76,11 @@
       "domain",
       "ai_progress"
     ],
-    "inputs": {
-      "query": "user question text",
-      "domain": "ai_progress",
-      "tier": "minimal | standard | expanded"
-    },
-    "outputs": {
-      "context_pack": "ContextPack with cited wiki + research results"
-    },
+    "inputs": {},
+    "outputs": {},
     "source_path": ".agents/skills/ai-progress-wiki/SKILL.md",
-    "created_at": "2026-05-28T11:14:34.719324+00:00",
-    "updated_at": "2026-05-28T11:14:34.725654+00:00"
+    "created_at": "2026-05-28T11:37:48.174260+00:00",
+    "updated_at": "2026-05-28T11:37:48.181248+00:00"
   },
   {
     "skill_id": "api-management-status",
@@ -108,8 +97,8 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/api-management-status/SKILL.md",
-    "created_at": "2026-05-28T11:14:34.719439+00:00",
-    "updated_at": "2026-05-28T11:14:34.725665+00:00"
+    "created_at": "2026-05-28T11:37:48.174494+00:00",
+    "updated_at": "2026-05-28T11:37:48.181256+00:00"
   },
   {
     "skill_id": "app-report-build",
@@ -126,13 +115,14 @@
     "connectors": [],
     "tags": [
       "functional",
-      "orchestrator"
+      "orchestrator",
+      "active"
     ],
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/app-report-build/SKILL.md",
-    "created_at": "2026-05-28T11:14:34.719563+00:00",
-    "updated_at": "2026-05-28T11:14:34.725675+00:00"
+    "created_at": "2026-05-28T11:37:48.174586+00:00",
+    "updated_at": "2026-05-28T11:37:48.181268+00:00"
   },
   {
     "skill_id": "calendar-add",
@@ -149,19 +139,20 @@
     "connectors": [],
     "tags": [
       "functional",
-      "orchestrator"
+      "orchestrator",
+      "active"
     ],
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/calendar-add/SKILL.md",
-    "created_at": "2026-05-28T11:14:34.719673+00:00",
-    "updated_at": "2026-05-28T11:14:34.725686+00:00"
+    "created_at": "2026-05-28T11:37:48.174680+00:00",
+    "updated_at": "2026-05-28T11:37:48.181277+00:00"
   },
   {
     "skill_id": "chat-relationships-wiki",
     "name": "Chat & Relationships — Wiki Domain Skill",
     "kind": "domain_wiki",
-    "description": "Conversational nuance + privacy-safe relationship context.\n\nTriggers — invoke this skill when the user asks any of:\n- \"这条消息该怎么回\"\n- \"老板说 X 是什么意思\"\n- \"how to set this boundary\"\n- \"朋友冷战了怎么办\"\n\nSource corpus: vault/wiki/domains/chat-relationships/.  Authoritative\ncascade: _(reactive — no cascade by default)_.  Stale threshold: 180 days.\n\nDo NOT trigger for: queries that match a different domain's keywords\n(the task_router in src/omni_hub/app/task_router.py picks the right\none).  Do NOT use this for writing — all writes go through\nProposal[T] (see \"Write boundary\" below).",
+    "description": "Conversational nuance + privacy-safe relationship context.\n\nTriggers — invoke this skill when the user asks any of:\n- \"这条消息该怎么回\"\n- \"老板说 X 是什么意思\"\n- \"how to set this boundary\"\n- \"朋友冷战了怎么办\"\n\nSource corpus: vault/wiki/domains/chat-relationships/.  Authoritative\ncascade: _(reactive — no cascade by default)_.  Stale threshold: 180 days.\n\nDo NOT trigger for: queries that match a different domain's keywords\n(the task_router in src/omni_hub/app/task_router.py picks the right\none).  Do NOT use this for writing — all writes go through\nProposal[T] (see \"Write Policy\" below).",
     "version": "0.1.0",
     "status": "active",
     "entrypoint": "operation:context_pack_build",
@@ -175,17 +166,11 @@
       "domain",
       "chat_relationships"
     ],
-    "inputs": {
-      "query": "user question text",
-      "domain": "chat_relationships",
-      "tier": "minimal | standard | expanded"
-    },
-    "outputs": {
-      "context_pack": "ContextPack with cited wiki + research results"
-    },
+    "inputs": {},
+    "outputs": {},
     "source_path": ".agents/skills/chat-relationships-wiki/SKILL.md",
-    "created_at": "2026-05-28T11:14:34.719805+00:00",
-    "updated_at": "2026-05-28T11:14:34.725697+00:00"
+    "created_at": "2026-05-28T11:37:48.174780+00:00",
+    "updated_at": "2026-05-28T11:37:48.181286+00:00"
   },
   {
     "skill_id": "chat-route",
@@ -202,13 +187,14 @@
     "connectors": [],
     "tags": [
       "functional",
-      "orchestrator"
+      "orchestrator",
+      "active"
     ],
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/chat-route/SKILL.md",
-    "created_at": "2026-05-28T11:14:34.719916+00:00",
-    "updated_at": "2026-05-28T11:14:34.725707+00:00"
+    "created_at": "2026-05-28T11:37:48.174870+00:00",
+    "updated_at": "2026-05-28T11:37:48.181297+00:00"
   },
   {
     "skill_id": "claims-show",
@@ -227,19 +213,20 @@
     ],
     "tags": [
       "foundation",
-      "knowledge_access"
+      "knowledge_access",
+      "foundation_core"
     ],
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/claims-show/SKILL.md",
-    "created_at": "2026-05-28T11:14:34.720027+00:00",
-    "updated_at": "2026-05-28T11:14:34.725718+00:00"
+    "created_at": "2026-05-28T11:37:48.174958+00:00",
+    "updated_at": "2026-05-28T11:37:48.181309+00:00"
   },
   {
     "skill_id": "cn-policy-wiki",
     "name": "China Policy — Wiki Domain Skill",
     "kind": "domain_wiki",
-    "description": "中国政策 — 部委文件 / 五年规划 / 央行规定.\n\nTriggers — invoke this skill when the user asks any of:\n- \"2026 中央财办文件\"\n- \"网信办最新规定\"\n- \"五年规划 X 章节\"\n- \"国发〔2026〕12号\"\n\nSource corpus: vault/wiki/domains/cn-policy/.  Authoritative\ncascade: `gov_cn`, `stats_gov_cn`, `court_gov_cn`, `pbc_gov_cn`, `wikipedia`.  Stale threshold: 90 days.\n\nDo NOT trigger for: queries that match a different domain's keywords\n(the task_router in src/omni_hub/app/task_router.py picks the right\none).  Do NOT use this for writing — all writes go through\nProposal[T] (see \"Write boundary\" below).",
+    "description": "中国政策 — 部委文件 / 五年规划 / 央行规定.\n\nTriggers — invoke this skill when the user asks any of:\n- \"2026 中央财办文件\"\n- \"网信办最新规定\"\n- \"五年规划 X 章节\"\n- \"国发〔2026〕12号\"\n\nSource corpus: vault/wiki/domains/cn-policy/.  Authoritative\ncascade: `gov_cn`, `stats_gov_cn`, `court_gov_cn`, `pbc_gov_cn`, `wikipedia`.  Stale threshold: 90 days.\n\nDo NOT trigger for: queries that match a different domain's keywords\n(the task_router in src/omni_hub/app/task_router.py picks the right\none).  Do NOT use this for writing — all writes go through\nProposal[T] (see \"Write Policy\" below).",
     "version": "0.1.0",
     "status": "active",
     "entrypoint": "operation:context_pack_build",
@@ -259,17 +246,11 @@
       "domain",
       "cn_policy"
     ],
-    "inputs": {
-      "query": "user question text",
-      "domain": "cn_policy",
-      "tier": "minimal | standard | expanded"
-    },
-    "outputs": {
-      "context_pack": "ContextPack with cited wiki + research results"
-    },
+    "inputs": {},
+    "outputs": {},
     "source_path": ".agents/skills/cn-policy-wiki/SKILL.md",
-    "created_at": "2026-05-28T11:14:34.720164+00:00",
-    "updated_at": "2026-05-28T11:14:34.725730+00:00"
+    "created_at": "2026-05-28T11:37:48.175056+00:00",
+    "updated_at": "2026-05-28T11:37:48.181318+00:00"
   },
   {
     "skill_id": "context-pack",
@@ -288,19 +269,20 @@
     ],
     "tags": [
       "foundation",
-      "knowledge_access"
+      "knowledge_access",
+      "foundation_core"
     ],
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/context-pack/SKILL.md",
-    "created_at": "2026-05-28T11:14:34.720269+00:00",
-    "updated_at": "2026-05-28T11:14:34.725740+00:00"
+    "created_at": "2026-05-28T11:37:48.175146+00:00",
+    "updated_at": "2026-05-28T11:37:48.181329+00:00"
   },
   {
     "skill_id": "cooking-wiki",
     "name": "Cooking — Wiki Domain Skill",
     "kind": "domain_wiki",
-    "description": "Recipes / techniques / substitutions.\n\nTriggers — invoke this skill when the user asks any of:\n- \"今晚做什么\"\n- \"红烧肉怎么做\"\n- \"麻婆豆腐的关键步骤\"\n- \"how do I temper chocolate\"\n\nSource corpus: vault/wiki/domains/cooking/.  Authoritative\ncascade: `xiaohongshu`, `bilibili`, `wikipedia`.  Stale threshold: 730 days.\n\nDo NOT trigger for: queries that match a different domain's keywords\n(the task_router in src/omni_hub/app/task_router.py picks the right\none).  Do NOT use this for writing — all writes go through\nProposal[T] (see \"Write boundary\" below).",
+    "description": "Recipes / techniques / substitutions.\n\nTriggers — invoke this skill when the user asks any of:\n- \"今晚做什么\"\n- \"红烧肉怎么做\"\n- \"麻婆豆腐的关键步骤\"\n- \"how do I temper chocolate\"\n\nSource corpus: vault/wiki/domains/cooking/.  Authoritative\ncascade: `xiaohongshu`, `bilibili`, `wikipedia`.  Stale threshold: 730 days.\n\nDo NOT trigger for: queries that match a different domain's keywords\n(the task_router in src/omni_hub/app/task_router.py picks the right\none).  Do NOT use this for writing — all writes go through\nProposal[T] (see \"Write Policy\" below).",
     "version": "0.1.0",
     "status": "active",
     "entrypoint": "operation:context_pack_build",
@@ -318,23 +300,17 @@
       "domain",
       "cooking"
     ],
-    "inputs": {
-      "query": "user question text",
-      "domain": "cooking",
-      "tier": "minimal | standard | expanded"
-    },
-    "outputs": {
-      "context_pack": "ContextPack with cited wiki + research results"
-    },
+    "inputs": {},
+    "outputs": {},
     "source_path": ".agents/skills/cooking-wiki/SKILL.md",
-    "created_at": "2026-05-28T11:14:34.720396+00:00",
-    "updated_at": "2026-05-28T11:14:34.725752+00:00"
+    "created_at": "2026-05-28T11:37:48.175250+00:00",
+    "updated_at": "2026-05-28T11:37:48.181337+00:00"
   },
   {
     "skill_id": "engineering-wiki",
     "name": "Engineering — Wiki Domain Skill",
     "kind": "domain_wiki",
-    "description": "Software engineering — stack traces, frameworks, refactors.\n\nTriggers — invoke this skill when the user asks any of:\n- \"这个 stack trace 是什么意思\"\n- \"X 框架的 idiomatic 写法\"\n- \"refactor this module\"\n- \"为什么 test 挂了\"\n\nSource corpus: vault/wiki/domains/engineering/.  Authoritative\ncascade: `openalex`, `arxiv`, `wikipedia`.  Stale threshold: 180 days.\n\nDo NOT trigger for: queries that match a different domain's keywords\n(the task_router in src/omni_hub/app/task_router.py picks the right\none).  Do NOT use this for writing — all writes go through\nProposal[T] (see \"Write boundary\" below).",
+    "description": "Software engineering — stack traces, frameworks, refactors.\n\nTriggers — invoke this skill when the user asks any of:\n- \"这个 stack trace 是什么意思\"\n- \"X 框架的 idiomatic 写法\"\n- \"refactor this module\"\n- \"为什么 test 挂了\"\n\nSource corpus: vault/wiki/domains/engineering/.  Authoritative\ncascade: `openalex`, `arxiv`, `wikipedia`.  Stale threshold: 180 days.\n\nDo NOT trigger for: queries that match a different domain's keywords\n(the task_router in src/omni_hub/app/task_router.py picks the right\none).  Do NOT use this for writing — all writes go through\nProposal[T] (see \"Write Policy\" below).",
     "version": "0.1.0",
     "status": "active",
     "entrypoint": "operation:context_pack_build",
@@ -352,23 +328,17 @@
       "domain",
       "engineering"
     ],
-    "inputs": {
-      "query": "user question text",
-      "domain": "engineering",
-      "tier": "minimal | standard | expanded"
-    },
-    "outputs": {
-      "context_pack": "ContextPack with cited wiki + research results"
-    },
+    "inputs": {},
+    "outputs": {},
     "source_path": ".agents/skills/engineering-wiki/SKILL.md",
-    "created_at": "2026-05-28T11:14:34.720522+00:00",
-    "updated_at": "2026-05-28T11:14:34.725764+00:00"
+    "created_at": "2026-05-28T11:37:48.175393+00:00",
+    "updated_at": "2026-05-28T11:37:48.181350+00:00"
   },
   {
     "skill_id": "enterprise-wiki",
     "name": "Enterprise Analysis — Wiki Domain Skill",
     "kind": "domain_wiki",
-    "description": "Per-company dossiers — team / funding / product / changes.\n\nTriggers — invoke this skill when the user asks any of:\n- \"OpenAI 最新组织架构\"\n- \"X 公司值得加入吗\"\n- \"分析这家公司的护城河\"\n- \"due diligence on Y startup\"\n\nSource corpus: vault/wiki/domains/enterprise/.  Authoritative\ncascade: `crossref`, `edgar`, `brave_search`, `wikidata`, `wikipedia`.  Stale threshold: 90 days.\n\nDo NOT trigger for: queries that match a different domain's keywords\n(the task_router in src/omni_hub/app/task_router.py picks the right\none).  Do NOT use this for writing — all writes go through\nProposal[T] (see \"Write boundary\" below).",
+    "description": "Per-company dossiers — team / funding / product / changes.\n\nTriggers — invoke this skill when the user asks any of:\n- \"OpenAI 最新组织架构\"\n- \"X 公司值得加入吗\"\n- \"分析这家公司的护城河\"\n- \"due diligence on Y startup\"\n\nSource corpus: vault/wiki/domains/enterprise/.  Authoritative\ncascade: `crossref`, `edgar`, `brave_search`, `wikidata`, `wikipedia`.  Stale threshold: 90 days.\n\nDo NOT trigger for: queries that match a different domain's keywords\n(the task_router in src/omni_hub/app/task_router.py picks the right\none).  Do NOT use this for writing — all writes go through\nProposal[T] (see \"Write Policy\" below).",
     "version": "0.1.0",
     "status": "active",
     "entrypoint": "operation:context_pack_build",
@@ -388,23 +358,17 @@
       "domain",
       "enterprise"
     ],
-    "inputs": {
-      "query": "user question text",
-      "domain": "enterprise",
-      "tier": "minimal | standard | expanded"
-    },
-    "outputs": {
-      "context_pack": "ContextPack with cited wiki + research results"
-    },
+    "inputs": {},
+    "outputs": {},
     "source_path": ".agents/skills/enterprise-wiki/SKILL.md",
-    "created_at": "2026-05-28T11:14:34.720649+00:00",
-    "updated_at": "2026-05-28T11:14:34.725776+00:00"
+    "created_at": "2026-05-28T11:37:48.175547+00:00",
+    "updated_at": "2026-05-28T11:37:48.181362+00:00"
   },
   {
     "skill_id": "fashion-wiki",
     "name": "Fashion — Wiki Domain Skill",
     "kind": "domain_wiki",
-    "description": "Outfit / season / fit / budget recommendations.\n\nTriggers — invoke this skill when the user asks any of:\n- \"春季商务休闲穿搭\"\n- \"婚礼伴郎西装预算 3k\"\n- \"SS26 趋势\"\n- \"怎么搭配 oversized 衬衫\"\n\nSource corpus: vault/wiki/domains/fashion/.  Authoritative\ncascade: `wikipedia`.  Stale threshold: 90 days.\n\nDo NOT trigger for: queries that match a different domain's keywords\n(the task_router in src/omni_hub/app/task_router.py picks the right\none).  Do NOT use this for writing — all writes go through\nProposal[T] (see \"Write boundary\" below).",
+    "description": "Outfit / season / fit / budget recommendations.\n\nTriggers — invoke this skill when the user asks any of:\n- \"春季商务休闲穿搭\"\n- \"婚礼伴郎西装预算 3k\"\n- \"SS26 趋势\"\n- \"怎么搭配 oversized 衬衫\"\n\nSource corpus: vault/wiki/domains/fashion/.  Authoritative\ncascade: `wikipedia`.  Stale threshold: 90 days.\n\nDo NOT trigger for: queries that match a different domain's keywords\n(the task_router in src/omni_hub/app/task_router.py picks the right\none).  Do NOT use this for writing — all writes go through\nProposal[T] (see \"Write Policy\" below).",
     "version": "0.1.0",
     "status": "active",
     "entrypoint": "operation:context_pack_build",
@@ -420,25 +384,19 @@
       "domain",
       "fashion"
     ],
-    "inputs": {
-      "query": "user question text",
-      "domain": "fashion",
-      "tier": "minimal | standard | expanded"
-    },
-    "outputs": {
-      "context_pack": "ContextPack with cited wiki + research results"
-    },
+    "inputs": {},
+    "outputs": {},
     "source_path": ".agents/skills/fashion-wiki/SKILL.md",
-    "created_at": "2026-05-28T11:14:34.720769+00:00",
-    "updated_at": "2026-05-28T11:14:34.725790+00:00"
+    "created_at": "2026-05-28T11:37:48.175658+00:00",
+    "updated_at": "2026-05-28T11:37:48.181371+00:00"
   },
   {
     "skill_id": "finance-screen",
     "name": "Finance Screen",
     "kind": "connector",
-    "description": "Read-only stock screening against existing connectors (EDGAR / FRED / Tushare / Crunchbase).  Returns typed StockSignal list. Never places orders.\n\nTriggers — invoke this skill when the user says any of:\n- \"screen US large-cap AI plays\"\n- \"找 A 股新能源\"\n- \"screen by sector + market_cap\"\n\nThis is a **functional orchestrator** (Application Plane).  It composes\nthe foundation primitives (`retrieve`, `context-pack`) into a user-visible product\nflow.  Domain knowledge stays in the routed ``*-wiki`` skills; this\nlayer is the cross-domain glue.",
+    "description": "Read-only stock screening against existing connectors (EDGAR / FRED / Tushare / Crunchbase).  v0.40: stub — returns ``[]`` because real screening requires connector API keys + a structured-query pathway (Tushare is API-only, EDGAR returns filings not screens).  v0.41 lands a thin SQL-style screen over locally-cached evidence.\n\n> **Status: stub** — contracts exist but the operation returns placeholder data.  See description for what's missing.\n\nTriggers — invoke this skill when the user says any of:\n- \"screen US large-cap AI plays\"\n- \"找 A 股新能源\"\n- \"screen by sector + market_cap\"\n\nThis is a **functional orchestrator** (Application Plane).  It composes\nthe foundation primitives (`retrieve`, `context-pack`) into a user-visible product\nflow.  Domain knowledge stays in the routed ``*-wiki`` skills; this\nlayer is the cross-domain glue.",
     "version": "0.1.0",
-    "status": "active",
+    "status": "stub",
     "entrypoint": "operation:finance_screen",
     "risk_level": "L0",
     "required_permissions": [
@@ -447,19 +405,20 @@
     "connectors": [],
     "tags": [
       "functional",
-      "orchestrator"
+      "orchestrator",
+      "stub"
     ],
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/finance-screen/SKILL.md",
-    "created_at": "2026-05-28T11:14:34.720876+00:00",
-    "updated_at": "2026-05-28T11:14:34.725800+00:00"
+    "created_at": "2026-05-28T11:37:48.175756+00:00",
+    "updated_at": "2026-05-28T11:37:48.181382+00:00"
   },
   {
     "skill_id": "finance-wiki",
     "name": "Finance — Wiki Domain Skill",
     "kind": "domain_wiki",
-    "description": "Markets / filings / rates / risk disclosure.\n\nTriggers — invoke this skill when the user asks any of:\n- \"NVDA 财报\"\n- \"美联储利率路径\"\n- \"A 股新能源板块\"\n- \"how to read a 10-K\"\n\nSource corpus: vault/wiki/domains/finance/.  Authoritative\ncascade: `edgar`, `fred`, `openalex`, `wikipedia`.  Stale threshold: 30 days.\n\nDo NOT trigger for: queries that match a different domain's keywords\n(the task_router in src/omni_hub/app/task_router.py picks the right\none).  Do NOT use this for writing — all writes go through\nProposal[T] (see \"Write boundary\" below).",
+    "description": "Markets / filings / rates / risk disclosure.\n\nTriggers — invoke this skill when the user asks any of:\n- \"NVDA 财报\"\n- \"美联储利率路径\"\n- \"A 股新能源板块\"\n- \"how to read a 10-K\"\n\nSource corpus: vault/wiki/domains/finance/.  Authoritative\ncascade: `edgar`, `fred`, `openalex`, `wikipedia`.  Stale threshold: 30 days.\n\nDo NOT trigger for: queries that match a different domain's keywords\n(the task_router in src/omni_hub/app/task_router.py picks the right\none).  Do NOT use this for writing — all writes go through\nProposal[T] (see \"Write Policy\" below).",
     "version": "0.1.0",
     "status": "active",
     "entrypoint": "operation:context_pack_build",
@@ -478,23 +437,17 @@
       "domain",
       "finance"
     ],
-    "inputs": {
-      "query": "user question text",
-      "domain": "finance",
-      "tier": "minimal | standard | expanded"
-    },
-    "outputs": {
-      "context_pack": "ContextPack with cited wiki + research results"
-    },
+    "inputs": {},
+    "outputs": {},
     "source_path": ".agents/skills/finance-wiki/SKILL.md",
-    "created_at": "2026-05-28T11:14:34.721003+00:00",
-    "updated_at": "2026-05-28T11:14:34.725812+00:00"
+    "created_at": "2026-05-28T11:37:48.175861+00:00",
+    "updated_at": "2026-05-28T11:37:48.181391+00:00"
   },
   {
     "skill_id": "fitness-wellness-wiki",
     "name": "Fitness & Wellness — Wiki Domain Skill",
     "kind": "domain_wiki",
-    "description": "Training / nutrition / recovery / sleep — RCT-backed.\n\nTriggers — invoke this skill when the user asks any of:\n- \"增肌应该怎么练\"\n- \"睡眠不好怎么办\"\n- \"creatine RCT meta-analysis\"\n- \"减脂期蛋白质摄入\"\n\nSource corpus: vault/wiki/domains/fitness-wellness/.  Authoritative\ncascade: `pubmed`, `europe_pmc`, `bilibili`, `wikipedia`.  Stale threshold: 365 days.\n\nDo NOT trigger for: queries that match a different domain's keywords\n(the task_router in src/omni_hub/app/task_router.py picks the right\none).  Do NOT use this for writing — all writes go through\nProposal[T] (see \"Write boundary\" below).",
+    "description": "Training / nutrition / recovery / sleep — RCT-backed.\n\nTriggers — invoke this skill when the user asks any of:\n- \"增肌应该怎么练\"\n- \"睡眠不好怎么办\"\n- \"creatine RCT meta-analysis\"\n- \"减脂期蛋白质摄入\"\n\nSource corpus: vault/wiki/domains/fitness-wellness/.  Authoritative\ncascade: `pubmed`, `europe_pmc`, `bilibili`, `wikipedia`.  Stale threshold: 365 days.\n\nDo NOT trigger for: queries that match a different domain's keywords\n(the task_router in src/omni_hub/app/task_router.py picks the right\none).  Do NOT use this for writing — all writes go through\nProposal[T] (see \"Write Policy\" below).",
     "version": "0.1.0",
     "status": "active",
     "entrypoint": "operation:context_pack_build",
@@ -513,17 +466,11 @@
       "domain",
       "fitness_wellness"
     ],
-    "inputs": {
-      "query": "user question text",
-      "domain": "fitness_wellness",
-      "tier": "minimal | standard | expanded"
-    },
-    "outputs": {
-      "context_pack": "ContextPack with cited wiki + research results"
-    },
+    "inputs": {},
+    "outputs": {},
     "source_path": ".agents/skills/fitness-wellness-wiki/SKILL.md",
-    "created_at": "2026-05-28T11:14:34.721139+00:00",
-    "updated_at": "2026-05-28T11:14:34.725824+00:00"
+    "created_at": "2026-05-28T11:37:48.175974+00:00",
+    "updated_at": "2026-05-28T11:37:48.181402+00:00"
   },
   {
     "skill_id": "harness-compile-skill",
@@ -542,21 +489,22 @@
     ],
     "tags": [
       "foundation",
-      "eval"
+      "eval",
+      "foundation_eval"
     ],
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/harness-compile-skill/SKILL.md",
-    "created_at": "2026-05-28T11:14:34.721254+00:00",
-    "updated_at": "2026-05-28T11:14:34.725834+00:00"
+    "created_at": "2026-05-28T11:37:48.176062+00:00",
+    "updated_at": "2026-05-28T11:37:48.181411+00:00"
   },
   {
     "skill_id": "inbox-route",
     "name": "Inbox Route (Forwarded Content)",
     "kind": "connector",
-    "description": "Classify a forwarded item (URL / PDF / .ics / task / wiki) and dispatch to the right handler (capture-url, calendar-add, task-add, wiki-propose-research).\n\nTriggers — invoke this skill when the user says any of:\n- \"I just forwarded this — handle it\"\n- \"把这个内容收进 KB\"\n- \"convert this email into the right action\"\n\nThis is a **functional orchestrator** (Application Plane).  It composes\nthe foundation primitives (`url-capture`, `calendar-add`, `task-add`, `wiki-propose-research`) into a user-visible product\nflow.  Domain knowledge stays in the routed ``*-wiki`` skills; this\nlayer is the cross-domain glue.",
+    "description": "Classify a forwarded item (URL / PDF / .ics / task / wiki).  v0.40: classifier only — does NOT yet dispatch to the typed handlers (url-capture, calendar-add, task-add, wiki-propose-research).  Dispatch lands in v0.41 once each downstream handler returns a Proposal so audit + approval apply uniformly.\n\n> **Status: stub** — contracts exist but the operation returns placeholder data.  See description for what's missing.\n\nTriggers — invoke this skill when the user says any of:\n- \"I just forwarded this — handle it\"\n- \"把这个内容收进 KB\"\n- \"convert this email into the right action\"\n\nThis is a **functional orchestrator** (Application Plane).  It composes\nthe foundation primitives (`url-capture`, `calendar-add`, `task-add`, `wiki-propose-research`) into a user-visible product\nflow.  Domain knowledge stays in the routed ``*-wiki`` skills; this\nlayer is the cross-domain glue.",
     "version": "0.1.0",
-    "status": "active",
+    "status": "stub",
     "entrypoint": "operation:inbox_classify",
     "risk_level": "L0",
     "required_permissions": [
@@ -565,19 +513,20 @@
     "connectors": [],
     "tags": [
       "functional",
-      "orchestrator"
+      "orchestrator",
+      "stub"
     ],
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/inbox-route/SKILL.md",
-    "created_at": "2026-05-28T11:14:34.721361+00:00",
-    "updated_at": "2026-05-28T11:14:34.725845+00:00"
+    "created_at": "2026-05-28T11:37:48.176154+00:00",
+    "updated_at": "2026-05-28T11:37:48.181424+00:00"
   },
   {
     "skill_id": "international-relations-wiki",
     "name": "International Relations — Wiki Domain Skill",
     "kind": "domain_wiki",
-    "description": "Cross-border events / actors / scenarios.\n\nTriggers — invoke this skill when the user asks any of:\n- \"中美关系最新\"\n- \"俄乌局势\"\n- \"台海动态\"\n- \"OPEC 决议\"\n\nSource corpus: vault/wiki/domains/international-relations/.  Authoritative\ncascade: `acled`, `gdelt`, `world_bank`, `imf`, `wikipedia`.  Stale threshold: 7 days.\n\nDo NOT trigger for: queries that match a different domain's keywords\n(the task_router in src/omni_hub/app/task_router.py picks the right\none).  Do NOT use this for writing — all writes go through\nProposal[T] (see \"Write boundary\" below).",
+    "description": "Cross-border events / actors / scenarios.\n\nTriggers — invoke this skill when the user asks any of:\n- \"中美关系最新\"\n- \"俄乌局势\"\n- \"台海动态\"\n- \"OPEC 决议\"\n\nSource corpus: vault/wiki/domains/international-relations/.  Authoritative\ncascade: `acled`, `gdelt`, `world_bank`, `imf`, `wikipedia`.  Stale threshold: 7 days.\n\nDo NOT trigger for: queries that match a different domain's keywords\n(the task_router in src/omni_hub/app/task_router.py picks the right\none).  Do NOT use this for writing — all writes go through\nProposal[T] (see \"Write Policy\" below).",
     "version": "0.1.0",
     "status": "active",
     "entrypoint": "operation:context_pack_build",
@@ -597,17 +546,11 @@
       "domain",
       "international_relations"
     ],
-    "inputs": {
-      "query": "user question text",
-      "domain": "international_relations",
-      "tier": "minimal | standard | expanded"
-    },
-    "outputs": {
-      "context_pack": "ContextPack with cited wiki + research results"
-    },
+    "inputs": {},
+    "outputs": {},
     "source_path": ".agents/skills/international-relations-wiki/SKILL.md",
-    "created_at": "2026-05-28T11:14:34.721492+00:00",
-    "updated_at": "2026-05-28T11:14:34.725857+00:00"
+    "created_at": "2026-05-28T11:37:48.176250+00:00",
+    "updated_at": "2026-05-28T11:37:48.181437+00:00"
   },
   {
     "skill_id": "judge-evaluate",
@@ -626,19 +569,20 @@
     ],
     "tags": [
       "foundation",
-      "eval"
+      "eval",
+      "foundation_eval"
     ],
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/judge-evaluate/SKILL.md",
-    "created_at": "2026-05-28T11:14:34.721596+00:00",
-    "updated_at": "2026-05-28T11:14:34.725867+00:00"
+    "created_at": "2026-05-28T11:37:48.176333+00:00",
+    "updated_at": "2026-05-28T11:37:48.181446+00:00"
   },
   {
     "skill_id": "marketing-wiki",
     "name": "Marketing & Promotion — Wiki Domain Skill",
     "kind": "domain_wiki",
-    "description": "Playbooks / channel mix / ROI case studies.\n\nTriggers — invoke this skill when the user asks any of:\n- \"SaaS 早期增长 playbook\"\n- \"小红书 投放经验\"\n- \"how to write better ad copy\"\n- \"漏斗优化案例\"\n\nSource corpus: vault/wiki/domains/marketing/.  Authoritative\ncascade: `weibo`, `brave_search`, `gdelt`, `zhihu`, `wikipedia`.  Stale threshold: 60 days.\n\nDo NOT trigger for: queries that match a different domain's keywords\n(the task_router in src/omni_hub/app/task_router.py picks the right\none).  Do NOT use this for writing — all writes go through\nProposal[T] (see \"Write boundary\" below).",
+    "description": "Playbooks / channel mix / ROI case studies.\n\nTriggers — invoke this skill when the user asks any of:\n- \"SaaS 早期增长 playbook\"\n- \"小红书 投放经验\"\n- \"how to write better ad copy\"\n- \"漏斗优化案例\"\n\nSource corpus: vault/wiki/domains/marketing/.  Authoritative\ncascade: `weibo`, `brave_search`, `gdelt`, `zhihu`, `wikipedia`.  Stale threshold: 60 days.\n\nDo NOT trigger for: queries that match a different domain's keywords\n(the task_router in src/omni_hub/app/task_router.py picks the right\none).  Do NOT use this for writing — all writes go through\nProposal[T] (see \"Write Policy\" below).",
     "version": "0.1.0",
     "status": "active",
     "entrypoint": "operation:context_pack_build",
@@ -658,17 +602,11 @@
       "domain",
       "marketing"
     ],
-    "inputs": {
-      "query": "user question text",
-      "domain": "marketing",
-      "tier": "minimal | standard | expanded"
-    },
-    "outputs": {
-      "context_pack": "ContextPack with cited wiki + research results"
-    },
+    "inputs": {},
+    "outputs": {},
     "source_path": ".agents/skills/marketing-wiki/SKILL.md",
-    "created_at": "2026-05-28T11:14:34.721734+00:00",
-    "updated_at": "2026-05-28T11:14:34.725879+00:00"
+    "created_at": "2026-05-28T11:37:48.176428+00:00",
+    "updated_at": "2026-05-28T11:37:48.181457+00:00"
   },
   {
     "skill_id": "memory-digest",
@@ -695,7 +633,7 @@
     },
     "source_path": "src/omni_hub/memory.py",
     "created_at": "2026-05-03T00:00:00+00:00",
-    "updated_at": "2026-05-28T11:14:34.725892+00:00"
+    "updated_at": "2026-05-28T11:37:48.181467+00:00"
   },
   {
     "skill_id": "memory-search",
@@ -721,7 +659,7 @@
     },
     "source_path": "src/omni_hub/memory.py",
     "created_at": "2026-05-03T00:00:00+00:00",
-    "updated_at": "2026-05-28T11:14:34.725905+00:00"
+    "updated_at": "2026-05-28T11:37:48.181480+00:00"
   },
   {
     "skill_id": "memory-search-foundation",
@@ -740,13 +678,14 @@
     ],
     "tags": [
       "foundation",
-      "knowledge_access"
+      "knowledge_access",
+      "foundation_core"
     ],
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/memory-search-foundation/SKILL.md",
-    "created_at": "2026-05-28T11:14:34.721841+00:00",
-    "updated_at": "2026-05-28T11:14:34.725916+00:00"
+    "created_at": "2026-05-28T11:37:48.176510+00:00",
+    "updated_at": "2026-05-28T11:37:48.181492+00:00"
   },
   {
     "skill_id": "meta-cross-skill-scan",
@@ -763,19 +702,20 @@
     "connectors": [],
     "tags": [
       "functional",
-      "orchestrator"
+      "orchestrator",
+      "active"
     ],
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/meta-cross-skill-scan/SKILL.md",
-    "created_at": "2026-05-28T11:14:34.721946+00:00",
-    "updated_at": "2026-05-28T11:14:34.725927+00:00"
+    "created_at": "2026-05-28T11:37:48.176591+00:00",
+    "updated_at": "2026-05-28T11:37:48.181501+00:00"
   },
   {
     "skill_id": "meta-wiki",
     "name": "Meta (Self-Iteration) — Wiki Domain Skill",
     "kind": "domain_wiki",
-    "description": "omni-hub self-iteration — what to BUILD / USE / PIN / DEFER.\n\nTriggers — invoke this skill when the user asks any of:\n- \"omni-hub 接下来该做什么\"\n- \"哪些 skill 在掉点\"\n- \"应该 BUILD 还是 PIN-AS-FORK\"\n- \"v0.19 的下一步\"\n\nSource corpus: vault/wiki/domains/meta/.  Authoritative\ncascade: _(reactive — no cascade by default)_.  Stale threshold: 60 days.\n\nDo NOT trigger for: queries that match a different domain's keywords\n(the task_router in src/omni_hub/app/task_router.py picks the right\none).  Do NOT use this for writing — all writes go through\nProposal[T] (see \"Write boundary\" below).",
+    "description": "omni-hub self-iteration — what to BUILD / USE / PIN / DEFER.\n\nTriggers — invoke this skill when the user asks any of:\n- \"omni-hub 接下来该做什么\"\n- \"哪些 skill 在掉点\"\n- \"应该 BUILD 还是 PIN-AS-FORK\"\n- \"v0.19 的下一步\"\n\nSource corpus: vault/wiki/domains/meta/.  Authoritative\ncascade: _(reactive — no cascade by default)_.  Stale threshold: 60 days.\n\nDo NOT trigger for: queries that match a different domain's keywords\n(the task_router in src/omni_hub/app/task_router.py picks the right\none).  Do NOT use this for writing — all writes go through\nProposal[T] (see \"Write Policy\" below).",
     "version": "0.1.0",
     "status": "active",
     "entrypoint": "operation:context_pack_build",
@@ -789,17 +729,11 @@
       "domain",
       "meta"
     ],
-    "inputs": {
-      "query": "user question text",
-      "domain": "meta",
-      "tier": "minimal | standard | expanded"
-    },
-    "outputs": {
-      "context_pack": "ContextPack with cited wiki + research results"
-    },
+    "inputs": {},
+    "outputs": {},
     "source_path": ".agents/skills/meta-wiki/SKILL.md",
-    "created_at": "2026-05-28T11:14:34.722077+00:00",
-    "updated_at": "2026-05-28T11:14:34.725938+00:00"
+    "created_at": "2026-05-28T11:37:48.176682+00:00",
+    "updated_at": "2026-05-28T11:37:48.181510+00:00"
   },
   {
     "skill_id": "order-propose",
@@ -816,19 +750,20 @@
     "connectors": [],
     "tags": [
       "functional",
-      "orchestrator"
+      "orchestrator",
+      "active"
     ],
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/order-propose/SKILL.md",
-    "created_at": "2026-05-28T11:14:34.722183+00:00",
-    "updated_at": "2026-05-28T11:14:34.725949+00:00"
+    "created_at": "2026-05-28T11:37:48.176766+00:00",
+    "updated_at": "2026-05-28T11:37:48.181523+00:00"
   },
   {
     "skill_id": "photography-wiki",
     "name": "Photography — Wiki Domain Skill",
     "kind": "domain_wiki",
-    "description": "Visual decisions — light / lens / composition / edit.\n\nTriggers — invoke this skill when the user asks any of:\n- \"街拍 35mm 还是 50mm\"\n- \"光圈优先 vs 快门优先\"\n- \"Lightroom 风格分析\"\n- \"how to expose for shadows in raw\"\n\nSource corpus: vault/wiki/domains/photography/.  Authoritative\ncascade: `unsplash`, `pexels`, `wikipedia`.  Stale threshold: 365 days.\n\nDo NOT trigger for: queries that match a different domain's keywords\n(the task_router in src/omni_hub/app/task_router.py picks the right\none).  Do NOT use this for writing — all writes go through\nProposal[T] (see \"Write boundary\" below).",
+    "description": "Visual decisions — light / lens / composition / edit.\n\nTriggers — invoke this skill when the user asks any of:\n- \"街拍 35mm 还是 50mm\"\n- \"光圈优先 vs 快门优先\"\n- \"Lightroom 风格分析\"\n- \"how to expose for shadows in raw\"\n\nSource corpus: vault/wiki/domains/photography/.  Authoritative\ncascade: `unsplash`, `pexels`, `wikipedia`.  Stale threshold: 365 days.\n\nDo NOT trigger for: queries that match a different domain's keywords\n(the task_router in src/omni_hub/app/task_router.py picks the right\none).  Do NOT use this for writing — all writes go through\nProposal[T] (see \"Write Policy\" below).",
     "version": "0.1.0",
     "status": "active",
     "entrypoint": "operation:context_pack_build",
@@ -846,25 +781,19 @@
       "domain",
       "photography"
     ],
-    "inputs": {
-      "query": "user question text",
-      "domain": "photography",
-      "tier": "minimal | standard | expanded"
-    },
-    "outputs": {
-      "context_pack": "ContextPack with cited wiki + research results"
-    },
+    "inputs": {},
+    "outputs": {},
     "source_path": ".agents/skills/photography-wiki/SKILL.md",
-    "created_at": "2026-05-28T11:14:34.722308+00:00",
-    "updated_at": "2026-05-28T11:14:34.725960+00:00"
+    "created_at": "2026-05-28T11:37:48.176860+00:00",
+    "updated_at": "2026-05-28T11:37:48.181531+00:00"
   },
   {
     "skill_id": "pptx-build",
     "name": "PPTX Build",
     "kind": "connector",
-    "description": "Render a typed DeckOutline → real .pptx via the python-pptx shim in agent-harness/integrations/pptx/.  Never generates raw OOXML.\n\nTriggers — invoke this skill when the user says any of:\n- \"build a pptx from this outline\"\n- \"做一份 deck\"\n- \"render this outline as a slide deck\"\n\nThis is a **functional orchestrator** (Application Plane).  It composes\nthe foundation primitives (`context-pack`) into a user-visible product\nflow.  Domain knowledge stays in the routed ``*-wiki`` skills; this\nlayer is the cross-domain glue.",
+    "description": "Render a typed DeckOutline → real .pptx via the python-pptx shim in agent-harness/integrations/pptx/.  Never generates raw OOXML.  Requires the ``pptx-omni`` binary on PATH; without it the operation returns ``skipped: true`` (no error).\n\n> **Status: broker_required** — install the matching broker under ``agent-harness/integrations/`` for end-to-end execution.  Without it the operation returns ``skipped=true``.\n\nTriggers — invoke this skill when the user says any of:\n- \"build a pptx from this outline\"\n- \"做一份 deck\"\n- \"render this outline as a slide deck\"\n\nThis is a **functional orchestrator** (Application Plane).  It composes\nthe foundation primitives (`context-pack`) into a user-visible product\nflow.  Domain knowledge stays in the routed ``*-wiki`` skills; this\nlayer is the cross-domain glue.",
     "version": "0.1.0",
-    "status": "active",
+    "status": "broker_required",
     "entrypoint": "operation:pptx_build",
     "risk_level": "L1",
     "required_permissions": [
@@ -873,21 +802,22 @@
     "connectors": [],
     "tags": [
       "functional",
-      "orchestrator"
+      "orchestrator",
+      "broker_required"
     ],
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/pptx-build/SKILL.md",
-    "created_at": "2026-05-28T11:14:34.722407+00:00",
-    "updated_at": "2026-05-28T11:14:34.725970+00:00"
+    "created_at": "2026-05-28T11:37:48.176945+00:00",
+    "updated_at": "2026-05-28T11:37:48.181540+00:00"
   },
   {
     "skill_id": "project-plan",
     "name": "Project Plan",
     "kind": "connector",
-    "description": "Create a high-level Project; enqueue a claude lane planner task that emits a plan_markdown + subtask decomposition as Proposal(kind=project_plan).\n\nTriggers — invoke this skill when the user says any of:\n- \"plan a project to ship X\"\n- \"decompose this multi-week effort\"\n- \"做个 plan 把 X 拆成子任务\"\n\nThis is a **functional orchestrator** (Application Plane).  It composes\nthe foundation primitives (`task-add`) into a user-visible product\nflow.  Domain knowledge stays in the routed ``*-wiki`` skills; this\nlayer is the cross-domain glue.",
+    "description": "Create a high-level Project row.  v0.40: stub — only persists the Project; does NOT yet enqueue a claude-lane planner task or emit a Proposal(kind=project_plan).  Full planner+decompose flow lands in v0.41.\n\n> **Status: stub** — contracts exist but the operation returns placeholder data.  See description for what's missing.\n\nTriggers — invoke this skill when the user says any of:\n- \"plan a project to ship X\"\n- \"decompose this multi-week effort\"\n- \"做个 plan 把 X 拆成子任务\"\n\nThis is a **functional orchestrator** (Application Plane).  It composes\nthe foundation primitives (`task-add`) into a user-visible product\nflow.  Domain knowledge stays in the routed ``*-wiki`` skills; this\nlayer is the cross-domain glue.",
     "version": "0.1.0",
-    "status": "active",
+    "status": "stub",
     "entrypoint": "operation:project_plan",
     "risk_level": "L1",
     "required_permissions": [
@@ -896,13 +826,14 @@
     "connectors": [],
     "tags": [
       "functional",
-      "orchestrator"
+      "orchestrator",
+      "stub"
     ],
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/project-plan/SKILL.md",
-    "created_at": "2026-05-28T11:14:34.722509+00:00",
-    "updated_at": "2026-05-28T11:14:34.725980+00:00"
+    "created_at": "2026-05-28T11:37:48.177031+00:00",
+    "updated_at": "2026-05-28T11:37:48.181548+00:00"
   },
   {
     "skill_id": "propose-approve",
@@ -921,13 +852,14 @@
     ],
     "tags": [
       "foundation",
-      "workflow"
+      "workflow",
+      "foundation_write"
     ],
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/propose-approve/SKILL.md",
-    "created_at": "2026-05-28T11:14:34.722614+00:00",
-    "updated_at": "2026-05-28T11:14:34.725991+00:00"
+    "created_at": "2026-05-28T11:37:48.177117+00:00",
+    "updated_at": "2026-05-28T11:37:48.181557+00:00"
   },
   {
     "skill_id": "propose-reject",
@@ -946,19 +878,20 @@
     ],
     "tags": [
       "foundation",
-      "workflow"
+      "workflow",
+      "foundation_write"
     ],
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/propose-reject/SKILL.md",
-    "created_at": "2026-05-28T11:14:34.722716+00:00",
-    "updated_at": "2026-05-28T11:14:34.726003+00:00"
+    "created_at": "2026-05-28T11:37:48.177200+00:00",
+    "updated_at": "2026-05-28T11:37:48.181568+00:00"
   },
   {
     "skill_id": "research-wiki",
     "name": "Research — Wiki Domain Skill",
     "kind": "domain_wiki",
-    "description": "Scholarly research — papers / citations / venue context.\n\nTriggers — invoke this skill when the user asks any of:\n- \"调研一下 X\"\n- \"X 的论文 SOTA\"\n- \"compare these two papers\"\n- \"OpenReview 上 X 的评审\"\n- \"ICLR 2026 X 方向有哪些工作\"\n\nSource corpus: vault/wiki/domains/research/.  Authoritative\ncascade: `openalex`, `semantic_scholar`, `arxiv`, `wikipedia`.  Stale threshold: 730 days.\n\nDo NOT trigger for: queries that match a different domain's keywords\n(the task_router in src/omni_hub/app/task_router.py picks the right\none).  Do NOT use this for writing — all writes go through\nProposal[T] (see \"Write boundary\" below).",
+    "description": "Scholarly research — papers / citations / venue context.\n\nTriggers — invoke this skill when the user asks any of:\n- \"调研一下 X\"\n- \"X 的论文 SOTA\"\n- \"compare these two papers\"\n- \"OpenReview 上 X 的评审\"\n- \"ICLR 2026 X 方向有哪些工作\"\n\nSource corpus: vault/wiki/domains/research/.  Authoritative\ncascade: `openalex`, `semantic_scholar`, `arxiv`, `wikipedia`.  Stale threshold: 730 days.\n\nDo NOT trigger for: queries that match a different domain's keywords\n(the task_router in src/omni_hub/app/task_router.py picks the right\none).  Do NOT use this for writing — all writes go through\nProposal[T] (see \"Write Policy\" below).",
     "version": "0.1.0",
     "status": "active",
     "entrypoint": "operation:context_pack_build",
@@ -977,17 +910,11 @@
       "domain",
       "research"
     ],
-    "inputs": {
-      "query": "user question text",
-      "domain": "research",
-      "tier": "minimal | standard | expanded"
-    },
-    "outputs": {
-      "context_pack": "ContextPack with cited wiki + research results"
-    },
+    "inputs": {},
+    "outputs": {},
     "source_path": ".agents/skills/research-wiki/SKILL.md",
-    "created_at": "2026-05-28T11:14:34.722846+00:00",
-    "updated_at": "2026-05-28T11:14:34.726014+00:00"
+    "created_at": "2026-05-28T11:37:48.177296+00:00",
+    "updated_at": "2026-05-28T11:37:48.181580+00:00"
   },
   {
     "skill_id": "retrieve",
@@ -1004,8 +931,8 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/retrieve/SKILL.md",
-    "created_at": "2026-05-28T11:14:34.722957+00:00",
-    "updated_at": "2026-05-28T11:14:34.726024+00:00"
+    "created_at": "2026-05-28T11:37:48.177668+00:00",
+    "updated_at": "2026-05-28T11:37:48.181588+00:00"
   },
   {
     "skill_id": "retrieve-cascade",
@@ -1022,8 +949,8 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/retrieve-cascade/SKILL.md",
-    "created_at": "2026-05-28T11:14:34.723052+00:00",
-    "updated_at": "2026-05-28T11:14:34.726034+00:00"
+    "created_at": "2026-05-28T11:37:48.177941+00:00",
+    "updated_at": "2026-05-28T11:37:48.181596+00:00"
   },
   {
     "skill_id": "retrieve-domain-source-map",
@@ -1040,8 +967,8 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/retrieve-domain-source-map/SKILL.md",
-    "created_at": "2026-05-28T11:14:34.723143+00:00",
-    "updated_at": "2026-05-28T11:14:34.726044+00:00"
+    "created_at": "2026-05-28T11:37:48.178158+00:00",
+    "updated_at": "2026-05-28T11:37:48.181611+00:00"
   },
   {
     "skill_id": "retrieve-evidence-pin",
@@ -1058,8 +985,8 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/retrieve-evidence-pin/SKILL.md",
-    "created_at": "2026-05-28T11:14:34.723235+00:00",
-    "updated_at": "2026-05-28T11:14:34.726054+00:00"
+    "created_at": "2026-05-28T11:37:48.178365+00:00",
+    "updated_at": "2026-05-28T11:37:48.181619+00:00"
   },
   {
     "skill_id": "retrieve-grade-and-fuse",
@@ -1076,8 +1003,8 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/retrieve-grade-and-fuse/SKILL.md",
-    "created_at": "2026-05-28T11:14:34.723330+00:00",
-    "updated_at": "2026-05-28T11:14:34.726064+00:00"
+    "created_at": "2026-05-28T11:37:48.178616+00:00",
+    "updated_at": "2026-05-28T11:37:48.181630+00:00"
   },
   {
     "skill_id": "schedule-plan",
@@ -1094,13 +1021,14 @@
     "connectors": [],
     "tags": [
       "functional",
-      "orchestrator"
+      "orchestrator",
+      "active"
     ],
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/schedule-plan/SKILL.md",
-    "created_at": "2026-05-28T11:14:34.723431+00:00",
-    "updated_at": "2026-05-28T11:14:34.726074+00:00"
+    "created_at": "2026-05-28T11:37:48.178722+00:00",
+    "updated_at": "2026-05-28T11:37:48.181639+00:00"
   },
   {
     "skill_id": "skill-registry",
@@ -1127,13 +1055,13 @@
     },
     "source_path": "src/omni_hub/skills.py",
     "created_at": "2026-05-03T00:00:00+00:00",
-    "updated_at": "2026-05-28T11:14:34.726086+00:00"
+    "updated_at": "2026-05-28T11:37:48.181648+00:00"
   },
   {
     "skill_id": "social-en-wiki",
     "name": "Social (English) — Wiki Domain Skill",
     "kind": "domain_wiki",
-    "description": "English social media — Twitter / Reddit / HN.\n\nTriggers — invoke this skill when the user asks any of:\n- \"这条 tweet 火了\"\n- \"HN 在讨论 X\"\n- \"Reddit r/X 的态度\"\n\nSource corpus: vault/wiki/domains/social-en/.  Authoritative\ncascade: `x_twitter`, `gdelt`.  Stale threshold: 14 days.\n\nDo NOT trigger for: queries that match a different domain's keywords\n(the task_router in src/omni_hub/app/task_router.py picks the right\none).  Do NOT use this for writing — all writes go through\nProposal[T] (see \"Write boundary\" below).",
+    "description": "English social media — Twitter / Reddit / HN.\n\nTriggers — invoke this skill when the user asks any of:\n- \"这条 tweet 火了\"\n- \"HN 在讨论 X\"\n- \"Reddit r/X 的态度\"\n\nSource corpus: vault/wiki/domains/social-en/.  Authoritative\ncascade: `x_twitter`, `gdelt`.  Stale threshold: 14 days.\n\nDo NOT trigger for: queries that match a different domain's keywords\n(the task_router in src/omni_hub/app/task_router.py picks the right\none).  Do NOT use this for writing — all writes go through\nProposal[T] (see \"Write Policy\" below).",
     "version": "0.1.0",
     "status": "active",
     "entrypoint": "operation:context_pack_build",
@@ -1150,23 +1078,17 @@
       "domain",
       "social_en"
     ],
-    "inputs": {
-      "query": "user question text",
-      "domain": "social_en",
-      "tier": "minimal | standard | expanded"
-    },
-    "outputs": {
-      "context_pack": "ContextPack with cited wiki + research results"
-    },
+    "inputs": {},
+    "outputs": {},
     "source_path": ".agents/skills/social-en-wiki/SKILL.md",
-    "created_at": "2026-05-28T11:14:34.723559+00:00",
-    "updated_at": "2026-05-28T11:14:34.726097+00:00"
+    "created_at": "2026-05-28T11:37:48.178842+00:00",
+    "updated_at": "2026-05-28T11:37:48.181657+00:00"
   },
   {
     "skill_id": "social-zh-wiki",
     "name": "Social (Chinese) — Wiki Domain Skill",
     "kind": "domain_wiki",
-    "description": "中文社交媒体 — 微博 / 小红书 / 公众号.\n\nTriggers — invoke this skill when the user asks any of:\n- \"小红书最近在炒什么\"\n- \"微博热搜 X\"\n- \"公众号 X 的最新文章\"\n\nSource corpus: vault/wiki/domains/social-zh/.  Authoritative\ncascade: `xiaohongshu`, `wechat_mp`.  Stale threshold: 14 days.\n\nDo NOT trigger for: queries that match a different domain's keywords\n(the task_router in src/omni_hub/app/task_router.py picks the right\none).  Do NOT use this for writing — all writes go through\nProposal[T] (see \"Write boundary\" below).",
+    "description": "中文社交媒体 — 微博 / 小红书 / 公众号.\n\nTriggers — invoke this skill when the user asks any of:\n- \"小红书最近在炒什么\"\n- \"微博热搜 X\"\n- \"公众号 X 的最新文章\"\n\nSource corpus: vault/wiki/domains/social-zh/.  Authoritative\ncascade: `xiaohongshu`, `wechat_mp`.  Stale threshold: 14 days.\n\nDo NOT trigger for: queries that match a different domain's keywords\n(the task_router in src/omni_hub/app/task_router.py picks the right\none).  Do NOT use this for writing — all writes go through\nProposal[T] (see \"Write Policy\" below).",
     "version": "0.1.0",
     "status": "active",
     "entrypoint": "operation:context_pack_build",
@@ -1183,17 +1105,11 @@
       "domain",
       "social_zh"
     ],
-    "inputs": {
-      "query": "user question text",
-      "domain": "social_zh",
-      "tier": "minimal | standard | expanded"
-    },
-    "outputs": {
-      "context_pack": "ContextPack with cited wiki + research results"
-    },
+    "inputs": {},
+    "outputs": {},
     "source_path": ".agents/skills/social-zh-wiki/SKILL.md",
-    "created_at": "2026-05-28T11:14:34.723680+00:00",
-    "updated_at": "2026-05-28T11:14:34.726109+00:00"
+    "created_at": "2026-05-28T11:37:48.178945+00:00",
+    "updated_at": "2026-05-28T11:37:48.181665+00:00"
   },
   {
     "skill_id": "task-add",
@@ -1210,19 +1126,20 @@
     "connectors": [],
     "tags": [
       "functional",
-      "orchestrator"
+      "orchestrator",
+      "active"
     ],
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/task-add/SKILL.md",
-    "created_at": "2026-05-28T11:14:34.723781+00:00",
-    "updated_at": "2026-05-28T11:14:34.726119+00:00"
+    "created_at": "2026-05-28T11:37:48.179041+00:00",
+    "updated_at": "2026-05-28T11:37:48.181674+00:00"
   },
   {
     "skill_id": "travel-wiki",
     "name": "Travel — Wiki Domain Skill",
     "kind": "domain_wiki",
-    "description": "Itinerary / lodging / visa / seasonal timing.\n\nTriggers — invoke this skill when the user asks any of:\n- \"东京 5 天行程\"\n- \"日本签证\"\n- \"川西自驾路线\"\n- \"巴厘岛雨季去合适吗\"\n\nSource corpus: vault/wiki/domains/travel/.  Authoritative\ncascade: `xiaohongshu`, `bilibili`, `wikipedia`.  Stale threshold: 180 days.\n\nDo NOT trigger for: queries that match a different domain's keywords\n(the task_router in src/omni_hub/app/task_router.py picks the right\none).  Do NOT use this for writing — all writes go through\nProposal[T] (see \"Write boundary\" below).",
+    "description": "Itinerary / lodging / visa / seasonal timing.\n\nTriggers — invoke this skill when the user asks any of:\n- \"东京 5 天行程\"\n- \"日本签证\"\n- \"川西自驾路线\"\n- \"巴厘岛雨季去合适吗\"\n\nSource corpus: vault/wiki/domains/travel/.  Authoritative\ncascade: `xiaohongshu`, `bilibili`, `wikipedia`.  Stale threshold: 180 days.\n\nDo NOT trigger for: queries that match a different domain's keywords\n(the task_router in src/omni_hub/app/task_router.py picks the right\none).  Do NOT use this for writing — all writes go through\nProposal[T] (see \"Write Policy\" below).",
     "version": "0.1.0",
     "status": "active",
     "entrypoint": "operation:context_pack_build",
@@ -1240,17 +1157,11 @@
       "domain",
       "travel"
     ],
-    "inputs": {
-      "query": "user question text",
-      "domain": "travel",
-      "tier": "minimal | standard | expanded"
-    },
-    "outputs": {
-      "context_pack": "ContextPack with cited wiki + research results"
-    },
+    "inputs": {},
+    "outputs": {},
     "source_path": ".agents/skills/travel-wiki/SKILL.md",
-    "created_at": "2026-05-28T11:14:34.723904+00:00",
-    "updated_at": "2026-05-28T11:14:34.726131+00:00"
+    "created_at": "2026-05-28T11:37:48.179150+00:00",
+    "updated_at": "2026-05-28T11:37:48.181685+00:00"
   },
   {
     "skill_id": "url-capture",
@@ -1269,19 +1180,20 @@
     ],
     "tags": [
       "foundation",
-      "knowledge_access"
+      "knowledge_access",
+      "foundation_core"
     ],
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/url-capture/SKILL.md",
-    "created_at": "2026-05-28T11:14:34.724003+00:00",
-    "updated_at": "2026-05-28T11:14:34.726141+00:00"
+    "created_at": "2026-05-28T11:37:48.179236+00:00",
+    "updated_at": "2026-05-28T11:37:48.181694+00:00"
   },
   {
     "skill_id": "us-policy-wiki",
     "name": "US Policy — Wiki Domain Skill",
     "kind": "domain_wiki",
-    "description": "US federal/state policy — bills / regs / SCOTUS.\n\nTriggers — invoke this skill when the user asks any of:\n- \"SCOTUS 2026 大案\"\n- \"Federal Register 最新法规\"\n- \"Congress 投票走向\"\n- \"X act 的影响\"\n\nSource corpus: vault/wiki/domains/us-policy/.  Authoritative\ncascade: `federal_register`, `regulations_gov`, `congress_gov`, `courtlistener`, `gdelt`, `wikipedia`.  Stale threshold: 90 days.\n\nDo NOT trigger for: queries that match a different domain's keywords\n(the task_router in src/omni_hub/app/task_router.py picks the right\none).  Do NOT use this for writing — all writes go through\nProposal[T] (see \"Write boundary\" below).",
+    "description": "US federal/state policy — bills / regs / SCOTUS.\n\nTriggers — invoke this skill when the user asks any of:\n- \"SCOTUS 2026 大案\"\n- \"Federal Register 最新法规\"\n- \"Congress 投票走向\"\n- \"X act 的影响\"\n\nSource corpus: vault/wiki/domains/us-policy/.  Authoritative\ncascade: `federal_register`, `regulations_gov`, `congress_gov`, `courtlistener`, `gdelt`, `wikipedia`.  Stale threshold: 90 days.\n\nDo NOT trigger for: queries that match a different domain's keywords\n(the task_router in src/omni_hub/app/task_router.py picks the right\none).  Do NOT use this for writing — all writes go through\nProposal[T] (see \"Write Policy\" below).",
     "version": "0.1.0",
     "status": "active",
     "entrypoint": "operation:context_pack_build",
@@ -1302,17 +1214,11 @@
       "domain",
       "us_policy"
     ],
-    "inputs": {
-      "query": "user question text",
-      "domain": "us_policy",
-      "tier": "minimal | standard | expanded"
-    },
-    "outputs": {
-      "context_pack": "ContextPack with cited wiki + research results"
-    },
+    "inputs": {},
+    "outputs": {},
     "source_path": ".agents/skills/us-policy-wiki/SKILL.md",
-    "created_at": "2026-05-28T11:14:34.724143+00:00",
-    "updated_at": "2026-05-28T11:14:34.726153+00:00"
+    "created_at": "2026-05-28T11:37:48.179342+00:00",
+    "updated_at": "2026-05-28T11:37:48.181703+00:00"
   },
   {
     "skill_id": "vault-proposal",
@@ -1341,7 +1247,7 @@
     },
     "source_path": "src/omni_hub/proposals.py",
     "created_at": "2026-05-03T00:00:00+00:00",
-    "updated_at": "2026-05-28T11:14:34.726167+00:00"
+    "updated_at": "2026-05-28T11:37:48.181712+00:00"
   },
   {
     "skill_id": "wiki-apply",
@@ -1360,13 +1266,14 @@
     ],
     "tags": [
       "foundation",
-      "knowledge_update"
+      "knowledge_update",
+      "foundation_write"
     ],
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/wiki-apply/SKILL.md",
-    "created_at": "2026-05-28T11:14:34.724246+00:00",
-    "updated_at": "2026-05-28T11:14:34.726177+00:00"
+    "created_at": "2026-05-28T11:37:48.179425+00:00",
+    "updated_at": "2026-05-28T11:37:48.181724+00:00"
   },
   {
     "skill_id": "wiki-dream",
@@ -1385,13 +1292,14 @@
     ],
     "tags": [
       "foundation",
-      "knowledge_update"
+      "knowledge_update",
+      "foundation_write"
     ],
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/wiki-dream/SKILL.md",
-    "created_at": "2026-05-28T11:14:34.724346+00:00",
-    "updated_at": "2026-05-28T11:14:34.726187+00:00"
+    "created_at": "2026-05-28T11:37:48.179515+00:00",
+    "updated_at": "2026-05-28T11:37:48.181732+00:00"
   },
   {
     "skill_id": "wiki-ingest",
@@ -1410,13 +1318,14 @@
     ],
     "tags": [
       "foundation",
-      "knowledge_update"
+      "knowledge_update",
+      "foundation_write"
     ],
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/wiki-ingest/SKILL.md",
-    "created_at": "2026-05-28T11:14:34.724447+00:00",
-    "updated_at": "2026-05-28T11:14:34.726197+00:00"
+    "created_at": "2026-05-28T11:37:48.179603+00:00",
+    "updated_at": "2026-05-28T11:37:48.181744+00:00"
   },
   {
     "skill_id": "wiki-lint",
@@ -1435,13 +1344,14 @@
     ],
     "tags": [
       "foundation",
-      "knowledge_update"
+      "knowledge_update",
+      "foundation_write"
     ],
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/wiki-lint/SKILL.md",
-    "created_at": "2026-05-28T11:14:34.724545+00:00",
-    "updated_at": "2026-05-28T11:14:34.726207+00:00"
+    "created_at": "2026-05-28T11:37:48.179683+00:00",
+    "updated_at": "2026-05-28T11:37:48.181753+00:00"
   },
   {
     "skill_id": "wiki-propose-research",
@@ -1460,13 +1370,14 @@
     ],
     "tags": [
       "foundation",
-      "knowledge_update"
+      "knowledge_update",
+      "foundation_write"
     ],
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/wiki-propose-research/SKILL.md",
-    "created_at": "2026-05-28T11:14:34.724648+00:00",
-    "updated_at": "2026-05-28T11:14:34.726218+00:00"
+    "created_at": "2026-05-28T11:37:48.179773+00:00",
+    "updated_at": "2026-05-28T11:37:48.181761+00:00"
   },
   {
     "skill_id": "wiki-search",
@@ -1485,13 +1396,14 @@
     ],
     "tags": [
       "foundation",
-      "knowledge_access"
+      "knowledge_access",
+      "foundation_core"
     ],
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/wiki-search/SKILL.md",
-    "created_at": "2026-05-28T11:14:34.724744+00:00",
-    "updated_at": "2026-05-28T11:14:34.726228+00:00"
+    "created_at": "2026-05-28T11:37:48.179858+00:00",
+    "updated_at": "2026-05-28T11:37:48.181770+00:00"
   },
   {
     "skill_id": "wiki-supersede",
@@ -1510,12 +1422,13 @@
     ],
     "tags": [
       "foundation",
-      "knowledge_update"
+      "knowledge_update",
+      "foundation_write"
     ],
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/wiki-supersede/SKILL.md",
-    "created_at": "2026-05-28T11:14:34.724842+00:00",
-    "updated_at": "2026-05-28T11:14:34.726238+00:00"
+    "created_at": "2026-05-28T11:37:48.179938+00:00",
+    "updated_at": "2026-05-28T11:37:48.181780+00:00"
   }
 ]

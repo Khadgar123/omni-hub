@@ -54,7 +54,10 @@ class SkillThreeTruthSourceMergeTests(unittest.TestCase):
             self.assertIn("omni_hub:", body)
             self.assertIn("kind: domain_wiki", body)
             self.assertIn("entrypoint: \"operation:context_pack_build\"", body)
-            self.assertIn("domain: \"enterprise\"", body)
+            # v0.40: domain slug shows up in the Required Frontmatter
+            # template (no longer in a separate `inputs:` block — that was
+            # consolidated into the 5-section contract).
+            self.assertIn("domain: enterprise", body)
 
     def test_skill_sync_apply_promotes_md_to_registry(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

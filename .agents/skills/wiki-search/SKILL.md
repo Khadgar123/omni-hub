@@ -13,9 +13,10 @@ description: |
   as a building block from any other skill — see also ``app-report-build``,
   ``chat-route``, ``inbox-route``, and the 19 ``*-wiki`` domain skills.
 license: MIT
-schema_version: v0.38
+schema_version: v0.40
 omni_hub:
   layer: foundation
+  namespace: foundation_core
   bucket: knowledge_access
   display_name: "Wiki Search"
   status: active
@@ -27,9 +28,10 @@ omni_hub:
   tags:
     - foundation
     - knowledge_access
+    - foundation_core
 ---
 
-<!-- omni-skill-stub: v0.38 -->
+<!-- omni-skill-stub: v0.40 -->
 
 # Wiki Search
 
@@ -63,5 +65,5 @@ which will select the right ``*-wiki`` skill and feed the answer back.
 
 ---
 
-_Auto-generated stub.  Remove the ``<!-- omni-skill-stub: v0.38 -->`` marker line to
+_Auto-generated stub.  Remove the ``<!-- omni-skill-stub: v0.40 -->`` marker line to
 opt out of regeneration (the v0.32 ``materialise_all`` rule)._

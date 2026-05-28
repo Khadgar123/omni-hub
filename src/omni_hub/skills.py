@@ -30,6 +30,12 @@ class SkillStatus(str, Enum):
     ACTIVE = "active"
     DISABLED = "disabled"
     DEPRECATED = "deprecated"
+    # v0.40 — review-driven distinction between "active + works" vs
+    # "scaffolded but placeholder data" vs "needs external broker".
+    # Lets routers / UIs show honest delivery status (project-plan,
+    # finance-screen are stub; pptx-build is broker_required).
+    STUB = "stub"
+    BROKER_REQUIRED = "broker_required"
 
 
 @dataclass(slots=True)

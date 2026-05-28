@@ -1889,7 +1889,33 @@ def build_default_registry(workspace: Path | str = ".") -> OperationRegistry:
     registry.register("finance_watch_create", make_finance_watch_create(workspace_path))
     registry.register("finance_watch_list", make_finance_watch_list(workspace_path))
     registry.register("finance_portfolio_stats", make_finance_portfolio_stats(workspace_path))
+    # v0.40 — explicit 2-level AppIntentRouter (intent → domain → tools).
+    registry.register("app_intent_route", make_app_intent_route(workspace_path))
     return registry
+
+
+def make_app_intent_route(workspace: Path):
+    def app_intent_route(spec: OperationSpec) -> dict:
+        from .app import AppIntentRouter
+        from .channels.base import InboundMessage
+
+        body = str(spec.payload.get("query") or spec.payload.get("body") or "").strip()
+        subject = str(spec.payload.get("subject", "")).strip()
+        sender = str(spec.payload.get("sender", "cli-user"))
+        channel = str(spec.payload.get("channel", "cli"))
+        if not body and not subject:
+            raise ValueError("query (or body) is required")
+        inbound = InboundMessage.new(
+            channel=channel, sender=sender, body=body, subject=subject,
+        )
+        router = AppIntentRouter()
+        decision = router.route(inbound)
+        return {
+            "inbound": inbound.to_dict(),
+            "decision": decision.to_dict(),
+        }
+
+    return app_intent_route
 
 
 # ---------------------------------------------------------------------------
