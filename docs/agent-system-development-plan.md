@@ -313,6 +313,7 @@ source -> claim -> sentence -> judge -> human choice -> positive/negative exampl
 src/omni_hub/harness/models.py          # TaskPacket / GenerationRecord / Candidate / JudgeScore / HumanFeedback
 src/omni_hub/harness/ensemble.py        # 多模型 fanout via ccLoad
 src/omni_hub/proposals.py               # 统一 Proposal[T] + SQLite ProposalStore
+src/omni_hub/optimizer/                 # SkillVersion / OptimizationRun / EvalGate
 src/omni_hub/queue.py                   # AgentJob Queue + visibility timeout + lease fencing
 src/omni_hub/workers/                   # Artifact / WorkerAdapter / builtin / claude / codex
 src/omni_hub/reports/                   # 日/周/月报构建
@@ -325,6 +326,7 @@ CLI 子命令已注册：
 - `harness-ensemble --prompt "..." --model A --model B [--dry-run]`：N 路 candidates，落 GenerationRecord JSON
 - `task-enqueue` / `task-list` / `worker --lane <lane>`：后台队列和 worker pool
 - `propose-list` / `propose-approve` / `propose-reject`：统一人工审批出口
+- `optimizer-skill-*` / `optimizer-run-*`：记录 DSPy/GEPA-ready skill 版本和优化运行
 - `schedule-tick --period daily|weekly|monthly`：入队例行扫描和报表任务
 
 Makefile 目标已加：`make harness-status`、`make harness-add-pending dspy openhands opik`、`make schedule-install-dry`、`make worker-python`。
@@ -334,7 +336,7 @@ Makefile 目标已加：`make harness-status`、`make harness-add-pending dspy o
 ```text
 src/omni_hub/harness/judge_ensemble.py  # 多 judge + BiasScope 五维偏差自检
 src/omni_hub/harness/grounding.py       # atomic claim + per-claim citation 强制
-src/omni_hub/harness/dspy_compile.py    # 调 agent-harness/dspy 跑 BootstrapFewShot
+src/omni_hub/harness/dspy_compile.py    # 接真实 DSPy / GEPA / MIPRO optimizer
 src/omni_hub/workers/openhands.py       # OpenHands adapter，lane=openhands
 src/omni_hub/mcp_server.py              # 将 task/proposal/memory/harness 暴露给 MCP client
 ```

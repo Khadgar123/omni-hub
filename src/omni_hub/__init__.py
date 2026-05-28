@@ -14,6 +14,13 @@ from .harness.models import (
 from .markdown import MarkdownDocument
 from .memory import MemoryDigestResult, MemorySearchResult, MemoryStore
 from .models import OperationSpec, OperationStatus, RiskLevel
+from .optimizer import (
+    DatasetSplit,
+    EvalGate,
+    OptimizationRun,
+    OptimizerStore,
+    SkillVersion,
+)
 from .policy import PolicyConfig, PolicyDecision, PolicyEngine
 from .proposals import EntityProposal, Proposal, ProposalStore, RelationProposal
 from .queue import LeaseLost, Task, TaskQueue
@@ -39,7 +46,9 @@ __all__ = [
     "Candidate",
     "Constraints",
     "ContentStore",
+    "DatasetSplit",
     "EntityProposal",
+    "EvalGate",
     "GenerationRecord",
     "HumanFeedback",
     "JudgeRubric",
@@ -51,6 +60,8 @@ __all__ = [
     "OperationRunner",
     "OperationSpec",
     "OperationStatus",
+    "OptimizationRun",
+    "OptimizerStore",
     "PolicyConfig",
     "PolicyDecision",
     "PolicyEngine",
@@ -75,6 +86,7 @@ __all__ = [
     "SkillSetAnalysis",
     "SkillSpec",
     "SkillStatus",
+    "SkillVersion",
     "StoredCapture",
     "TaskPacket",
     "VaultReader",

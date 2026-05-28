@@ -14,9 +14,10 @@ v0.4（外部入口）与 v0.5（长任务队列）合并到这一阶段的最�
 | `omni-hub worker --lane <lane>` daemon + gated agent proposals | ✅ | [cli/worker.py](../src/omni_hub/cli/worker.py) |
 | `schedule-tick --period ...` + 日/周/月报任务 | ✅ | [builtins.py](../src/omni_hub/builtins.py)、[reports/](../src/omni_hub/reports/) |
 | launchd plists + Python 3.12 guard + `make schedule-install/uninstall` | ✅ | [scripts/launchd/](../scripts/launchd/)、[scripts/install_launchd.py](../scripts/install_launchd.py) |
+| Optimizer 契约：SkillVersion / OptimizationRun / EvalGate | ✅ | [optimizer](../src/omni_hub/optimizer)、[optimizer-model.md](optimizer-model.md) |
 | AGENTS.md / CLAUDE.md 4 条工程硬约束 | ✅ | [AGENTS.md](../AGENTS.md) |
 
-测试覆盖：162 个单测（v0.6 的 101 个 + Phase 1 和修复回归新增用例）。
+测试覆盖：183 个单测（v0.6 的 101 个 + Phase 1 和重构回归新增用例）。
 
 下一步候选（v0.8）：
 

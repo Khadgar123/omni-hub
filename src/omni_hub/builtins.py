@@ -7,6 +7,13 @@ from .connectors.web import build_resource_from_body, fetch_url
 from .content_store import ContentStore
 from .memory import MemoryStore
 from .models import OperationSpec, RiskLevel
+from .optimizer import (
+    DatasetSplit,
+    EvalGate,
+    OptimizationRun,
+    OptimizerStore,
+    SkillVersion,
+)
 from .proposals import ProposalStore, build_knowledge_proposal
 from .queue import TaskQueue
 from .registry import OperationRegistry
@@ -293,6 +300,95 @@ def make_list_tasks(workspace: Path):
         }
 
     return list_tasks
+
+
+def make_optimizer_register_skill_version(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def register_skill_version(spec: OperationSpec) -> dict[str, object]:
+        payload = spec.payload
+        version = SkillVersion(
+            skill_id=str(payload["skill_id"]),
+            version=str(payload["version"]),
+            domain=str(payload.get("domain", "engineering")),
+            prompt_path=str(payload.get("prompt_path", "")),
+            module_path=str(payload.get("module_path", "")),
+            optimizer=str(payload.get("optimizer", "manual")),
+            source_run_id=str(payload.get("source_run_id", "")),
+            status=str(payload.get("status", "candidate")),
+            notes=str(payload.get("notes", "")),
+        )
+        return OptimizerStore(workspace_root).register_skill_version(version).to_dict()
+
+    return register_skill_version
+
+
+def make_optimizer_list_skill_versions(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def list_skill_versions(spec: OperationSpec) -> dict[str, object]:
+        payload = spec.payload
+        versions = OptimizerStore(workspace_root, create=False).list_skill_versions(
+            skill_id=payload.get("skill_id"),
+            limit=int(payload.get("limit", 50)),
+        )
+        return {
+            "count": len(versions),
+            "versions": [v.to_dict() for v in versions],
+        }
+
+    return list_skill_versions
+
+
+def make_optimizer_record_run(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def record_run(spec: OperationSpec) -> dict[str, object]:
+        payload = spec.payload
+        run = OptimizationRun(
+            skill_id=str(payload["skill_id"]),
+            optimizer=str(payload["optimizer"]),
+            from_version=str(payload["from_version"]),
+            to_version=str(payload["to_version"]),
+            dataset_split=DatasetSplit(
+                train_count=int(payload.get("train_count", 0)),
+                dev_count=int(payload.get("dev_count", 0)),
+                holdout_count=int(payload.get("holdout_count", 0)),
+            ),
+            eval_gate=EvalGate(
+                metric_thresholds={
+                    str(k): float(v)
+                    for k, v in dict(payload.get("metric_thresholds", {})).items()
+                },
+                min_holdout_count=int(payload.get("min_holdout_count", 0)),
+            ),
+            holdout_metrics={
+                str(k): float(v)
+                for k, v in dict(payload.get("holdout_metrics", {})).items()
+            },
+            pareto_candidates=int(payload.get("pareto_candidates", 0)),
+            notes=str(payload.get("notes", "")),
+        )
+        return OptimizerStore(workspace_root).record_run(run).to_dict()
+
+    return record_run
+
+
+def make_optimizer_list_runs(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def list_runs(spec: OperationSpec) -> dict[str, object]:
+        payload = spec.payload
+        runs = OptimizerStore(workspace_root, create=False).list_runs(
+            skill_id=payload.get("skill_id"),
+            limit=int(payload.get("limit", 50)),
+        )
+        return {
+            "count": len(runs),
+            "runs": [r.to_dict() for r in runs],
+        }
+
+    return list_runs
 
 
 def _make_build_report(workspace: Path, period: str):
@@ -603,7 +699,36 @@ def make_harness_compile(workspace: Path):
             max_negative=int(payload.get("max_negative", 6)),
             backend=str(payload.get("backend", "auto")),
         )
-        return report.to_dict()
+        optimizer_store = OptimizerStore(workspace_root)
+        run = optimizer_store.record_run(OptimizationRun(
+            skill_id=report.domain,
+            optimizer=report.backend,
+            from_version=report.from_version,
+            to_version=report.to_version,
+            dataset_split=DatasetSplit(
+                train_count=report.positive_used + report.negative_used,
+                dev_count=0,
+                holdout_count=0,
+            ),
+            eval_gate=EvalGate(),
+            pareto_candidates=0,
+            notes=report.notes,
+        ))
+        prompt_path = Path(report.output_dir) / "system_prompt.md"
+        optimizer_store.register_skill_version(SkillVersion(
+            skill_id=report.domain,
+            version=report.to_version,
+            domain=report.domain,
+            prompt_path=str(prompt_path),
+            optimizer=report.backend,
+            source_run_id=run.run_id,
+            status="candidate",
+            notes=report.notes,
+        ))
+        out = report.to_dict()
+        out["optimizer_run_id"] = run.run_id
+        out["gate_decision"] = run.gate_decision
+        return out
 
     return harness_compile
 
@@ -658,6 +783,16 @@ def build_default_registry(workspace: Path | str = ".") -> OperationRegistry:
     registry.register("complete_task", make_complete_task(workspace_path))
     registry.register("fail_task", make_fail_task(workspace_path))
     registry.register("list_tasks", make_list_tasks(workspace_path))
+    registry.register(
+        "optimizer_register_skill_version",
+        make_optimizer_register_skill_version(workspace_path),
+    )
+    registry.register(
+        "optimizer_list_skill_versions",
+        make_optimizer_list_skill_versions(workspace_path),
+    )
+    registry.register("optimizer_record_run", make_optimizer_record_run(workspace_path))
+    registry.register("optimizer_list_runs", make_optimizer_list_runs(workspace_path))
     registry.register("schedule_tick", make_schedule_tick(workspace_path))
     registry.register("build_daily_report", _make_build_report(workspace_path, "daily"))
     registry.register("build_weekly_report", _make_build_report(workspace_path, "weekly"))

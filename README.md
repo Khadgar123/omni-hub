@@ -154,6 +154,7 @@ docker compose --env-file api-management/env.example -f api-management/compose.y
 - [权限与风险模型](docs/permission-model.md)
 - [捕获与入库模型](docs/capture-model.md)
 - [提案层模型](docs/proposal-model.md)
+- [Optimizer 模型](docs/optimizer-model.md)
 - [记忆层模型](docs/memory-model.md)
 - [Skill Registry](docs/skill-registry.md)
 - [Skill Intelligence](docs/skill-intelligence.md)

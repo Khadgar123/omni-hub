@@ -20,6 +20,7 @@ from . import (
     capture,
     harness,
     memory,
+    optimizer,
     policy,
     propose,
     reports,
@@ -30,7 +31,7 @@ from . import (
 
 _AREAS = [
     capture, memory, skill, api_management, policy,
-    propose, task, worker, harness, reports,
+    propose, task, worker, harness, reports, optimizer,
 ]
 
 
