@@ -164,6 +164,135 @@ class TaskQueueTests(unittest.TestCase):
             self.assertEqual(q.counts_by_state()["pending"], 2)
 
 
+class LeaseEpochFencingTests(unittest.TestCase):
+    """P0-1: lease_epoch is the Kleppmann fencing token.
+
+    The previous holder-identity check (`claimed_by` UUID) prevents *most*
+    races but not the lease-steal-then-original-completes edge case.
+    Verifying the new monotonic epoch column rejects that race.
+    """
+
+    def test_claim_increments_lease_epoch_monotonically(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            q = TaskQueue(tmp)
+            q.enqueue(lane="python", packet={})
+
+            first = q.claim(lane="python", claimed_by="w1")
+            assert first is not None
+            self.assertEqual(first.lease_epoch, 1)
+
+            # Force-rewind so w2 can reclaim with a short visibility timeout.
+            with q._connect() as conn:
+                conn.execute(
+                    "UPDATE tasks SET claimed_at = ? WHERE id = ?",
+                    (_now_ms() - 3_600_000, first.id),
+                )
+                conn.commit()
+
+            second = q.claim(
+                lane="python", claimed_by="w2", visibility_timeout_sec=1,
+            )
+            assert second is not None
+            self.assertEqual(second.id, first.id)
+            self.assertEqual(second.lease_epoch, 2)        # monotonic
+
+    def test_stale_completer_with_old_epoch_is_rejected(self) -> None:
+        """The hole `claimed_by` alone doesn't catch: epoch catches it."""
+        with tempfile.TemporaryDirectory() as tmp:
+            q = TaskQueue(tmp)
+            q.enqueue(lane="claude", packet={"goal": "x"})
+
+            w1 = q.claim(lane="claude", claimed_by="w1")
+            assert w1 is not None
+            self.assertEqual(w1.lease_epoch, 1)
+
+            # Steal via expired visibility.
+            with q._connect() as conn:
+                conn.execute(
+                    "UPDATE tasks SET claimed_at = ? WHERE id = ?",
+                    (_now_ms() - 3_600_000, w1.id),
+                )
+                conn.commit()
+            w2 = q.claim(lane="claude", claimed_by="w1", visibility_timeout_sec=1)
+            assert w2 is not None
+            self.assertEqual(w2.lease_epoch, 2)            # same identity, new epoch
+
+            # w1 (epoch 1) tries to finish what w2 (epoch 2) now owns.
+            with self.assertRaises(LeaseLost):
+                q.complete(
+                    w1.id, output={"text": "stale"},
+                    claimed_by="w1", lease_epoch=1,
+                )
+
+            # And the legitimate holder at epoch 2 still works.
+            done = q.complete(
+                w2.id, output={"text": "fresh"},
+                claimed_by="w1", lease_epoch=2,
+            )
+            self.assertEqual(done.state, "done")
+
+    def test_fencing_suffix_for_downstream_idempotency_keys(self) -> None:
+        """Workers embed Task.fencing_suffix() into LLM idempotency keys
+        so external services can reject stale retries."""
+        with tempfile.TemporaryDirectory() as tmp:
+            q = TaskQueue(tmp)
+            q.enqueue(lane="python", packet={})
+            t = q.claim(lane="python", claimed_by="w1")
+            assert t is not None
+            suffix = t.fencing_suffix()
+            self.assertRegex(suffix, r"^t\d+:e1$")
+            self.assertEqual(suffix, f"t{t.id}:e1")
+
+
+class BackoffJitterTests(unittest.TestCase):
+    """P0-2: AWS Full Jitter — random(0, exp_capped) avoids synchronized retries."""
+
+    def test_repeated_fails_do_not_align_in_lockstep(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            q = TaskQueue(tmp)
+            # 5 separate tasks, each failed once with non-trivial backoff.
+            available_ats: list[int] = []
+            for i in range(5):
+                q.enqueue(
+                    lane="python", packet={},
+                    idempotency_key=f"jitter-{i}",
+                    max_attempts=10,
+                )
+            for i in range(5):
+                claimed = q.claim(lane="python", claimed_by="w")
+                assert claimed is not None
+                failed = q.fail(
+                    claimed.id, error="boom",
+                    claimed_by="w", lease_epoch=claimed.lease_epoch,
+                    backoff_base_sec=60,            # 60s base, attempt=1 → up to 120s
+                    backoff_cap_sec=3600,
+                )
+                available_ats.append(failed.available_at)
+
+            # With jitter, 5 backoffs should not all be the *same* value
+            # (probability of exact collision is ~1 in 120k each).
+            self.assertGreater(
+                len(set(available_ats)), 1,
+                msg=f"backoff values are deterministic — jitter not working: {available_ats}",
+            )
+
+    def test_zero_backoff_still_zero(self) -> None:
+        """Legacy callers passing backoff_base_sec=0 (e.g. tests) get 0 ms wait."""
+        with tempfile.TemporaryDirectory() as tmp:
+            q = TaskQueue(tmp)
+            q.enqueue(lane="python", packet={}, max_attempts=5)
+            t = q.claim(lane="python", claimed_by="w")
+            assert t is not None
+            now_before = _now_ms()
+            failed = q.fail(
+                t.id, error="x",
+                claimed_by="w", lease_epoch=t.lease_epoch,
+                backoff_base_sec=0,
+            )
+            # available_at should be within a few ms of now (no jitter applied).
+            self.assertLessEqual(failed.available_at - now_before, 100)
+
+
 class LeaseFencingTests(unittest.TestCase):
     """Regression for F3 — a stale worker MUST NOT overwrite a successor's progress."""
 

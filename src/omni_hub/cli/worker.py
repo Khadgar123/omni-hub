@@ -114,10 +114,13 @@ def _handle_worker(args, *, runner, workspace) -> int:
     lease_losses = 0
     last_task_at = time.monotonic()
 
-    def _safe_fail(task_id: int, error: str) -> None:
+    def _safe_fail(task_id: int, error: str, lease_epoch: int) -> None:
         nonlocal lease_losses
         try:
-            queue.fail(task_id, error=error, claimed_by=worker_id)
+            queue.fail(
+                task_id, error=error,
+                claimed_by=worker_id, lease_epoch=lease_epoch,
+            )
         except LeaseLost:
             lease_losses += 1
 
@@ -132,19 +135,22 @@ def _handle_worker(args, *, runner, workspace) -> int:
             continue
 
         last_task_at = time.monotonic()
+        current_epoch = task.lease_epoch       # snapshot fencing token
         try:
             artifact: Artifact = adapter.run(task, timeout_sec=args.task_timeout_sec)
         except Exception as exc:                            # noqa: BLE001
-            _safe_fail(task.id, f"{type(exc).__name__}: {exc}")
+            _safe_fail(task.id, f"{type(exc).__name__}: {exc}", current_epoch)
             processed += 1
             continue
 
         proposal: Proposal | None = None
         try:
             if artifact.error:
-                _safe_fail(task.id, artifact.error)
+                _safe_fail(task.id, artifact.error, current_epoch)
             else:
                 output = artifact.to_dict()
+                output["lease_epoch"] = current_epoch
+                output["fencing_suffix"] = task.fencing_suffix()
                 # Gated lanes (agent workers) write a pending Proposal[T]
                 # that the human must approve via propose-approve.  The
                 # proposal_id is surfaced in the task output so callers
@@ -154,7 +160,10 @@ def _handle_worker(args, *, runner, workspace) -> int:
                     proposal_store.store(proposal, write_card=False)
                     output["proposal_id"] = proposal.proposal_id
                     output["proposal_state"] = proposal.state
-                queue.complete(task.id, output=output, claimed_by=worker_id)
+                queue.complete(
+                    task.id, output=output,
+                    claimed_by=worker_id, lease_epoch=current_epoch,
+                )
                 if proposal is not None:
                     proposals_made += 1
         except LeaseLost:

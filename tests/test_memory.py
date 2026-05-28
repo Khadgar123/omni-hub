@@ -136,5 +136,31 @@ class MemoryStoreTests(unittest.TestCase):
             self.assertEqual(proposal.source_path, "vault/00_Inbox/memory.md")
 
 
+class MemoryStorePragmaTests(unittest.TestCase):
+    """P0-3 regression: MemoryStore must apply busy_timeout on every connection,
+    not only at schema init.  Previously _connect() didn't set the pragma,
+    so search/stats calls could SQLITE_BUSY under writer contention."""
+
+    def test_every_connection_has_busy_timeout(self) -> None:
+        from omni_hub.memory import MemoryStore
+        with tempfile.TemporaryDirectory() as tmp:
+            store = MemoryStore(tmp)
+            # Two independent connections — both must have busy_timeout set.
+            for _ in range(2):
+                with store._connect() as conn:
+                    timeout_ms = conn.execute(
+                        "PRAGMA busy_timeout"
+                    ).fetchone()[0]
+                    self.assertEqual(int(timeout_ms), 30000)
+
+    def test_schema_init_enables_wal(self) -> None:
+        from omni_hub.memory import MemoryStore
+        with tempfile.TemporaryDirectory() as tmp:
+            store = MemoryStore(tmp)
+            with store._connect() as conn:
+                mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
+                self.assertEqual(mode.lower(), "wal")
+
+
 if __name__ == "__main__":
     unittest.main()

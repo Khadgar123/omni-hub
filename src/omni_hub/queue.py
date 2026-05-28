@@ -25,6 +25,7 @@ existing task is returned, never replaced.  Callers can therefore enqueue
 from __future__ import annotations
 
 import json
+import random
 import sqlite3
 import time
 import uuid
@@ -76,10 +77,22 @@ class Task:
     available_at: int = 0
     claimed_at: int | None = None
     claimed_by: str | None = None
+    lease_epoch: int = 0                      # monotonic fencing token (Kleppmann)
     last_error: str | None = None
     output: dict[str, Any] | None = None
     created_at: int = 0
     updated_at: int = 0
+
+    def fencing_suffix(self) -> str:
+        """Stable suffix for downstream idempotency keys.
+
+        Embed this into upstream-API idempotency keys so a stale worker's
+        retry can be rejected by the *external* service: even if two
+        workers think they hold the same lease, only the current epoch's
+        suffix matches the row state.
+        """
+
+        return f"t{self.id}:e{self.lease_epoch}"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -94,6 +107,7 @@ class Task:
             "available_at": self.available_at,
             "claimed_at": self.claimed_at,
             "claimed_by": self.claimed_by,
+            "lease_epoch": self.lease_epoch,
             "last_error": self.last_error,
             "output": self.output,
             "created_at": self.created_at,
@@ -102,6 +116,7 @@ class Task:
 
 
 def _task_from_row(row: sqlite3.Row) -> Task:
+    keys = row.keys()
     return Task(
         id=int(row["id"]),
         idempotency_key=row["idempotency_key"] or "",
@@ -114,6 +129,9 @@ def _task_from_row(row: sqlite3.Row) -> Task:
         available_at=int(row["available_at"]),
         claimed_at=int(row["claimed_at"]) if row["claimed_at"] is not None else None,
         claimed_by=row["claimed_by"],
+        # lease_epoch is added by migration; tolerate missing column on
+        # legacy databases until they're touched.
+        lease_epoch=int(row["lease_epoch"]) if "lease_epoch" in keys and row["lease_epoch"] is not None else 0,
         last_error=row["last_error"],
         output=json.loads(row["output_json"]) if row["output_json"] else None,
         created_at=int(row["created_at"]),
@@ -197,6 +215,13 @@ class TaskQueue:
         A task is eligible if it is ``pending`` and ``available_at`` has
         elapsed, OR it is ``claimed`` but the worker who took it has been
         silent past the visibility timeout (likely crashed).
+
+        Every claim **monotonically increments ``lease_epoch``** — this is
+        the Kleppmann fencing token.  ``claimed_by`` alone is not enough
+        because a UUID identifies *who* held the lease, not *which
+        generation* of it; downstream callers should embed both
+        ``(claimed_by, lease_epoch)`` (or ``Task.fencing_suffix()``) into
+        any external-side idempotency key.
         """
 
         worker = claimed_by or _new_id()
@@ -211,6 +236,7 @@ class TaskQueue:
                 SET state = 'claimed',
                     claimed_at = ?,
                     claimed_by = ?,
+                    lease_epoch = lease_epoch + 1,
                     attempts = attempts + 1,
                     updated_at = ?
                 WHERE id = (
@@ -237,20 +263,40 @@ class TaskQueue:
         *,
         output: dict[str, Any] | None = None,
         claimed_by: str | None = None,
+        lease_epoch: int | None = None,
     ) -> Task:
         """Mark a claimed task done.
 
-        When ``claimed_by`` is provided the UPDATE is *fenced*: only the
-        current claim holder can complete the task.  Passing ``None``
-        (legacy callers) skips the check, but new code should always pass
-        the holder so a stalled worker can't overwrite a successor's
-        progress (see :class:`LeaseLost`).
+        Fencing rules:
+        * If both ``claimed_by`` AND ``lease_epoch`` are passed, the row
+          is only updated when both match — the Kleppmann fencing-token
+          pattern.  This is what new worker code must do.
+        * If only ``claimed_by`` is passed, falls back to holder-identity
+          fencing (correct against most stale-worker races but not
+          against the lease-steal-then-restored edge case).
+        * If neither is passed, the call is unfenced — legacy contract;
+          do not use in new code.
         """
 
         now = _now_ms()
         output_json = json.dumps(output, ensure_ascii=False) if output is not None else None
         with self._connect() as conn:
-            if claimed_by is not None:
+            if claimed_by is not None and lease_epoch is not None:
+                row = conn.execute(
+                    """
+                    UPDATE tasks
+                    SET state = 'done',
+                        output_json = ?,
+                        updated_at = ?
+                    WHERE id = ?
+                      AND state = 'claimed'
+                      AND claimed_by = ?
+                      AND lease_epoch = ?
+                    RETURNING *
+                    """,
+                    (output_json, now, task_id, claimed_by, lease_epoch),
+                ).fetchone()
+            elif claimed_by is not None:
                 row = conn.execute(
                     """
                     UPDATE tasks
@@ -286,7 +332,8 @@ class TaskQueue:
             raise LeaseLost(
                 f"task {task_id}: lease lost (state={existing['state']!r}, "
                 f"current_holder={existing['claimed_by']!r}, "
-                f"caller={claimed_by!r})"
+                f"current_epoch={existing['lease_epoch'] if 'lease_epoch' in existing.keys() else 0}, "
+                f"caller={claimed_by!r}, caller_epoch={lease_epoch!r})"
             )
         return _task_from_row(row)
 
@@ -296,20 +343,22 @@ class TaskQueue:
         *,
         error: str,
         claimed_by: str | None = None,
+        lease_epoch: int | None = None,
         backoff_base_sec: int = DEFAULT_BACKOFF_BASE_SEC,
         backoff_cap_sec: int = DEFAULT_BACKOFF_CAP_SEC,
     ) -> Task:
         """Record a failure; either reschedule with backoff or transition to dead.
 
-        Fenced by ``claimed_by`` when supplied — same contract as
-        :meth:`complete`.
+        Fenced by ``(claimed_by, lease_epoch)`` when both supplied — same
+        contract as :meth:`complete`.  Backoff uses AWS "Full Jitter"
+        (random.randint(0, exp_capped)) to avoid synchronized retries.
         """
 
         now = _now_ms()
         with self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
             current = conn.execute(
-                "SELECT attempts, max_attempts, state, claimed_by "
+                "SELECT attempts, max_attempts, state, claimed_by, lease_epoch "
                 "FROM tasks WHERE id = ?",
                 (task_id,),
             ).fetchone()
@@ -318,12 +367,14 @@ class TaskQueue:
                 raise FileNotFoundError(f"task does not exist: {task_id}")
             if claimed_by is not None and (
                 current["state"] != "claimed" or current["claimed_by"] != claimed_by
+                or (lease_epoch is not None and int(current["lease_epoch"]) != lease_epoch)
             ):
                 conn.execute("ROLLBACK")
                 raise LeaseLost(
                     f"task {task_id}: lease lost (state={current['state']!r}, "
                     f"current_holder={current['claimed_by']!r}, "
-                    f"caller={claimed_by!r})"
+                    f"current_epoch={int(current['lease_epoch'])}, "
+                    f"caller={claimed_by!r}, caller_epoch={lease_epoch!r})"
                 )
             attempts = int(current["attempts"])
             max_attempts = int(current["max_attempts"])
@@ -341,10 +392,15 @@ class TaskQueue:
                     (error, now, task_id),
                 ).fetchone()
             else:
-                backoff_ms = min(
+                # AWS "Full Jitter" — random(0, min(cap, base*2**attempts)) — keeps
+                # synchronized retries off the same upstream 429 window.  When
+                # callers pass backoff_base_sec=0 (e.g. tests, or fire-and-retry
+                # immediately) the jitter ceiling is 0 too, so we get a 0 ms wait.
+                ceiling_ms = min(
                     backoff_base_sec * (2 ** attempts),
                     backoff_cap_sec,
                 ) * 1000
+                backoff_ms = random.randint(0, ceiling_ms) if ceiling_ms > 0 else 0
                 row = conn.execute(
                     """
                     UPDATE tasks
@@ -436,6 +492,7 @@ class TaskQueue:
                     available_at    INTEGER NOT NULL,
                     claimed_at      INTEGER,
                     claimed_by      TEXT,
+                    lease_epoch     INTEGER NOT NULL DEFAULT 0,
                     last_error      TEXT,
                     output_json     TEXT,
                     created_at      INTEGER NOT NULL,
@@ -446,6 +503,14 @@ class TaskQueue:
                     ON tasks(lane, state, available_at, id);
                 """
             )
+            # Migration: add lease_epoch to legacy databases created before
+            # v0.8 P0-1 — the CREATE TABLE IF NOT EXISTS above does NOT add
+            # columns to a pre-existing table.
+            cols = {row[1] for row in conn.execute("PRAGMA table_info(tasks)").fetchall()}
+            if "lease_epoch" not in cols:
+                conn.execute(
+                    "ALTER TABLE tasks ADD COLUMN lease_epoch INTEGER NOT NULL DEFAULT 0"
+                )
             conn.commit()
 
     def _connect(self) -> sqlite3.Connection:

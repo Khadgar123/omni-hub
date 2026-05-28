@@ -102,6 +102,19 @@ class ClaudeAdapterTests(unittest.TestCase):
         self.assertIsNone(artifact.error)
 
 
+class ClaudeAdapterBareFlagTests(unittest.TestCase):
+    """P0-4 regression: --bare flag must always be in the headless command
+    so plist-installed schedulers don't pick up local CLAUDE.md / hooks /
+    skills / plugins that vary across machines."""
+
+    def test_bare_flag_present_in_built_command(self) -> None:
+        adapter = ClaudeAdapter(command_prefix=["claude"])
+        cmd = adapter._build_command("hello")
+        self.assertIn("--bare", cmd)
+        # Must come before --print/-p to skip auto-discovery up front.
+        self.assertLess(cmd.index("--bare"), cmd.index("-p"))
+
+
 class CodexAdapterTests(unittest.TestCase):
     def test_happy_path_picks_last_jsonl_object(self) -> None:
         # Codex `--json` typically emits JSONL; adapter should pick the last

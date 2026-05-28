@@ -96,6 +96,10 @@ class ClaudeAdapter:
 
     def _build_command(self, prompt: str) -> list[str]:
         cmd = list(self.command_prefix) + [
+            # --bare skips auto-discovery of hooks/skills/plugins/CLAUDE.md/MCP
+            # config files, making the headless invocation reproducible across
+            # machines (recommended by Anthropic for CI / scripted use in 2026).
+            "--bare",
             "-p", prompt,
             "--output-format", "json",
             "--permission-mode", self.permission_mode,

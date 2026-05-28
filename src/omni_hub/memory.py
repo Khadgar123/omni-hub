@@ -317,6 +317,9 @@ class MemoryStore:
         with self._connect() as conn:
             conn.executescript(
                 """
+                PRAGMA journal_mode = WAL;
+                PRAGMA busy_timeout = 30000;
+
                 CREATE TABLE IF NOT EXISTS documents (
                     source_path TEXT PRIMARY KEY,
                     title TEXT NOT NULL,
@@ -355,6 +358,9 @@ class MemoryStore:
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(str(self.db_path))
         conn.row_factory = sqlite3.Row
+        # PRAGMA busy_timeout applies per-connection; reader-only paths
+        # (search / stats) must also wait through a writer lock.
+        conn.execute("PRAGMA busy_timeout = 30000")
         return conn
 
     def _safe_path(self, relative_path: str) -> Path:
