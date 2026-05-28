@@ -424,26 +424,6 @@ class TaskQueue:
                 "SELECT * FROM tasks WHERE id = ?", (task_id,),
             ).fetchone()
 
-
-def _percentiles(sorted_values: list[int]) -> dict[str, int]:
-    """Nearest-rank percentiles + count over a sorted list.  Empty → zeros."""
-
-    n = len(sorted_values)
-    if n == 0:
-        return {"p50": 0, "p95": 0, "p99": 0, "count": 0}
-
-    def _at(p: float) -> int:
-        # nearest-rank: ceil(p * n) - 1
-        idx = max(0, min(n - 1, int(p * n + 0.999) - 1))
-        return int(sorted_values[idx])
-
-    return {
-        "p50": _at(0.50),
-        "p95": _at(0.95),
-        "p99": _at(0.99),
-        "count": n,
-    }
-
     def get(self, task_id: int) -> Task:
         with self._connect() as conn:
             row = conn.execute(
@@ -618,3 +598,23 @@ def _percentiles(sorted_values: list[int]) -> dict[str, int]:
     def _safe_path(self, relative_path: str) -> Path:
         from ._storage import safe_workspace_path
         return safe_workspace_path(self.workspace, relative_path)
+
+
+def _percentiles(sorted_values: list[int]) -> dict[str, int]:
+    """Nearest-rank percentiles + count over a sorted list.  Empty → zeros."""
+
+    n = len(sorted_values)
+    if n == 0:
+        return {"p50": 0, "p95": 0, "p99": 0, "count": 0}
+
+    def _at(p: float) -> int:
+        # nearest-rank: ceil(p * n) - 1
+        idx = max(0, min(n - 1, int(p * n + 0.999) - 1))
+        return int(sorted_values[idx])
+
+    return {
+        "p50": _at(0.50),
+        "p95": _at(0.95),
+        "p99": _at(0.99),
+        "count": n,
+    }

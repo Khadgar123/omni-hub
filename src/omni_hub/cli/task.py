@@ -69,6 +69,13 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     tick.add_argument("--anchor",
                       help="Anchor date YYYY-MM-DD; defaults to today.")
 
+    subparsers.add_parser(
+        "task-stats",
+        help="Queue observability snapshot — depth per lane/state, oldest "
+             "pending age, claim→done latency percentiles, attempts "
+             "distribution, dead count.",
+    )
+
 
 def _load_packet(args) -> dict:
     if args.packet_file:
@@ -166,11 +173,24 @@ def _schedule_tick(args, *, runner, workspace) -> int:
     )
 
 
+def _stats(args, *, runner, workspace) -> int:
+    return run_and_print(
+        runner,
+        OperationSpec(
+            name="task_stats",
+            action="stats",
+            payload={},
+            risk_level=RiskLevel.READ_ONLY,
+        ),
+    )
+
+
 COMMANDS = {
     "task-enqueue": _enqueue,
     "task-claim": _claim,
     "task-complete": _complete,
     "task-fail": _fail,
     "task-list": _list,
+    "task-stats": _stats,
     "schedule-tick": _schedule_tick,
 }

@@ -424,6 +424,16 @@ def _make_build_report(workspace: Path, period: str):
     return build_report
 
 
+def make_task_stats(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def task_stats(spec: OperationSpec) -> dict[str, object]:
+        queue = TaskQueue(workspace_root, create=False)
+        return queue.stats()
+
+    return task_stats
+
+
 def make_schedule_tick(workspace: Path):
     workspace_root = workspace.resolve()
 
@@ -794,6 +804,7 @@ def build_default_registry(workspace: Path | str = ".") -> OperationRegistry:
     registry.register("optimizer_record_run", make_optimizer_record_run(workspace_path))
     registry.register("optimizer_list_runs", make_optimizer_list_runs(workspace_path))
     registry.register("schedule_tick", make_schedule_tick(workspace_path))
+    registry.register("task_stats", make_task_stats(workspace_path))
     registry.register("build_daily_report", _make_build_report(workspace_path, "daily"))
     registry.register("build_weekly_report", _make_build_report(workspace_path, "weekly"))
     registry.register("build_monthly_report", _make_build_report(workspace_path, "monthly"))
