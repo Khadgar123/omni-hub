@@ -964,12 +964,23 @@ def supersede_claim(
         source=f"claim:{old_claim_id}",
     )
 
+    # v0.17-G: strip the old claim's page from index.md (if it had one).
+    # No-op when the claim is a free-floating fact with no target_path.
+    index_pruned = False
+    old_target = str(old_claim.get("target_path", "")).strip()
+    if old_target:
+        try:
+            index_pruned = _remove_index_entry(workspace_root, old_target)
+        except Exception:                                       # noqa: BLE001
+            index_pruned = False
+
     return {
         "new_claim_id": new_claim_id,
         "old_claim_id": old_claim_id,
         "t_valid_to": timestamp,
         "reason": reason,
         "ledger_path": str(ledger.relative_to(workspace_root)),
+        "index_pruned": index_pruned,
     }
 
 
@@ -1029,8 +1040,11 @@ def resolve_conflict(
         _mark_claim_state(workspace_root, resolved_old, state="conflict")
     elif decision == "reject_old":
         _mark_claim_state(workspace_root, resolved_old, state="rejected")
+        # Prune the rejected claim's page from index.md (if any).
+        _prune_index_for_claim(workspace_root, resolved_old)
     elif decision == "reject_new":
         _mark_claim_state(workspace_root, resolved_new, state="rejected")
+        _prune_index_for_claim(workspace_root, resolved_new)
     elif decision == "supersede":
         supersede_claim(
             workspace_root,
@@ -1093,6 +1107,32 @@ def _order_pair_by_time(
 
     ordered = sorted(affected, key=lambda cid: times.get(cid, ""), reverse=True)
     return ordered[0], ordered[1]
+
+
+def _prune_index_for_claim(workspace: Path, claim_id: str) -> bool:
+    """Look up a claim's target_path and strip it from index.md."""
+
+    ledger = workspace / CLAIM_LEDGER_PATH
+    if not ledger.exists():
+        return False
+    target = ""
+    for line in ledger.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if str(record.get("claim_id", "")) == claim_id:
+            target = str(record.get("target_path", "")).strip()
+            break
+    if not target:
+        return False
+    try:
+        return _remove_index_entry(workspace, target)
+    except Exception:                                           # noqa: BLE001
+        return False
 
 
 def _mark_claim_state(workspace: Path, claim_id: str, *, state: str) -> None:
@@ -1414,6 +1454,26 @@ def _upsert_index_entry(workspace: Path, relative_path: Path, title: str, summar
         handle.write(f"\n{marker} — {summary[:180]}\n")
 
 
+def _remove_index_entry(workspace: Path, relative_path: str) -> bool:
+    """Strip the index.md line that points at ``relative_path``.
+
+    Called by ``wiki-supersede`` (when the old claim's page is being
+    closed) and by ``wiki-conflict-resolve`` with ``reject_old/new``.
+    Returns True when at least one entry was removed.
+    """
+
+    index_path = workspace / WIKI_ROOT / "index.md"
+    if not index_path.exists():
+        return False
+    needle = f"[[{relative_path}|"
+    lines = index_path.read_text(encoding="utf-8").splitlines()
+    kept = [line for line in lines if needle not in line]
+    if len(kept) == len(lines):
+        return False
+    index_path.write_text("\n".join(kept) + "\n", encoding="utf-8")
+    return True
+
+
 def _write_evidence_files(
     workspace: Path,
     domain: str,
@@ -1424,14 +1484,28 @@ def _write_evidence_files(
 
     Each file is the durable evidence anchor that a wiki page cites.  Filename
     pattern keeps run provenance: ``<run_id>__<idx>__<canonical_hash>.json``.
+
+    Also: when the record carries a non-empty ``snippet`` we mirror it under
+    ``vault/raw/<domain>/<run_id>/<canonical_hash>.md`` so the three-layer
+    lineage (raw → evidence → wiki) has actual data in raw (v0.17-B).
     """
 
     domain_dir = safe_workspace_path(workspace, f"{EVIDENCE_ROOT}/{_slugify(domain)}")
     domain_dir.mkdir(parents=True, exist_ok=True)
+    raw_run_dir = safe_workspace_path(workspace, f"{RAW_ROOT}/{_slugify(domain)}/{run_id}")
+    raw_run_dir.mkdir(parents=True, exist_ok=True)
     written: list[str] = []
     for idx, record in enumerate(records, start=1):
         canonical = str(record.get("canonical_id") or record.get("url") or f"r{idx}")
         digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:10]
+        # Persist raw snippet (the durable, append-only copy of what we
+        # actually saw at fetch time).
+        raw_name = f"{idx:03d}__{digest}.md"
+        raw_target = raw_run_dir / raw_name
+        raw_body = _render_raw_capture(record, run_id=run_id, idx=idx)
+        raw_target.write_text(raw_body, encoding="utf-8")
+        raw_path = str(raw_target.relative_to(workspace))
+
         evidence_record = {
             "run_id": run_id,
             "record_idx": idx,
@@ -1443,6 +1517,7 @@ def _write_evidence_files(
             "canonical_id": canonical,
             "fetched_at": record.get("fetched_at", _utcnow()),
             "score": record.get("score"),
+            "raw_path": raw_path,
         }
         file_name = f"{run_id}__{idx:03d}__{digest}.json"
         target = domain_dir / file_name
@@ -1452,6 +1527,41 @@ def _write_evidence_files(
         )
         written.append(str(target.relative_to(workspace)))
     return written
+
+
+def _render_raw_capture(
+    record: dict[str, object],
+    *,
+    run_id: str,
+    idx: int,
+) -> str:
+    """Render a retrieval record as raw-layer markdown.
+
+    `vault/raw/` is append-only and intentionally lossless — we keep
+    every field we know about the original source so that a later
+    re-parse (different evidence pipeline) can still recover the
+    provenance.
+    """
+
+    lines = [
+        "---",
+        f"omni_layer: raw",
+        f"run_id: {run_id}",
+        f"record_idx: {idx}",
+        f"source: {record.get('source', '')}",
+        f"url: {record.get('url', '')}",
+        f"canonical_id: {record.get('canonical_id', '')}",
+        f"cite_id: {record.get('cite_id', '')}",
+        f"title: {json.dumps(str(record.get('title', '')), ensure_ascii=False)}",
+        f"fetched_at: {record.get('fetched_at', _utcnow())}",
+        "---",
+        "",
+        f"# {record.get('title') or 'Untitled retrieval record'}",
+        "",
+        str(record.get("snippet", "")),
+        "",
+    ]
+    return "\n".join(lines)
 
 
 def _claims_from_retrieval_records(

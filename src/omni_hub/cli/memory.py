@@ -9,6 +9,35 @@ from ._common import run_and_print
 
 
 def register(subparsers: argparse._SubParsersAction) -> None:
+    tool = subparsers.add_parser(
+        "memory-tool",
+        help=(
+            "Anthropic Memory Tool surface (memory_20250818) against "
+            "vault/memory/.  Six commands: view / create / str_replace / "
+            "insert / delete / rename."
+        ),
+    )
+    tool.add_argument("--command", required=True,
+                       choices=["view", "create", "str_replace",
+                                "insert", "delete", "rename"])
+    tool.add_argument("--path", required=True,
+                       help="Path under /memories (e.g. /memories/notes/foo.md)")
+    tool.add_argument("--file-text", default="",
+                       help="Body content (create command)")
+    tool.add_argument("--old-str", default="",
+                       help="Exact string to replace (str_replace)")
+    tool.add_argument("--new-str", default="",
+                       help="Replacement string (str_replace)")
+    tool.add_argument("--insert-line", type=int, default=0,
+                       help="0-indexed insertion point (insert)")
+    tool.add_argument("--insert-text", default="",
+                       help="Text to insert (insert)")
+    tool.add_argument("--new-path", default="",
+                       help="Destination for rename")
+    tool.add_argument("--view-start", type=int, default=0)
+    tool.add_argument("--view-end", type=int, default=0,
+                       help="View line range end; -1 means EOF")
+
     digest = subparsers.add_parser("memory-digest-proposal")
     digest.add_argument("--proposal", required=True)
 
@@ -50,6 +79,38 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     promote.add_argument("--source-kind", default="preference")
     promote.add_argument("--source-id", default="")
     promote.add_argument("--score", type=float, default=0.0)
+
+
+def _memory_tool(args, *, runner, workspace) -> int:
+    payload = {
+        "command": args.command,
+        "path": args.path,
+    }
+    if args.command == "create":
+        payload["file_text"] = args.file_text
+    elif args.command == "str_replace":
+        payload["old_str"] = args.old_str
+        payload["new_str"] = args.new_str
+    elif args.command == "insert":
+        payload["insert_line"] = args.insert_line
+        payload["insert_text"] = args.insert_text
+    elif args.command == "rename":
+        if not args.new_path:
+            raise SystemExit("--new-path required for rename")
+        payload["new_path"] = args.new_path
+    elif args.command == "view" and (args.view_start or args.view_end):
+        payload["view_range"] = [args.view_start, args.view_end]
+
+    risk = RiskLevel.READ_ONLY if args.command == "view" else RiskLevel.LOCAL_WRITE
+    return run_and_print(
+        runner,
+        OperationSpec(
+            name="memory_tool",
+            action="dispatch",
+            payload=payload,
+            risk_level=risk,
+        ),
+    )
 
 
 def _digest(args, *, runner, workspace) -> int:
@@ -145,6 +206,7 @@ def _promote_recall(args, *, runner, workspace) -> int:
 
 
 COMMANDS = {
+    "memory-tool": _memory_tool,
     "memory-digest-proposal": _digest,
     "memory-search": _search,
     "memory-stats": _stats,

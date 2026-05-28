@@ -279,6 +279,7 @@ class SkillCompileReport:
     positive_used: int
     negative_used: int
     bytes_written: int
+    skill_sync: dict = field(default_factory=dict)            # v0.17-D
     created_at: str = field(default_factory=_utcnow)
 
     def to_dict(self) -> dict:
@@ -362,6 +363,17 @@ def compile_skill_md(
     )
     target.write_text(body, encoding="utf-8")
 
+    # v0.17-D: auto-sync the freshly-emitted SKILL.md into
+    # `registry/skills.json` so `skill-list` and SkillRegistry.list()
+    # surface it without a separate operator step.  Best-effort — the
+    # compile already succeeded by this point; sync failures are
+    # surfaced via the report but don't raise.
+    sync_result: dict = {}
+    try:
+        sync_result = _auto_sync_after_compile(output_root)
+    except Exception as exc:                                    # noqa: BLE001
+        sync_result = {"error": f"{type(exc).__name__}: {exc}"}
+
     return SkillCompileReport(
         skill_id=skill_id,
         domain=domain,
@@ -371,7 +383,36 @@ def compile_skill_md(
         positive_used=len(positives),
         negative_used=len(negatives),
         bytes_written=target.stat().st_size,
+        skill_sync=sync_result,
     )
+
+
+def _auto_sync_after_compile(output_root: Path | str) -> dict:
+    """Find the workspace root from ``output_root`` and run skill-sync.
+
+    ``output_root`` is expected to be ``<workspace>/.agents/skills`` or a
+    test-mode temp dir.  We climb until we find the workspace marker
+    (``pyproject.toml`` or ``.git``) and run sync there.  When neither
+    marker is found we sync against ``output_root.parent.parent``
+    (matching the canonical layout) without complaining.
+    """
+
+    from ..skill_sync import sync_skills
+
+    out = Path(output_root).resolve()
+    workspace = out
+    for ancestor in [out, *out.parents]:
+        if (ancestor / "pyproject.toml").exists() or (ancestor / ".git").exists():
+            workspace = ancestor
+            break
+    else:
+        # No marker — fall back to two-levels-up from output_root
+        # (`.agents/skills` -> repo root).
+        try:
+            workspace = out.parents[1]
+        except IndexError:
+            workspace = out
+    return sync_skills(workspace, apply=True)
 
 
 def _default_description(*, domain: str, positives: int, negatives: int) -> str:

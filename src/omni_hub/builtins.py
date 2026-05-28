@@ -434,6 +434,19 @@ def make_task_stats(workspace: Path):
     return task_stats
 
 
+def make_memory_tool(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def memory_tool(spec: OperationSpec) -> dict[str, object]:
+        from .memory_tool import dispatch
+
+        payload = dict(spec.payload)
+        command = str(payload.pop("command"))
+        return dispatch(workspace_root, command, arguments=payload).to_dict()
+
+    return memory_tool
+
+
 def make_memory_remember_core(workspace: Path):
     workspace_root = workspace.resolve()
 
@@ -538,7 +551,32 @@ def make_retrieve_cascade(workspace: Path):
             grader=grader,
         )
 
+        # v0.17-K: optional cross-encoder rerank tail (Cohere v4 / Voyage v2.5).
+        # Applied AFTER fusion + grader.  Key-gated; falls through silently
+        # when the relevant API key isn't configured.
+        reranker_name = str(payload.get("reranker", "")).strip().lower()
+        rerank_meta: dict[str, object] = {}
+        if reranker_name and reranker_name != "none" and result.records:
+            try:
+                from .retrieval.rerankers import build_reranker
+                reranker = build_reranker(reranker_name)
+                if reranker is not None:
+                    reranked = reranker.rerank(
+                        str(payload["query"]),
+                        list(result.records),
+                        top_n=int(payload.get("total_limit", 20)),
+                    )
+                    if reranked:
+                        result.records = reranked
+                        rerank_meta = {"reranker": reranker.name, "ok": True, "count": len(reranked)}
+                    else:
+                        rerank_meta = {"reranker": reranker_name, "ok": False, "reason": "empty response"}
+            except Exception as exc:                            # noqa: BLE001
+                rerank_meta = {"reranker": reranker_name, "ok": False, "reason": str(exc)}
+
         result_dict = result.to_dict()
+        if rerank_meta:
+            result_dict["rerank"] = rerank_meta
 
         if bool(payload.get("persist_evidence", False)):
             evidence_store = EvidenceStore(workspace_root)
@@ -808,6 +846,27 @@ def make_wiki_ingest(workspace: Path):
     return wiki_ingest
 
 
+def make_wiki_dream(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def wiki_dream(spec: OperationSpec) -> dict[str, object]:
+        from .wiki_dream import run_dream
+
+        payload = spec.payload
+        rules_raw = payload.get("rules")
+        rules = list(rules_raw) if rules_raw else None
+        report = run_dream(
+            workspace_root,
+            since_days=int(payload.get("since_days", 7)),
+            rules=rules,
+            persist_proposals=bool(payload.get("persist", False)),
+            update_state=bool(payload.get("update_state", True)),
+        )
+        return report.to_dict()
+
+    return wiki_dream
+
+
 def make_wiki_lint(workspace: Path):
     workspace_root = workspace.resolve()
 
@@ -828,6 +887,17 @@ def make_wiki_lint(workspace: Path):
         return report.to_dict()
 
     return wiki_lint
+
+
+def make_wiki_doctor(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def wiki_doctor(spec: OperationSpec) -> dict[str, object]:
+        from .wiki_doctor import run_doctor
+
+        return run_doctor(workspace_root).to_dict()
+
+    return wiki_doctor
 
 
 def make_wiki_supersede(workspace: Path):
@@ -1009,6 +1079,34 @@ def make_skill_sync(workspace: Path):
     return skill_sync
 
 
+def _weekly_compile_skill_tasks(anchor: str) -> list[dict[str, object]]:
+    """Enumerate one ``harness_compile_skill`` task per registered domain.
+
+    Returns task descriptors the schedule plan splices in.  When a new
+    domain lands in `domain_schemas.DOMAIN_SCHEMAS`, it's picked up here
+    automatically on the next weekly tick.
+    """
+
+    from .domain_schemas import DOMAIN_SCHEMAS
+
+    out: list[dict[str, object]] = []
+    for slug in sorted(DOMAIN_SCHEMAS.keys()):
+        out.append(
+            {
+                "key": f"weekly-compile-skill-{slug}-{anchor}",
+                "packet": {
+                    "operation": "harness_compile_skill",
+                    "kind": "report",
+                    "payload": {
+                        "domain": slug,
+                        "backend": "manual",
+                    },
+                },
+            }
+        )
+    return out
+
+
 def make_schedule_tick(workspace: Path):
     workspace_root = workspace.resolve()
 
@@ -1055,6 +1153,15 @@ def make_schedule_tick(workspace: Path):
                 },
             ],
             "weekly": [
+                # v0.17-A: weekly offline consolidation (Anthropic Dreaming parity)
+                {
+                    "key": f"weekly-wiki-dream-{anchor}",
+                    "packet": {
+                        "operation": "wiki_dream",
+                        "kind": "scan_result",
+                        "payload": {"since_days": 7, "persist": True},
+                    },
+                },
                 {
                     "key": f"weekly-compile-engineering-{anchor}",
                     "packet": {
@@ -1067,6 +1174,10 @@ def make_schedule_tick(workspace: Path):
                         },
                     },
                 },
+                # v0.17-I: weekly SKILL.md compile for every registered domain.
+                # Generated programmatically below so adding a new domain in
+                # domain_schemas.py automatically enrolls it.
+                *_weekly_compile_skill_tasks(anchor),
                 {
                     "key": f"weekly-report-{anchor}",
                     "packet": {
@@ -1077,6 +1188,26 @@ def make_schedule_tick(workspace: Path):
                 },
             ],
             "monthly": [
+                # v0.17-I: monthly cold-start dream — re-scan everything,
+                # not just the last 7 days.  Catches multi-month patterns
+                # that weekly windows miss.
+                {
+                    "key": f"monthly-wiki-dream-full-{anchor}",
+                    "packet": {
+                        "operation": "wiki_dream",
+                        "kind": "scan_result",
+                        "payload": {"since_days": 0, "persist": True},
+                    },
+                },
+                # Monthly doctor — proactive health surfacing.
+                {
+                    "key": f"monthly-wiki-doctor-{anchor}",
+                    "packet": {
+                        "operation": "wiki_doctor",
+                        "kind": "scan_result",
+                        "payload": {},
+                    },
+                },
                 {
                     "key": f"monthly-report-{anchor}",
                     "packet": {
@@ -1510,6 +1641,8 @@ def build_default_registry(workspace: Path | str = ".") -> OperationRegistry:
     registry.register("wiki_apply_proposal", make_wiki_apply_proposal(workspace_path))
     registry.register("wiki_ingest", make_wiki_ingest(workspace_path))
     registry.register("wiki_reindex", make_wiki_reindex(workspace_path))
+    registry.register("wiki_doctor", make_wiki_doctor(workspace_path))
+    registry.register("wiki_dream", make_wiki_dream(workspace_path))
     registry.register("wiki_lint", make_wiki_lint(workspace_path))
     registry.register("wiki_supersede", make_wiki_supersede(workspace_path))
     registry.register("wiki_conflict_resolve", make_wiki_conflict_resolve(workspace_path))
@@ -1518,6 +1651,7 @@ def build_default_registry(workspace: Path | str = ".") -> OperationRegistry:
     registry.register("claims_stats", make_claims_stats(workspace_path))
     registry.register("wiki_log_append", make_wiki_log_append(workspace_path))
     registry.register("context_pack_build", make_context_pack_build(workspace_path))
+    registry.register("memory_tool", make_memory_tool(workspace_path))
     registry.register("memory_remember_core", make_memory_remember_core(workspace_path))
     registry.register("memory_forget_core", make_memory_forget_core(workspace_path))
     registry.register("memory_recall", make_memory_recall(workspace_path))

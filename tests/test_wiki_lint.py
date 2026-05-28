@@ -237,6 +237,8 @@ class WikiLintRuleTests(unittest.TestCase):
             self.assertEqual(set(ALL_RULES), {
                 "contradiction", "stale_fact", "orphan_page",
                 "missing_concept", "broken_cross_ref", "data_gap",
+                # v0.17-L super-SOTA additions:
+                "cross_ref_asymmetry", "abandoned_page",
             })
 
 

@@ -401,6 +401,175 @@ def default_tools() -> list[Tool]:
             operation_name="claims_stats",
             risk_level=RiskLevel.READ_ONLY,
         ),
+        # ----- v0.17-E: full wiki write surface for Claude Desktop -----
+        Tool(
+            name="wiki-apply-proposal",
+            description=(
+                "Materialise an approved Proposal(kind=wiki_update) into "
+                "vault/wiki/.  Writes the synthesis page, appends approved "
+                "claims to .omni/claims.jsonl, records a PreferenceRecord, "
+                "and incrementally reindexes the FTS5 sidecar.  Proposal "
+                "must already be in state=approved (use propose-approve)."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "proposal": _string("Proposal id (must be state=approved)"),
+                },
+                "required": ["proposal"],
+            },
+            operation_name="wiki_apply_proposal",
+            risk_level=RiskLevel.LOCAL_WRITE,
+            idempotent=True,                    # second apply is a no-op-ish reapply
+        ),
+        Tool(
+            name="wiki-supersede",
+            description=(
+                "Graphiti-style bitemporal supersede: close the old claim's "
+                "t_valid_to, link superseded_by, append to the new claim's "
+                "supersedes list.  Old claim is NEVER deleted — full audit "
+                "trail preserved.  Also prunes the old page from index.md."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "new_claim_id": _string("Replacement claim id"),
+                    "old_claim_id": _string("Claim being closed"),
+                    "reason": _string("Short explanation (free text)"),
+                },
+                "required": ["new_claim_id", "old_claim_id"],
+            },
+            operation_name="wiki_supersede",
+            risk_level=RiskLevel.LOCAL_WRITE,
+            title="Wiki Supersede",
+        ),
+        Tool(
+            name="wiki-conflict-resolve",
+            description=(
+                "Apply a decision to a contradiction lint_finding proposal. "
+                "Decisions: keep_both (mark both review_state=conflict), "
+                "reject_old / reject_new (mark one rejected), supersede "
+                "(call wiki-supersede on the inferred old/new pair)."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "proposal_id": _string("lint_finding proposal id"),
+                    "decision": _string("keep_both | reject_old | reject_new | supersede"),
+                    "new_claim_id": _string("(optional) override the auto-inferred new claim"),
+                    "old_claim_id": _string("(optional) override the auto-inferred old claim"),
+                    "reason": _string("(optional) reviewer note"),
+                },
+                "required": ["proposal_id", "decision"],
+            },
+            operation_name="wiki_conflict_resolve",
+            risk_level=RiskLevel.LOCAL_WRITE,
+            title="Wiki Conflict Resolve",
+        ),
+        Tool(
+            name="wiki-reindex",
+            description=(
+                "Drop and rebuild the FTS5 sidecar from every page under "
+                "vault/wiki/.  Use after manual edits to multiple pages or "
+                "if wiki-doctor reports a fts5_freshness mismatch."
+            ),
+            input_schema={"type": "object", "properties": {}},
+            operation_name="wiki_reindex",
+            risk_level=RiskLevel.LOCAL_WRITE,
+            idempotent=True,
+        ),
+        Tool(
+            name="wiki-doctor",
+            description=(
+                "One-stop wiki integrity probe: layout, 12 domain schemas, "
+                "FTS5 freshness, claims.jsonl validity, supersede graph "
+                "(cycles + dangling), index.md dead links, orphan SKILL.md."
+            ),
+            input_schema={"type": "object", "properties": {}},
+            operation_name="wiki_doctor",
+            risk_level=RiskLevel.READ_ONLY,
+        ),
+        Tool(
+            name="wiki-dream",
+            description=(
+                "Offline consolidation pass — local-first dual of "
+                "Anthropic Dreaming.  Scans recent retrieval evidence, raw "
+                "files, and claims; proposes consolidations as "
+                "Proposal(kind=wiki_dream).  Heuristics: cluster_canonical "
+                "(≥2 hits on same canonical_id w/ no page) / statement_cluster "
+                "/ raw_orphan / stale_active."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "since_days": _integer(
+                        "Window in days; 0 = full history.  Default 7 (weekly).",
+                        default=7,
+                    ),
+                    "persist": _boolean(
+                        "Write findings as Proposal(kind=wiki_dream)", default=False,
+                    ),
+                },
+            },
+            operation_name="wiki_dream",
+            risk_level=RiskLevel.LOCAL_WRITE,
+        ),
+        Tool(
+            name="harness-compile-skill",
+            description=(
+                "Compile accepted preference spans into a SKILL.md file "
+                "loadable by Claude Code / Codex (Anthropic Skills spec, "
+                "32-tool open standard).  Output:  .agents/skills/<skill-id>/SKILL.md.  "
+                "Auto-syncs to registry/skills.json after compile."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "domain": _string("Domain id (research|engineering|...)"),
+                    "skill_id": _string("(optional) override kebab-case skill id"),
+                    "description": _string("(optional) override description (≤1024 chars)"),
+                    "max_positive": _integer("Max positive exemplars", default=10),
+                    "max_negative": _integer("Max negative exemplars", default=4),
+                },
+                "required": ["domain"],
+            },
+            operation_name="harness_compile_skill",
+            risk_level=RiskLevel.LOCAL_WRITE,
+        ),
+        # ----- v0.17-J: Anthropic Memory Tool (memory_20250818) surface -----
+        Tool(
+            name="memory-tool",
+            description=(
+                "Anthropic Memory Tool surface (memory_20250818).  Six "
+                "commands against vault/memory/: view / create / "
+                "str_replace / insert / delete / rename.  Paths MUST start "
+                "with /memories.  This is the on-prem dual of Anthropic's "
+                "Managed Agents memory store — any agent already speaking "
+                "the standard tool contract gets a working backend."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "command": _string(
+                        "view | create | str_replace | insert | delete | rename"
+                    ),
+                    "path": _string("Path under /memories (e.g. /memories/notes/foo.md)"),
+                    "file_text": _string("Body for create"),
+                    "old_str": _string("Exact substring (str_replace)"),
+                    "new_str": _string("Replacement (str_replace)"),
+                    "insert_line": _integer("0-indexed insertion point", default=0),
+                    "insert_text": _string("Text for insert"),
+                    "new_path": _string("Destination for rename"),
+                    "view_range": _object(
+                        "[start, end] line range (view); end=-1 means EOF",
+                    ),
+                },
+                "required": ["command", "path"],
+            },
+            operation_name="memory_tool",
+            risk_level=RiskLevel.LOCAL_WRITE,   # view commands are READ_ONLY in practice but pin conservatively
+            title="Memory Tool (memory_20250818)",
+        ),
     ]
 
 

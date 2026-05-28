@@ -29,6 +29,15 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     reindex.add_argument("--force", action="store_true",
                           help="No-op for now; reserved for future incremental modes")
 
+    subparsers.add_parser(
+        "wiki-doctor",
+        help=(
+            "One-stop integrity probe: layout / 12 domain schemas / FTS5 freshness "
+            "/ claims.jsonl validity / supersede graph (cycles + dangling) / index.md "
+            "dead links / orphan SKILL.md (skill registry sync)."
+        ),
+    )
+
     propose = subparsers.add_parser("wiki-propose-research")
     propose.add_argument("--source", required=True, choices=["researchflow", "paperbite"])
     propose.add_argument("--path", required=True)
@@ -59,6 +68,23 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     log.add_argument("--summary", required=True)
     log.add_argument("--source", default="")
 
+    dream = subparsers.add_parser(
+        "wiki-dream",
+        help=(
+            "Offline consolidation pass — local-first dual of Anthropic Dreaming. "
+            "Scans recent retrieval evidence + raw + claims and proposes consolidations."
+        ),
+    )
+    dream.add_argument("--since-days", type=int, default=7,
+                        help="Window to scan (0 = full history; default = 7)")
+    dream.add_argument("--rule", action="append", default=None,
+                        choices=["cluster_canonical", "statement_cluster",
+                                 "raw_orphan", "stale_active"])
+    dream.add_argument("--persist", action="store_true",
+                        help="Write each finding as Proposal(kind=wiki_dream)")
+    dream.add_argument("--no-state-update", action="store_true",
+                        help="Don't advance .omni/wiki_dream_state.json (for dry-run audits)")
+
     lint = subparsers.add_parser(
         "wiki-lint",
         help="Run the six Karpathy wiki-lint rules and emit lint_finding Proposals.",
@@ -67,8 +93,9 @@ def register(subparsers: argparse._SubParsersAction) -> None:
                        help="Pin to a single domain folder; default = all pages")
     lint.add_argument("--rule", action="append", default=None,
                        choices=["contradiction", "stale_fact", "orphan_page",
-                                "missing_concept", "broken_cross_ref", "data_gap"],
-                       help="Restrict to specific rule(s); default = all six")
+                                "missing_concept", "broken_cross_ref", "data_gap",
+                                "cross_ref_asymmetry", "abandoned_page"],
+                       help="Restrict to specific rule(s); default = all eight (v0.17 added cross_ref_asymmetry + abandoned_page)")
     lint.add_argument("--stale-after-days", type=int, default=30)
     lint.add_argument("--persist", action="store_true",
                        help="Write each finding as Proposal(kind=lint_finding)")
@@ -159,6 +186,18 @@ def _reindex(args, *, runner, workspace) -> int:
     )
 
 
+def _doctor(args, *, runner, workspace) -> int:
+    return run_and_print(
+        runner,
+        OperationSpec(
+            name="wiki_doctor",
+            action="doctor",
+            payload={},
+            risk_level=RiskLevel.READ_ONLY,
+        ),
+    )
+
+
 def _propose_research(args, *, runner, workspace) -> int:
     return run_and_print(
         runner,
@@ -216,6 +255,23 @@ def _log(args, *, runner, workspace) -> int:
                 "source": args.source,
             },
             risk_level=RiskLevel.LOCAL_WRITE,
+        ),
+    )
+
+
+def _dream(args, *, runner, workspace) -> int:
+    return run_and_print(
+        runner,
+        OperationSpec(
+            name="wiki_dream",
+            action="dream",
+            payload={
+                "since_days": args.since_days,
+                "rules": list(args.rule) if args.rule else None,
+                "persist": bool(args.persist),
+                "update_state": not args.no_state_update,
+            },
+            risk_level=RiskLevel.LOCAL_WRITE if args.persist else RiskLevel.READ_ONLY,
         ),
     )
 
@@ -299,8 +355,10 @@ COMMANDS = {
     "wiki-apply-proposal": _apply_proposal,
     "wiki-ingest": _ingest,
     "wiki-log": _log,
+    "wiki-dream": _dream,
     "wiki-lint": _lint,
     "wiki-reindex": _reindex,
+    "wiki-doctor": _doctor,
     "wiki-supersede": _supersede,
     "wiki-conflict-resolve": _conflict_resolve,
     "context-pack-build": _context_pack,

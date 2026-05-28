@@ -49,6 +49,10 @@ RULE_ORPHAN_PAGE = "orphan_page"
 RULE_MISSING_CONCEPT = "missing_concept"
 RULE_BROKEN_CROSS_REF = "broken_cross_ref"
 RULE_DATA_GAP = "data_gap"
+# v0.17-L: super-SOTA additions answering published community critiques
+# (Proudfrog / foundanand / Avi Chawla / Karpathy gist discussions).
+RULE_CROSS_REF_ASYMMETRY = "cross_ref_asymmetry"   # high-confidence one-way link → likely hallucinated
+RULE_ABANDONED_PAGE = "abandoned_page"             # second-brain graveyard suppression
 
 ALL_RULES = (
     RULE_CONTRADICTION,
@@ -57,6 +61,8 @@ ALL_RULES = (
     RULE_MISSING_CONCEPT,
     RULE_BROKEN_CROSS_REF,
     RULE_DATA_GAP,
+    RULE_CROSS_REF_ASYMMETRY,
+    RULE_ABANDONED_PAGE,
 )
 
 
@@ -142,6 +148,10 @@ def lint_wiki(
         findings.extend(
             _rule_data_gap(pages, workspace=workspace_root, now=now, stale_after_days=stale_after_days)
         )
+    if RULE_CROSS_REF_ASYMMETRY in requested:
+        findings.extend(_rule_cross_ref_asymmetry(pages))
+    if RULE_ABANDONED_PAGE in requested:
+        findings.extend(_rule_abandoned_page(pages, now=now))
 
     # Apply per-domain severity overrides + skip filters declared in
     # `DomainSchema.rule_overrides`.  This runs AFTER rule emission so the
@@ -207,6 +217,11 @@ def _rule_contradiction(claims: list[dict[str, Any]]) -> list[LintFinding]:
     by_key: dict[str, list[dict[str, Any]]] = {}
     for claim in claims:
         if claim.get("t_valid_to") is not None:
+            continue
+        # v0.17-C: skip claims already resolved into conflict/rejected
+        # state — otherwise `keep_both` decisions loop forever as the
+        # next lint pass re-emits the same contradiction finding.
+        if str(claim.get("review_state", "")).strip().lower() in {"conflict", "rejected"}:
             continue
         key = _statement_key(str(claim.get("statement", "")))
         if not key:
@@ -411,6 +426,138 @@ def _rule_data_gap(
                     "threshold": threshold.isoformat(),
                     "stale_after_days": threshold_days,
                     "domain": domain or "default",
+                },
+            )
+        )
+    return findings
+
+
+# ---------------------------------------------------------------------------
+# v0.17-L: super-SOTA rules answering community critiques
+# ---------------------------------------------------------------------------
+
+
+def _rule_cross_ref_asymmetry(pages: list[_Page]) -> list[LintFinding]:
+    """High-confidence one-way wiki link — likely hallucinated cross-ref.
+
+    Answers Proudfrog / foundanand "hallucination contamination" critique:
+    when an LLM-authored page links `[[other-page]]` but `other-page` has
+    no inbound link back AND confidence on the source page is `high`,
+    that link is a candidate fabrication.  We flag pairs where:
+
+      * page A frontmatter ``confidence: high``,
+      * page A body contains ``[[B-slug]]``,
+      * page B exists, but has NO outbound link or claim referencing A.
+
+    The check is intentionally narrow — only `confidence: high` pages,
+    only true asymmetry (B doesn't mention A at all).  Otherwise we'd
+    flood the lint pipeline.
+    """
+
+    by_slug: dict[str, _Page] = {
+        _path_to_slug(p.relative_path): p for p in pages
+    }
+    findings: list[LintFinding] = []
+    seen_pairs: set[tuple[str, str]] = set()
+    for page_a in pages:
+        confidence = str(page_a.frontmatter.get("confidence", "")).strip().lower()
+        if confidence != "high":
+            continue
+        slug_a = _path_to_slug(page_a.relative_path)
+        for raw_link in page_a.outbound_links:
+            slug_b = _slugify(raw_link)
+            if not slug_b or slug_b == slug_a:
+                continue
+            page_b = by_slug.get(slug_b)
+            if page_b is None:
+                continue                        # caught by missing_concept
+            pair = (slug_a, slug_b)
+            if pair in seen_pairs:
+                continue
+            seen_pairs.add(pair)
+            # B asymmetry: does B's body or frontmatter reference A in any form?
+            b_links = {_slugify(link) for link in page_b.outbound_links}
+            b_claim_ids = page_b.frontmatter.get("claim_ids") or []
+            a_claim_ids = set(page_a.frontmatter.get("claim_ids") or [])
+            if slug_a in b_links:
+                continue
+            if isinstance(b_claim_ids, list) and a_claim_ids.intersection(b_claim_ids):
+                continue
+            findings.append(
+                LintFinding(
+                    rule=RULE_CROSS_REF_ASYMMETRY,
+                    severity="medium",
+                    summary=(
+                        f"{page_a.relative_path} (confidence=high) links "
+                        f"[[{raw_link}]] but {page_b.relative_path} never "
+                        "references it back — candidate hallucinated cross-ref"
+                    ),
+                    affected_paths=[page_a.relative_path, page_b.relative_path],
+                    detail={
+                        "from_slug": slug_a,
+                        "to_slug": slug_b,
+                        "raw_link": raw_link,
+                    },
+                )
+            )
+    return findings
+
+
+def _rule_abandoned_page(
+    pages: list[_Page],
+    *,
+    now: datetime,
+    abandoned_after_days: int = 180,
+) -> list[LintFinding]:
+    """Second-brain graveyard suppression.
+
+    Answers the "Evernote / Roam / Mem.ai collapsed on maintenance burden"
+    critique.  Triggers when a page has:
+
+      * `confidence: low`,
+      * mtime > 180 days ago,
+      * no inbound `[[link]]` from any other page,
+      * no claim in ``.omni/claims.jsonl`` still open against it.
+
+    Suggested action: archive (set `t_valid_to` + `review_state=rejected`,
+    move under `vault/wiki/90_Archive/`) so the wiki stops costing
+    attention without losing the audit trail.
+    """
+
+    by_slug: dict[str, _Page] = {
+        _path_to_slug(p.relative_path): p for p in pages
+    }
+    inbound: dict[str, set[str]] = {slug: set() for slug in by_slug}
+    for page in pages:
+        for target in page.outbound_links:
+            slug = _slugify(target)
+            if slug in inbound and slug != _path_to_slug(page.relative_path):
+                inbound[slug].add(page.relative_path)
+
+    threshold = now - timedelta(days=int(abandoned_after_days))
+    findings: list[LintFinding] = []
+    for page in pages:
+        confidence = str(page.frontmatter.get("confidence", "")).strip().lower()
+        if confidence != "low":
+            continue
+        if page.mtime >= threshold:
+            continue
+        slug = _path_to_slug(page.relative_path)
+        if inbound.get(slug):
+            continue
+        findings.append(
+            LintFinding(
+                rule=RULE_ABANDONED_PAGE,
+                severity="low",
+                summary=(
+                    f"{page.relative_path}: confidence=low, untouched "
+                    f">{abandoned_after_days}d, no inbound links — candidate archive"
+                ),
+                affected_paths=[page.relative_path],
+                detail={
+                    "mtime": page.mtime.isoformat(),
+                    "threshold": threshold.isoformat(),
+                    "abandoned_after_days": abandoned_after_days,
                 },
             )
         )

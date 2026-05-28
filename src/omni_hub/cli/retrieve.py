@@ -68,6 +68,14 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         help="Pin a custom run_id (default: timestamp + hex) — useful for "
              "linking evidence to a queue task.",
     )
+    retrieve.add_argument(
+        "--reranker", choices=["none", "cohere", "voyage"], default="none",
+        help=(
+            "Optional cross-encoder rerank tail applied after fusion + grader. "
+            "Voyage rerank-2.5 (VOYAGE_API_KEY) is Anthropic's 2026 recommendation; "
+            "Cohere Rerank 4 (COHERE_API_KEY) the previous default."
+        ),
+    )
 
     fetch = subparsers.add_parser(
         "fetch-url",
@@ -107,6 +115,8 @@ def _retrieve(args, *, runner, workspace) -> int:
         payload["sources"] = [s.strip() for s in args.sources.split(",") if s.strip()]
     if args.grader:
         payload["grader"] = args.grader
+    if args.reranker and args.reranker != "none":
+        payload["reranker"] = args.reranker
     if args.run_id:
         payload["run_id"] = args.run_id
     return run_and_print(
