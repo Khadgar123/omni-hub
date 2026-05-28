@@ -1,5 +1,29 @@
 # Roadmap
 
+## v0.7 Control Plane / Worker Pool / Scheduler（2026-05-28 阶段一交付）
+
+把 v0.6 的飞轮接入"队列 → worker → proposal"三层之后，Codex / Claude Code / OpenHands 都可以作为后台 worker，
+v0.4（外部入口）与 v0.5（长任务队列）合并到这一阶段的最小可用版本。
+
+| 模块 | 状态 | 关键文件 |
+| --- | --- | --- |
+| 统一 `Proposal[T]` + SQLite store + `propose-list/approve/reject` | ✅ | [proposals.py](../src/omni_hub/proposals.py)、[cli/propose.py](../src/omni_hub/cli/propose.py) |
+| `TaskQueue` + 原子 claim + visibility timeout | ✅ | [queue.py](../src/omni_hub/queue.py)、[cli/task.py](../src/omni_hub/cli/task.py) |
+| `Artifact` + `WorkerAdapter` 协议 + `BuiltinAdapter` | ✅ | [workers/base.py](../src/omni_hub/workers/base.py)、[workers/builtin.py](../src/omni_hub/workers/builtin.py) |
+| `ClaudeAdapter` + `CodexAdapter` headless adapters | ✅ | [workers/claude.py](../src/omni_hub/workers/claude.py)、[workers/codex.py](../src/omni_hub/workers/codex.py) |
+| `omni-hub worker --lane <lane>` daemon + `schedule-tick --period ...` | ✅ | [cli/worker.py](../src/omni_hub/cli/worker.py) |
+| launchd plists + `make schedule-install/uninstall` | ✅ | [scripts/launchd/](../scripts/launchd/)、[scripts/install_launchd.py](../scripts/install_launchd.py) |
+| AGENTS.md / CLAUDE.md 4 条工程硬约束 | ✅ | [AGENTS.md](../AGENTS.md) |
+
+测试覆盖：147 个单测（v0.6 的 101 个 + Phase 1 新增 46 个）。
+
+下一步候选（v0.8）：
+
+- DSPy fork 升格：`./scripts/add_pending_harness_forks.sh dspy`（需先在 GitHub fork stanfordnlp/dspy）
+- OpenHands worker adapter（`workers/openhands.py`），lane=`openhands`
+- 本地 MCP server 把 `task-enqueue` / `propose-list` / `memory-search` / `harness-*` 暴露给 Claude.ai 桌面端
+- hash-chained 审计日志（Hermes 模式），让 `events.jsonl` 可验证不可篡改
+
 ## v0.6 Self-evolution Harness（2026-05-28 完成 12 周交付）
 
 完整开发计划见 [agent-system-development-plan.md](agent-system-development-plan.md)。

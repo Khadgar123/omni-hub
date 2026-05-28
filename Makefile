@@ -1,6 +1,6 @@
 PYTHON ?= python3
 
-.PHONY: setup test api-status api-update harness-setup harness-update harness-status harness-add-pending harness-ensemble compose-config compose-build-config
+.PHONY: setup test api-status api-update harness-setup harness-update harness-status harness-add-pending harness-ensemble compose-config compose-build-config schedule-install schedule-install-dry schedule-uninstall worker-python worker-claude worker-codex
 
 setup:
 	./scripts/bootstrap_api_management.sh
@@ -40,3 +40,25 @@ compose-config:
 
 compose-build-config:
 	docker compose --env-file api-management/env.example -f api-management/compose.yml -f api-management/compose.build.yml config
+
+# ---- launchd scheduler ------------------------------------------------------
+
+schedule-install-dry:
+	$(PYTHON) scripts/install_launchd.py --dry-run
+
+schedule-install:
+	$(PYTHON) scripts/install_launchd.py
+
+schedule-uninstall:
+	$(PYTHON) scripts/uninstall_launchd.py
+
+# ---- workers (drain queue once and exit, useful for manual smoke tests) ----
+
+worker-python:
+	PYTHONPATH=src $(PYTHON) -m omni_hub.cli worker --lane python --idle-exit-after-sec 2
+
+worker-claude:
+	PYTHONPATH=src $(PYTHON) -m omni_hub.cli worker --lane claude --idle-exit-after-sec 2
+
+worker-codex:
+	PYTHONPATH=src $(PYTHON) -m omni_hub.cli worker --lane codex --idle-exit-after-sec 2

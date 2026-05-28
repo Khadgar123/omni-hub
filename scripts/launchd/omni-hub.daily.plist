@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.omni-hub.daily</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>{{PYTHON}}</string>
+        <string>-m</string>
+        <string>omni_hub.cli</string>
+        <string>schedule-tick</string>
+        <string>--period</string>
+        <string>daily</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PYTHONPATH</key>
+        <string>{{WORKSPACE}}/src</string>
+    </dict>
+
+    <key>WorkingDirectory</key>
+    <string>{{WORKSPACE}}</string>
+
+    <!-- launchd's StartCalendarInterval coalesces missed fires (cron does not). -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key><integer>7</integer>
+        <key>Minute</key><integer>0</integer>
+    </dict>
+
+    <!-- Wake the machine if asleep. -->
+    <key>WakeSystem</key>
+    <true/>
+
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>{{WORKSPACE}}/.omni/launchd/daily.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>{{WORKSPACE}}/.omni/launchd/daily.err.log</string>
+</dict>
+</plist>

@@ -1,0 +1,397 @@
+"""SQLite-backed durable task queue ("AgentJob Queue").
+
+Designed for the single-user, stdlib-only, macOS-first deployment posture:
+SQLite WAL is the canonical store; ``BEGIN IMMEDIATE`` + ``UPDATE … RETURNING``
+gives atomic claim with zero double-deliveries under multi-worker contention
+(see https://dev.to/d_security/why-i-built-a-job-queue-with-sqlite ).
+
+State machine:
+
+    pending  ─enqueue─►  pending  ─claim(visible)─►  claimed
+                          ▲                            │
+                          │                            │── complete ─► done
+                          │                            │
+                          │── crash & visibility_timeout
+                          │                            │
+                          └────────────────────────────┤── fail(retryable) ─► pending (backoff)
+                                                       │
+                                                       └── fail(>max_attempts) ─► dead
+
+Idempotent enqueue: if ``idempotency_key`` collides with an existing row the
+existing task is returned, never replaced.  Callers can therefore enqueue
+"daily-redundancy-2026-05-28" from launchd without worrying about overlap.
+"""
+
+from __future__ import annotations
+
+import json
+import sqlite3
+import time
+import uuid
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+
+PENDING = "pending"
+CLAIMED = "claimed"
+DONE = "done"
+FAILED = "failed"
+DEAD = "dead"
+VALID_STATES = {PENDING, CLAIMED, DONE, FAILED, DEAD}
+
+DEFAULT_VISIBILITY_TIMEOUT_SEC = 600          # 10 min reclaim window
+DEFAULT_BACKOFF_BASE_SEC = 60
+DEFAULT_BACKOFF_CAP_SEC = 3600
+
+
+def _now_ms() -> int:
+    return int(time.time() * 1000)
+
+
+def _new_id() -> str:
+    return str(uuid.uuid4())
+
+
+@dataclass(slots=True)
+class Task:
+    id: int = 0
+    idempotency_key: str = ""
+    domain_profile: str = ""
+    lane: str = "python"                      # python | claude | codex | ...
+    packet: dict[str, Any] = field(default_factory=dict)
+    state: str = PENDING
+    attempts: int = 0
+    max_attempts: int = 3
+    available_at: int = 0
+    claimed_at: int | None = None
+    claimed_by: str | None = None
+    last_error: str | None = None
+    output: dict[str, Any] | None = None
+    created_at: int = 0
+    updated_at: int = 0
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "idempotency_key": self.idempotency_key,
+            "domain_profile": self.domain_profile,
+            "lane": self.lane,
+            "packet": self.packet,
+            "state": self.state,
+            "attempts": self.attempts,
+            "max_attempts": self.max_attempts,
+            "available_at": self.available_at,
+            "claimed_at": self.claimed_at,
+            "claimed_by": self.claimed_by,
+            "last_error": self.last_error,
+            "output": self.output,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+        }
+
+
+def _task_from_row(row: sqlite3.Row) -> Task:
+    return Task(
+        id=int(row["id"]),
+        idempotency_key=row["idempotency_key"] or "",
+        domain_profile=row["domain_profile"] or "",
+        lane=row["lane"],
+        packet=json.loads(row["packet_json"]) if row["packet_json"] else {},
+        state=row["state"],
+        attempts=int(row["attempts"]),
+        max_attempts=int(row["max_attempts"]),
+        available_at=int(row["available_at"]),
+        claimed_at=int(row["claimed_at"]) if row["claimed_at"] is not None else None,
+        claimed_by=row["claimed_by"],
+        last_error=row["last_error"],
+        output=json.loads(row["output_json"]) if row["output_json"] else None,
+        created_at=int(row["created_at"]),
+        updated_at=int(row["updated_at"]),
+    )
+
+
+class TaskQueue:
+    """Durable task queue backed by a single SQLite file in the workspace."""
+
+    def __init__(
+        self,
+        workspace: Path | str = ".",
+        db_path: str = ".omni/queue.sqlite3",
+        *,
+        create: bool = True,
+    ) -> None:
+        self.workspace = Path(workspace).resolve()
+        self.db_path = self._safe_path(db_path)
+        if create:
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
+            self._init_schema()
+
+    # ------- public API ----------------------------------------------------
+
+    def enqueue(
+        self,
+        *,
+        lane: str,
+        packet: dict[str, Any],
+        domain_profile: str = "",
+        idempotency_key: str | None = None,
+        available_at: int | None = None,
+        max_attempts: int = 3,
+    ) -> Task:
+        """Insert a task or return the existing row sharing the idempotency key."""
+
+        key = idempotency_key or _new_id()
+        now = _now_ms()
+        avail = int(available_at if available_at is not None else now)
+        packet_json = json.dumps(packet, ensure_ascii=False)
+
+        with self._connect() as conn:
+            try:
+                cur = conn.execute(
+                    """
+                    INSERT INTO tasks (
+                        idempotency_key, domain_profile, lane, packet_json,
+                        state, attempts, max_attempts, available_at,
+                        created_at, updated_at
+                    )
+                    VALUES (?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?)
+                    RETURNING *
+                    """,
+                    (
+                        key, domain_profile, lane, packet_json,
+                        max_attempts, avail, now, now,
+                    ),
+                )
+                row = cur.fetchone()
+                conn.commit()
+                return _task_from_row(row)
+            except sqlite3.IntegrityError:
+                # idempotency key already exists — return the existing task
+                row = conn.execute(
+                    "SELECT * FROM tasks WHERE idempotency_key = ?", (key,),
+                ).fetchone()
+                if row is None:  # pragma: no cover — defensive
+                    raise
+                return _task_from_row(row)
+
+    def claim(
+        self,
+        *,
+        lane: str,
+        claimed_by: str | None = None,
+        visibility_timeout_sec: int = DEFAULT_VISIBILITY_TIMEOUT_SEC,
+    ) -> Task | None:
+        """Atomically claim the next eligible task for the given lane.
+
+        A task is eligible if it is ``pending`` and ``available_at`` has
+        elapsed, OR it is ``claimed`` but the worker who took it has been
+        silent past the visibility timeout (likely crashed).
+        """
+
+        worker = claimed_by or _new_id()
+        now = _now_ms()
+        stale_threshold = now - int(visibility_timeout_sec * 1000)
+
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                """
+                UPDATE tasks
+                SET state = 'claimed',
+                    claimed_at = ?,
+                    claimed_by = ?,
+                    attempts = attempts + 1,
+                    updated_at = ?
+                WHERE id = (
+                    SELECT id FROM tasks
+                    WHERE lane = ?
+                      AND (
+                        (state = 'pending' AND available_at <= ?)
+                        OR (state = 'claimed' AND claimed_at IS NOT NULL AND claimed_at < ?)
+                      )
+                    ORDER BY available_at ASC, id ASC
+                    LIMIT 1
+                )
+                RETURNING *
+                """,
+                (now, worker, now, lane, now, stale_threshold),
+            ).fetchone()
+            conn.commit()
+
+        return _task_from_row(row) if row is not None else None
+
+    def complete(
+        self,
+        task_id: int,
+        *,
+        output: dict[str, Any] | None = None,
+    ) -> Task:
+        now = _now_ms()
+        output_json = json.dumps(output, ensure_ascii=False) if output is not None else None
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                UPDATE tasks
+                SET state = 'done',
+                    output_json = ?,
+                    updated_at = ?
+                WHERE id = ?
+                RETURNING *
+                """,
+                (output_json, now, task_id),
+            ).fetchone()
+            conn.commit()
+        if row is None:
+            raise FileNotFoundError(f"task does not exist: {task_id}")
+        return _task_from_row(row)
+
+    def fail(
+        self,
+        task_id: int,
+        *,
+        error: str,
+        backoff_base_sec: int = DEFAULT_BACKOFF_BASE_SEC,
+        backoff_cap_sec: int = DEFAULT_BACKOFF_CAP_SEC,
+    ) -> Task:
+        """Record a failure; either reschedule with backoff or transition to dead."""
+
+        now = _now_ms()
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            current = conn.execute(
+                "SELECT attempts, max_attempts FROM tasks WHERE id = ?",
+                (task_id,),
+            ).fetchone()
+            if current is None:
+                conn.execute("ROLLBACK")
+                raise FileNotFoundError(f"task does not exist: {task_id}")
+            attempts = int(current["attempts"])
+            max_attempts = int(current["max_attempts"])
+
+            if attempts >= max_attempts:
+                row = conn.execute(
+                    """
+                    UPDATE tasks
+                    SET state = 'dead',
+                        last_error = ?,
+                        updated_at = ?
+                    WHERE id = ?
+                    RETURNING *
+                    """,
+                    (error, now, task_id),
+                ).fetchone()
+            else:
+                backoff_ms = min(
+                    backoff_base_sec * (2 ** attempts),
+                    backoff_cap_sec,
+                ) * 1000
+                row = conn.execute(
+                    """
+                    UPDATE tasks
+                    SET state = 'pending',
+                        last_error = ?,
+                        available_at = ?,
+                        claimed_at = NULL,
+                        claimed_by = NULL,
+                        updated_at = ?
+                    WHERE id = ?
+                    RETURNING *
+                    """,
+                    (error, now + backoff_ms, now, task_id),
+                ).fetchone()
+            conn.commit()
+        return _task_from_row(row)
+
+    def get(self, task_id: int) -> Task:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM tasks WHERE id = ?", (task_id,),
+            ).fetchone()
+        if row is None:
+            raise FileNotFoundError(f"task does not exist: {task_id}")
+        return _task_from_row(row)
+
+    def list(
+        self,
+        *,
+        state: str | None = None,
+        lane: str | None = None,
+        limit: int = 50,
+    ) -> list[Task]:
+        if not self.db_path.exists():
+            return []
+        clauses: list[str] = []
+        params: list[object] = []
+        if state:
+            clauses.append("state = ?")
+            params.append(state)
+        if lane:
+            clauses.append("lane = ?")
+            params.append(lane)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        params.append(int(limit))
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"SELECT * FROM tasks {where} ORDER BY created_at DESC LIMIT ?",
+                params,
+            ).fetchall()
+        return [_task_from_row(row) for row in rows]
+
+    def counts_by_state(self) -> dict[str, int]:
+        if not self.db_path.exists():
+            return {s: 0 for s in VALID_STATES}
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT state, COUNT(*) AS n FROM tasks GROUP BY state"
+            ).fetchall()
+        out = {s: 0 for s in VALID_STATES}
+        for row in rows:
+            out[row["state"]] = int(row["n"])
+        return out
+
+    # ------- internals -----------------------------------------------------
+
+    def _init_schema(self) -> None:
+        with self._connect() as conn:
+            conn.executescript(
+                """
+                PRAGMA journal_mode = WAL;
+                PRAGMA busy_timeout = 30000;
+
+                CREATE TABLE IF NOT EXISTS tasks (
+                    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                    idempotency_key TEXT NOT NULL UNIQUE,
+                    domain_profile  TEXT NOT NULL DEFAULT '',
+                    lane            TEXT NOT NULL,
+                    packet_json     TEXT NOT NULL,
+                    state           TEXT NOT NULL DEFAULT 'pending',
+                    attempts        INTEGER NOT NULL DEFAULT 0,
+                    max_attempts    INTEGER NOT NULL DEFAULT 3,
+                    available_at    INTEGER NOT NULL,
+                    claimed_at      INTEGER,
+                    claimed_by      TEXT,
+                    last_error      TEXT,
+                    output_json     TEXT,
+                    created_at      INTEGER NOT NULL,
+                    updated_at      INTEGER NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_tasks_claim
+                    ON tasks(lane, state, available_at, id);
+                """
+            )
+            conn.commit()
+
+    def _connect(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(str(self.db_path))
+        conn.row_factory = sqlite3.Row
+        return conn
+
+    def _safe_path(self, relative_path: str) -> Path:
+        target = (self.workspace / relative_path).resolve()
+        try:
+            target.relative_to(self.workspace)
+        except ValueError as exc:
+            raise PermissionError("target path is outside the workspace") from exc
+        return target

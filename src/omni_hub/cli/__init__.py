@@ -21,11 +21,17 @@ from . import (
     harness,
     memory,
     policy,
+    propose,
     reports,
     skill,
+    task,
+    worker,
 )
 
-_AREAS = [capture, memory, skill, api_management, policy, harness, reports]
+_AREAS = [
+    capture, memory, skill, api_management, policy,
+    propose, task, worker, harness, reports,
+]
 
 
 def build_parser() -> argparse.ArgumentParser:

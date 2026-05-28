@@ -5,7 +5,7 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from .proposals import KnowledgeProposal
+from .proposals import EntityProposal, Proposal, RelationProposal
 
 
 @dataclass(slots=True)
@@ -48,7 +48,22 @@ class MemoryStore:
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
             self._init_schema()
 
-    def digest_proposal(self, proposal: KnowledgeProposal) -> MemoryDigestResult:
+    def digest_proposal(self, proposal: Proposal) -> MemoryDigestResult:
+        if proposal.kind != "knowledge":
+            raise ValueError(
+                f"digest_proposal only handles kind='knowledge'; got kind={proposal.kind!r}"
+            )
+        entities = [
+            EntityProposal.from_dict(item)
+            for item in proposal.payload.get("entities", [])
+            if isinstance(item, dict)
+        ]
+        relations = [
+            RelationProposal.from_dict(item)
+            for item in proposal.payload.get("relations", [])
+            if isinstance(item, dict)
+        ]
+
         now = datetime.now(UTC).isoformat()
         with self._connect() as conn:
             conn.execute(
@@ -79,7 +94,7 @@ class MemoryStore:
                 now,
             )
 
-            for entity in proposal.entities:
+            for entity in entities:
                 self._upsert_entity(
                     conn,
                     entity.name,
@@ -89,7 +104,7 @@ class MemoryStore:
                     now,
                 )
 
-            for relation in proposal.relations:
+            for relation in relations:
                 conn.execute(
                     """
                     INSERT INTO relations (

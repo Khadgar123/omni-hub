@@ -15,7 +15,9 @@ from .markdown import MarkdownDocument
 from .memory import MemoryDigestResult, MemorySearchResult, MemoryStore
 from .models import OperationSpec, OperationStatus, RiskLevel
 from .policy import PolicyConfig, PolicyDecision, PolicyEngine
-from .proposals import EntityProposal, KnowledgeProposal, RelationProposal
+from .proposals import EntityProposal, Proposal, ProposalStore, RelationProposal
+from .queue import Task, TaskQueue
+from .workers import Artifact, WorkerAdapter, WorkerError, WorkerTimeout
 from .reports import (
     ReportContext,
     build_daily,
@@ -42,7 +44,6 @@ __all__ = [
     "HumanFeedback",
     "JudgeRubric",
     "JudgeScore",
-    "KnowledgeProposal",
     "MarkdownDocument",
     "MemoryDigestResult",
     "MemorySearchResult",
@@ -53,8 +54,16 @@ __all__ = [
     "PolicyConfig",
     "PolicyDecision",
     "PolicyEngine",
+    "Artifact",
+    "Proposal",
+    "ProposalStore",
     "RelationProposal",
     "ReportContext",
+    "Task",
+    "TaskQueue",
+    "WorkerAdapter",
+    "WorkerError",
+    "WorkerTimeout",
     "RetrievalPolicy",
     "RiskLevel",
     "SkillConflict",

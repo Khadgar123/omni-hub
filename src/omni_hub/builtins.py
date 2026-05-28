@@ -8,6 +8,7 @@ from .content_store import ContentStore
 from .memory import MemoryStore
 from .models import OperationSpec, RiskLevel
 from .proposals import ProposalStore, build_knowledge_proposal
+from .queue import TaskQueue
 from .registry import OperationRegistry
 from .skill_intel import analyze_skill_set, recommend_skills
 from .skills import SkillKind, SkillRegistry, SkillSpec, SkillStatus
@@ -136,6 +137,11 @@ def make_propose_knowledge(workspace: Path):
         proposal = build_knowledge_proposal(document)
         stored_paths = ProposalStore(workspace_root).store(proposal)
         output = proposal.to_dict()
+        # Flatten knowledge payload to top level so callers can read
+        # output["entities"] / output["relations"] without descending into
+        # payload (kept stable for the propose-note CLI consumers).
+        output["entities"] = list(proposal.payload.get("entities", []))
+        output["relations"] = list(proposal.payload.get("relations", []))
         output.update(stored_paths)
         return output
 
@@ -152,6 +158,224 @@ def make_digest_proposal(workspace: Path):
         return result.to_dict()
 
     return digest_proposal
+
+
+def make_list_proposals(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def list_proposals(spec: OperationSpec) -> dict[str, object]:
+        payload = spec.payload
+        proposals = ProposalStore(workspace_root, create=False).list(
+            state=payload.get("state"),
+            kind=payload.get("kind"),
+            limit=int(payload.get("limit", 50)),
+        )
+        return {
+            "count": len(proposals),
+            "proposals": [p.to_dict() for p in proposals],
+        }
+
+    return list_proposals
+
+
+def make_approve_proposal(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def approve_proposal(spec: OperationSpec) -> dict[str, object]:
+        payload = spec.payload
+        proposal = ProposalStore(workspace_root).approve(
+            str(payload["proposal_id"]),
+            reason=str(payload.get("reason", "")),
+            decided_by=str(payload.get("decided_by", "local-user")),
+        )
+        return proposal.to_dict()
+
+    return approve_proposal
+
+
+def make_reject_proposal(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def reject_proposal(spec: OperationSpec) -> dict[str, object]:
+        payload = spec.payload
+        proposal = ProposalStore(workspace_root).reject(
+            str(payload["proposal_id"]),
+            reason=str(payload.get("reason", "")),
+            decided_by=str(payload.get("decided_by", "local-user")),
+        )
+        return proposal.to_dict()
+
+    return reject_proposal
+
+
+def make_enqueue_task(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def enqueue_task(spec: OperationSpec) -> dict[str, object]:
+        payload = spec.payload
+        queue = TaskQueue(workspace_root)
+        task = queue.enqueue(
+            lane=str(payload["lane"]),
+            packet=dict(payload.get("packet", {})),
+            domain_profile=str(payload.get("domain_profile", "")),
+            idempotency_key=payload.get("idempotency_key"),
+            available_at=payload.get("available_at"),
+            max_attempts=int(payload.get("max_attempts", 3)),
+        )
+        return task.to_dict()
+
+    return enqueue_task
+
+
+def make_claim_task(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def claim_task(spec: OperationSpec) -> dict[str, object]:
+        payload = spec.payload
+        queue = TaskQueue(workspace_root)
+        task = queue.claim(
+            lane=str(payload["lane"]),
+            claimed_by=payload.get("claimed_by"),
+            visibility_timeout_sec=int(payload.get("visibility_timeout_sec", 600)),
+        )
+        return {"task": task.to_dict() if task is not None else None}
+
+    return claim_task
+
+
+def make_complete_task(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def complete_task(spec: OperationSpec) -> dict[str, object]:
+        payload = spec.payload
+        queue = TaskQueue(workspace_root)
+        task = queue.complete(
+            int(payload["task_id"]),
+            output=payload.get("output"),
+        )
+        return task.to_dict()
+
+    return complete_task
+
+
+def make_fail_task(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def fail_task(spec: OperationSpec) -> dict[str, object]:
+        payload = spec.payload
+        queue = TaskQueue(workspace_root)
+        task = queue.fail(
+            int(payload["task_id"]),
+            error=str(payload["error"]),
+            backoff_base_sec=int(payload.get("backoff_base_sec", 60)),
+            backoff_cap_sec=int(payload.get("backoff_cap_sec", 3600)),
+        )
+        return task.to_dict()
+
+    return fail_task
+
+
+def make_list_tasks(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def list_tasks(spec: OperationSpec) -> dict[str, object]:
+        payload = spec.payload
+        queue = TaskQueue(workspace_root, create=False)
+        tasks = queue.list(
+            state=payload.get("state"),
+            lane=payload.get("lane"),
+            limit=int(payload.get("limit", 50)),
+        )
+        return {
+            "count": len(tasks),
+            "counts_by_state": queue.counts_by_state(),
+            "tasks": [t.to_dict() for t in tasks],
+        }
+
+    return list_tasks
+
+
+def make_schedule_tick(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def schedule_tick(spec: OperationSpec) -> dict[str, object]:
+        from datetime import date
+
+        payload = spec.payload
+        period = str(payload.get("period", "daily")).lower()
+        anchor = str(payload.get("anchor") or date.today().isoformat())
+        queue = TaskQueue(workspace_root)
+
+        plans: dict[str, list[dict[str, object]]] = {
+            "daily": [
+                {
+                    "kind": "scan_result",
+                    "key": f"daily-redundancy-{anchor}",
+                    "packet": {
+                        "operation": "harness_redundancy_scan",
+                        "kind": "scan_result",
+                        "payload": {
+                            "db_path": ".omni/memory.sqlite3",
+                            "prefer_backend": "auto",
+                        },
+                    },
+                },
+                {
+                    "kind": "report",
+                    "key": f"daily-report-{anchor}",
+                    "packet": {
+                        "operation": "memory_stats",  # cheap heartbeat; real
+                        "kind": "report",             # daily report is built
+                        "payload": {},                # via reports CLI manually
+                    },
+                },
+            ],
+            "weekly": [
+                {
+                    "kind": "report",
+                    "key": f"weekly-stats-{anchor}",
+                    "packet": {
+                        "operation": "memory_stats",
+                        "kind": "report",
+                        "payload": {},
+                    },
+                },
+            ],
+            "monthly": [
+                {
+                    "kind": "report",
+                    "key": f"monthly-stats-{anchor}",
+                    "packet": {
+                        "operation": "memory_stats",
+                        "kind": "report",
+                        "payload": {},
+                    },
+                },
+            ],
+        }
+        plan = plans.get(period)
+        if plan is None:
+            raise ValueError(
+                f"unknown period {period!r}; expected daily|weekly|monthly"
+            )
+
+        enqueued: list[dict[str, object]] = []
+        for item in plan:
+            task = queue.enqueue(
+                lane="python",
+                packet=item["packet"],
+                idempotency_key=str(item["key"]),
+                domain_profile=period,
+            )
+            enqueued.append({
+                "id": task.id,
+                "idempotency_key": task.idempotency_key,
+                "state": task.state,
+            })
+
+        return {"period": period, "anchor": anchor, "enqueued": enqueued}
+
+    return schedule_tick
 
 
 def make_search_memory(workspace: Path):
@@ -392,4 +616,13 @@ def build_default_registry(workspace: Path | str = ".") -> OperationRegistry:
     registry.register("harness_preference_add", make_harness_preference_add(workspace_path))
     registry.register("harness_compile", make_harness_compile(workspace_path))
     registry.register("harness_redundancy_scan", make_harness_redundancy_scan(workspace_path))
+    registry.register("list_proposals", make_list_proposals(workspace_path))
+    registry.register("approve_proposal", make_approve_proposal(workspace_path))
+    registry.register("reject_proposal", make_reject_proposal(workspace_path))
+    registry.register("enqueue_task", make_enqueue_task(workspace_path))
+    registry.register("claim_task", make_claim_task(workspace_path))
+    registry.register("complete_task", make_complete_task(workspace_path))
+    registry.register("fail_task", make_fail_task(workspace_path))
+    registry.register("list_tasks", make_list_tasks(workspace_path))
+    registry.register("schedule_tick", make_schedule_tick(workspace_path))
     return registry

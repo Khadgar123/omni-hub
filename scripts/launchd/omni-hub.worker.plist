@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.omni-hub.worker</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>{{PYTHON}}</string>
+        <string>-m</string>
+        <string>omni_hub.cli</string>
+        <string>worker</string>
+        <string>--lane</string>
+        <string>python</string>
+        <string>--poll-interval-sec</string>
+        <string>30</string>
+        <string>--idle-exit-after-sec</string>
+        <string>0</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PYTHONPATH</key>
+        <string>{{WORKSPACE}}/src</string>
+    </dict>
+
+    <key>WorkingDirectory</key>
+    <string>{{WORKSPACE}}</string>
+
+    <!-- KeepAlive restarts the worker if it exits. -->
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Throttle restarts to avoid tight loops on persistent crashes. -->
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+
+    <key>StandardOutPath</key>
+    <string>{{WORKSPACE}}/.omni/launchd/worker.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>{{WORKSPACE}}/.omni/launchd/worker.err.log</string>
+</dict>
+</plist>

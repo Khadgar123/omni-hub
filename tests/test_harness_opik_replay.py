@@ -57,6 +57,7 @@ class ReplayStatsTests(unittest.TestCase):
 
             # Force replay/stats to use the same path
             import os
+            original_cwd = os.getcwd()
             os.chdir(tmp)
             try:
                 # Adjust opik_bridge default by monkeypatching path
@@ -65,6 +66,7 @@ class ReplayStatsTests(unittest.TestCase):
                 )
                 result = replay.stats(prefer_backend="local").to_dict()
             finally:
+                os.chdir(original_cwd)
                 # Restore default
                 opik_bridge.LocalJsonlBackend.__init__.__defaults__ = (
                     Path(".omni/traces/traces.jsonl"),

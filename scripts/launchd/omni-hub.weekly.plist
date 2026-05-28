@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.omni-hub.weekly</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>{{PYTHON}}</string>
+        <string>-m</string>
+        <string>omni_hub.cli</string>
+        <string>schedule-tick</string>
+        <string>--period</string>
+        <string>weekly</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PYTHONPATH</key>
+        <string>{{WORKSPACE}}/src</string>
+    </dict>
+
+    <key>WorkingDirectory</key>
+    <string>{{WORKSPACE}}</string>
+
+    <!-- Monday 8 AM. Weekday: 1=Mon … 7=Sun on launchd. -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Weekday</key><integer>1</integer>
+        <key>Hour</key><integer>8</integer>
+        <key>Minute</key><integer>0</integer>
+    </dict>
+
+    <key>WakeSystem</key>
+    <true/>
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>{{WORKSPACE}}/.omni/launchd/weekly.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>{{WORKSPACE}}/.omni/launchd/weekly.err.log</string>
+</dict>
+</plist>

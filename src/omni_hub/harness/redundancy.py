@@ -1,59 +1,45 @@
 """Redundancy detection that produces *proposals*, never deletes.
 
-Four detector classes (matches `docs/agent-system-development-plan.md`):
+Four detector kinds (matches `docs/agent-system-development-plan.md`):
 
     duplicate  — title/summary near-identical
     stale      — updated_at older than a freshness window
     conflict   — same title, different summary (potential conflict)
     low_signal — summary dominated by low-signal phrases (uses grounding)
 
-Each match becomes a ``RedundancyProposal`` written to
-``.omni/proposals/redundancy.jsonl``.  Nothing in the memory store is ever
-deleted by this module — only a human-approved follow-up may delete.
+Each match becomes a ``Proposal`` (unified type from
+``omni_hub.proposals``) and is persisted into the SQLite-backed
+``ProposalStore`` so the propose-list / approve / reject workflow can pick
+them up alongside knowledge proposals.  Nothing in memory is deleted by
+this module — only a human-approved follow-up may delete.
 """
 
 from __future__ import annotations
 
 import hashlib
-import json
 import re
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterable
 
+from ..proposals import (
+    Proposal,
+    ProposalStore,
+    conflict_proposal,
+    duplicate_proposal,
+    low_signal_proposal,
+    stale_proposal,
+)
 from . import graphiti_bridge, grounding
 
 
-@dataclass(slots=True)
-class RedundancyProposal:
-    proposal_id: str
-    kind: str          # duplicate | stale | conflict | low_signal
-    source_paths: list[str]
-    summary: str
-    confidence: float  # 0..1
-    suggested_action: str  # merge_proposal | archive_proposal | review_proposal | demote_proposal
-    detected_at: str
-
-    def to_dict(self) -> dict:
-        return asdict(self)
-
-
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
 def _normalize(text: str) -> str:
-    # cheap normalisation: lower + collapse whitespace + strip punct boundaries
     return re.sub(r"\s+", " ", (text or "").lower().strip())
 
 
 def _hash(text: str) -> str:
     return hashlib.sha256(_normalize(text).encode("utf-8")).hexdigest()[:12]
-
-
-def _stable_id(*parts: str) -> str:
-    return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()[:16]
 
 
 # ---------------------------------------------------------------------------
@@ -63,27 +49,18 @@ def _stable_id(*parts: str) -> str:
 
 def _duplicate_proposals(
     records: list[graphiti_bridge.KnowledgeRecord],
-) -> list[RedundancyProposal]:
+) -> list[Proposal]:
     by_title: dict[str, list[graphiti_bridge.KnowledgeRecord]] = {}
     for r in records:
         key = _hash(r.title)
         by_title.setdefault(key, []).append(r)
-    out: list[RedundancyProposal] = []
+    out: list[Proposal] = []
     for hits in by_title.values():
         if len(hits) < 2:
             continue
         summaries = {_hash(r.summary) for r in hits if r.summary}
         if len(summaries) <= 1:
-            # near-identical title + summary → strong dup
-            out.append(RedundancyProposal(
-                proposal_id=_stable_id("dup", *(r.source_path for r in hits)),
-                kind="duplicate",
-                source_paths=[r.source_path for r in hits],
-                summary=f"{len(hits)} records share title '{hits[0].title[:80]}'.",
-                confidence=0.85,
-                suggested_action="merge_proposal",
-                detected_at=_now(),
-            ))
+            out.append(duplicate_proposal(hits))
     return out
 
 
@@ -91,9 +68,9 @@ def _stale_proposals(
     records: list[graphiti_bridge.KnowledgeRecord],
     *,
     freshness_days: int,
-) -> list[RedundancyProposal]:
+) -> list[Proposal]:
     threshold = datetime.now(timezone.utc) - timedelta(days=freshness_days)
-    out: list[RedundancyProposal] = []
+    out: list[Proposal] = []
     for r in records:
         if not r.updated_at:
             continue
@@ -104,45 +81,23 @@ def _stale_proposals(
         if ts.tzinfo is None:
             ts = ts.replace(tzinfo=timezone.utc)
         if ts < threshold:
-            out.append(RedundancyProposal(
-                proposal_id=_stable_id("stale", r.source_path, r.updated_at),
-                kind="stale",
-                source_paths=[r.source_path],
-                summary=(
-                    f"'{r.title[:80]}' last updated {r.updated_at}, "
-                    f"older than {freshness_days} days."
-                ),
-                confidence=0.6,
-                suggested_action="archive_proposal",
-                detected_at=_now(),
-            ))
+            out.append(stale_proposal(r, freshness_days))
     return out
 
 
 def _conflict_proposals(
     records: list[graphiti_bridge.KnowledgeRecord],
-) -> list[RedundancyProposal]:
+) -> list[Proposal]:
     by_title: dict[str, list[graphiti_bridge.KnowledgeRecord]] = {}
     for r in records:
         by_title.setdefault(_hash(r.title), []).append(r)
-    out: list[RedundancyProposal] = []
+    out: list[Proposal] = []
     for hits in by_title.values():
         if len(hits) < 2:
             continue
         summaries = {_hash(r.summary) for r in hits if r.summary}
         if len(summaries) >= 2:
-            out.append(RedundancyProposal(
-                proposal_id=_stable_id("conflict", *(r.source_path for r in hits)),
-                kind="conflict",
-                source_paths=[r.source_path for r in hits],
-                summary=(
-                    f"{len(hits)} records share title '{hits[0].title[:80]}' "
-                    f"but differ in summary — review for conflict."
-                ),
-                confidence=0.65,
-                suggested_action="review_proposal",
-                detected_at=_now(),
-            ))
+            out.append(conflict_proposal(hits))
     return out
 
 
@@ -150,8 +105,8 @@ def _low_signal_proposals(
     records: list[graphiti_bridge.KnowledgeRecord],
     *,
     min_low_signal_ratio: float,
-) -> list[RedundancyProposal]:
-    out: list[RedundancyProposal] = []
+) -> list[Proposal]:
+    out: list[Proposal] = []
     for r in records:
         if not r.summary:
             continue
@@ -159,18 +114,7 @@ def _low_signal_proposals(
         if report.total_claims == 0:
             continue
         if report.nugget_density < (1.0 - min_low_signal_ratio):
-            out.append(RedundancyProposal(
-                proposal_id=_stable_id("lowsignal", r.source_path),
-                kind="low_signal",
-                source_paths=[r.source_path],
-                summary=(
-                    f"'{r.title[:80]}' summary has {report.low_signal_claims}/"
-                    f"{report.total_claims} low-signal claims."
-                ),
-                confidence=0.55,
-                suggested_action="demote_proposal",
-                detected_at=_now(),
-            ))
+            out.append(low_signal_proposal(r, report))
     return out
 
 
@@ -183,7 +127,7 @@ def _low_signal_proposals(
 class RedundancyScanReport:
     backend: str
     documents_scanned: int
-    proposals: list[RedundancyProposal] = field(default_factory=list)
+    proposals: list[Proposal] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -209,6 +153,15 @@ def scan(
     write_to: Path | str | None = ".omni/proposals/redundancy.jsonl",
     max_documents: int = 5000,
 ) -> RedundancyScanReport:
+    """Scan + persist proposals.
+
+    The legacy ``write_to`` jsonl is still honoured if a path is given
+    (callers and tests that watch that file keep working).  The
+    canonical sink is the unified ``ProposalStore`` SQLite — proposals are
+    inserted there too, so propose-list / approve / reject can pick them
+    up.  Passing ``write_to=None`` only skips the jsonl mirror.
+    """
+
     backend = graphiti_bridge.get_backend(prefer=prefer_backend, db_path=db_path)
     records: list[graphiti_bridge.KnowledgeRecord] = []
     for record in graphiti_bridge.iter_all_documents(
@@ -218,15 +171,31 @@ def scan(
         if len(records) >= max_documents:
             break
 
-    proposals: list[RedundancyProposal] = []
+    proposals: list[Proposal] = []
     proposals.extend(_duplicate_proposals(records))
     proposals.extend(_stale_proposals(records, freshness_days=freshness_days))
     proposals.extend(_conflict_proposals(records))
-    proposals.extend(_low_signal_proposals(records, min_low_signal_ratio=min_low_signal_ratio))
+    proposals.extend(_low_signal_proposals(
+        records, min_low_signal_ratio=min_low_signal_ratio,
+    ))
 
+    # Canonical sink: SQLite proposal store rooted at the workspace that owns
+    # the memory database.  Inferring workspace from db_path matches what
+    # callers expect (db lives under <workspace>/.omni/...).
+    db = Path(db_path)
+    if ".omni" in db.parts:
+        workspace = Path(*db.parts[: db.parts.index(".omni")])
+    else:
+        workspace = db.parent
+    store = ProposalStore(workspace=workspace if str(workspace) else ".")
+    for prop in proposals:
+        store.store(prop, write_card=False)
+
+    # Legacy jsonl mirror — still useful for grep + back-compat.
     if write_to:
         path = Path(write_to)
         path.parent.mkdir(parents=True, exist_ok=True)
+        import json
         with path.open("a", encoding="utf-8") as fh:
             for prop in proposals:
                 fh.write(json.dumps(prop.to_dict(), ensure_ascii=False) + "\n")
@@ -240,15 +209,22 @@ def scan(
 
 def load_proposals(
     *, path: Path | str = ".omni/proposals/redundancy.jsonl",
-) -> Iterable[RedundancyProposal]:
+) -> Iterable[Proposal]:
+    """Legacy jsonl reader — still consumed by reports/core.py.
+
+    For the canonical view, callers should query ``ProposalStore.list`` with
+    ``kind`` filtering instead.
+    """
+
     p = Path(path)
     if not p.exists():
         return []
-    out: list[RedundancyProposal] = []
+    import json
+    out: list[Proposal] = []
     with p.open("r", encoding="utf-8") as fh:
         for line in fh:
             line = line.strip()
             if not line:
                 continue
-            out.append(RedundancyProposal(**json.loads(line)))
+            out.append(Proposal.from_dict(json.loads(line)))
     return out
