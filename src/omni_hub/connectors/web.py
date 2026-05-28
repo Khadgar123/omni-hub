@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import re
+import shutil
+import subprocess
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from html.parser import HTMLParser
@@ -8,6 +10,19 @@ from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 from .youtube import extract_youtube_video_id
+
+
+# Content-types we refuse to text-decode (the prior silent bug: latin-1
+# decoding a PDF mangles the bytes and produces ~50KB of corruption).
+_BINARY_CONTENT_PREFIXES = (
+    "application/pdf",
+    "application/octet-stream",
+    "image/",
+    "video/",
+    "audio/",
+    "application/zip",
+    "application/x-",
+)
 
 DEFAULT_USER_AGENT = (
     "omni-hub/0.2 (+https://github.com/Khadgar123/omni-hub; personal knowledge capture)"
@@ -140,6 +155,7 @@ def build_resource_from_body(
     final_url: str | None = None,
     status_code: int | None = None,
     truncated: bool = False,
+    youtube_transcript: str = "",
 ) -> CapturedResource:
     validate_http_url(url)
     if final_url:
@@ -147,13 +163,30 @@ def build_resource_from_body(
 
     final_url = final_url or url
     youtube_video_id = extract_youtube_video_id(final_url) or extract_youtube_video_id(url)
-    source_kind = "youtube_video" if youtube_video_id else "webpage"
     content_type_lower = content_type.lower()
+    is_pdf = content_type_lower.startswith("application/pdf")
+    is_binary = any(
+        content_type_lower.startswith(prefix)
+        for prefix in _BINARY_CONTENT_PREFIXES
+    )
+
+    if youtube_video_id:
+        source_kind = "youtube_video"
+    elif is_pdf:
+        source_kind = "pdf_document"
+    elif is_binary:
+        source_kind = "binary"
+    else:
+        source_kind = "webpage"
 
     title = ""
     description = ""
     canonical_url = ""
-    if "html" in content_type_lower or body.lstrip().startswith("<"):
+    if is_binary:
+        # Bug fix: do NOT text-decode binary bodies — the previous code
+        # silently latin-1'd PDF bytes and stored ~50 KB of garbage.
+        text = ""
+    elif "html" in content_type_lower or body.lstrip().startswith("<"):
         html_metadata = extract_html_metadata(body)
         title = html_metadata.title
         description = html_metadata.description
@@ -162,13 +195,28 @@ def build_resource_from_body(
     else:
         text = body[:8000].strip()
 
+    if youtube_transcript:
+        # Prepend transcript to the text so memory search hits its
+        # contents rather than the page chrome.
+        text = (youtube_transcript + ("\n\n" + text if text else "")).strip()
+        if not description:
+            description = youtube_transcript[:300]
+
     if not title:
         title = youtube_video_id or final_url
 
     metadata: dict[str, str | bool | int | None] = {
         "canonical_url": canonical_url,
         "youtube_video_id": youtube_video_id,
+        "is_pdf": is_pdf,
+        "is_binary": is_binary,
+        "has_transcript": bool(youtube_transcript),
     }
+    if is_pdf:
+        metadata["pdf_extraction_hint"] = (
+            "binary PDF body skipped; install pymupdf4llm + run "
+            "`python -m pymupdf4llm <file>` for markdown extraction"
+        )
 
     return CapturedResource(
         url=url,
@@ -176,7 +224,7 @@ def build_resource_from_body(
         source_kind=source_kind,
         content_type=content_type,
         status_code=status_code,
-        body=body,
+        body="" if is_binary else body,
         title=title,
         description=description,
         text=text,
@@ -191,6 +239,7 @@ def fetch_url(
     timeout_seconds: int = 20,
     max_bytes: int = 2_000_000,
     user_agent: str = DEFAULT_USER_AGENT,
+    fetch_youtube_transcript: bool = True,
 ) -> CapturedResource:
     validate_http_url(url)
     request = Request(url, headers={"User-Agent": user_agent})
@@ -203,14 +252,79 @@ def fetch_url(
 
         content_type = response.headers.get("content-type", "application/octet-stream")
         body = _decode_body(raw, content_type)
-        return build_resource_from_body(
-            url,
-            body,
-            content_type=content_type,
-            final_url=response.geturl(),
-            status_code=response.status,
-            truncated=truncated,
+        final_url = response.geturl()
+        status_code = response.status
+
+    transcript = ""
+    if fetch_youtube_transcript and (
+        extract_youtube_video_id(final_url) or extract_youtube_video_id(url)
+    ):
+        transcript = _fetch_youtube_transcript(final_url or url, timeout=timeout_seconds)
+
+    return build_resource_from_body(
+        url,
+        body,
+        content_type=content_type,
+        final_url=final_url,
+        status_code=status_code,
+        truncated=truncated,
+        youtube_transcript=transcript,
+    )
+
+
+def _fetch_youtube_transcript(url: str, *, timeout: int = 30) -> str:
+    """Best-effort: shell out to ``yt-dlp`` for the auto-generated VTT.
+
+    Falls back to empty string if ``yt-dlp`` is not on PATH or the call
+    fails — we never want missing transcripts to break capture-url.  The
+    return is already a flattened text body (VTT timing lines stripped).
+    """
+
+    if shutil.which("yt-dlp") is None:
+        return ""
+    try:
+        proc = subprocess.run(
+            [
+                "yt-dlp",
+                "--skip-download",
+                "--write-auto-subs",
+                "--sub-format", "vtt",
+                "--sub-langs", "en.*,zh.*",
+                "--print", "automatic_captions",   # also surface lang list
+                "-o", "-",
+                url,
+            ],
+            capture_output=True, text=True,
+            timeout=timeout, check=False,
         )
+    except (subprocess.TimeoutExpired, OSError):
+        return ""
+    if proc.returncode != 0:
+        return ""
+    # yt-dlp --print writes VTT to stderr or stdout depending on version;
+    # try both and pick whichever has content.
+    raw = proc.stdout if "WEBVTT" in proc.stdout else proc.stderr
+    return _flatten_vtt(raw)
+
+
+def _flatten_vtt(vtt: str) -> str:
+    """Strip VTT timing lines + cue settings; collapse cues into a single text."""
+    out: list[str] = []
+    for line in vtt.splitlines():
+        line = line.strip()
+        if not line or line.startswith("WEBVTT") or "-->" in line:
+            continue
+        if line.isdigit():                         # cue index
+            continue
+        if line.startswith("NOTE"):
+            continue
+        out.append(re.sub(r"<[^>]+>", "", line))   # strip <c> styling tags
+    # Deduplicate consecutive identical lines (VTT often repeats prior cue)
+    deduped: list[str] = []
+    for cue in out:
+        if not deduped or deduped[-1] != cue:
+            deduped.append(cue)
+    return "\n".join(deduped)[:20000]
 
 
 def validate_http_url(url: str) -> None:
@@ -220,6 +334,12 @@ def validate_http_url(url: str) -> None:
 
 
 def _decode_body(raw: bytes, content_type: str) -> str:
+    content_type_lower = content_type.lower()
+    # Binary content (PDF, images, video, …) — don't pretend it's text.
+    # Returning the empty string lets ``build_resource_from_body`` mark
+    # ``source_kind`` correctly without polluting ``body`` with garbage.
+    if any(content_type_lower.startswith(p) for p in _BINARY_CONTENT_PREFIXES):
+        return ""
     charset_match = re.search(r"charset=([\w.-]+)", content_type, flags=re.IGNORECASE)
     charset = charset_match.group(1) if charset_match else "utf-8"
     try:

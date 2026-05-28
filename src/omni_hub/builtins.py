@@ -498,6 +498,69 @@ def make_memory_promote_recall(workspace: Path):
     return memory_promote_recall
 
 
+def make_retrieve_cascade(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def retrieve_cascade(spec: OperationSpec) -> dict[str, object]:
+        from .retrieval import Cascade, builtin_sources
+
+        payload = spec.payload
+        cascade = Cascade(builtin_sources())
+        result = cascade.retrieve(
+            str(payload["query"]),
+            domain=str(payload.get("domain", "default")),
+            per_source_limit=int(payload.get("per_source_limit", 5)),
+            total_limit=int(payload.get("total_limit", 20)),
+            sources=list(payload["sources"]) if payload.get("sources") else None,
+        )
+        return result.to_dict()
+
+    return retrieve_cascade
+
+
+def make_fetch_url_reader(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def fetch_url_reader(spec: OperationSpec) -> dict[str, object]:
+        from .connectors.web import fetch_url
+        from .retrieval.base import RetrievalError
+        from .retrieval.jina_reader import JinaReaderFetcher
+
+        payload = spec.payload
+        url = str(payload["url"])
+        use_reader = bool(payload.get("use_reader", True))
+
+        reader_result: dict[str, object] | None = None
+        if use_reader:
+            try:
+                record = JinaReaderFetcher().fetch(url)
+                reader_result = record.to_dict()
+            except RetrievalError as exc:
+                reader_result = {"error": str(exc)}
+
+        # urllib fallback / parallel capture — gives us the raw HTML even
+        # when Jina worked, so the caller has both views.
+        try:
+            resource = fetch_url(url)
+            urllib_result: dict[str, object] = {
+                "title": resource.title,
+                "text": resource.text[:4000],
+                "content_type": resource.content_type,
+                "source_kind": resource.source_kind,
+                "metadata": dict(resource.metadata),
+            }
+        except Exception as exc:                            # noqa: BLE001
+            urllib_result = {"error": f"{type(exc).__name__}: {exc}"}
+
+        return {
+            "url": url,
+            "reader": reader_result,
+            "urllib": urllib_result,
+        }
+
+    return fetch_url_reader
+
+
 def make_event_log_dump(workspace: Path):
     workspace_root = workspace.resolve()
 
@@ -979,6 +1042,8 @@ def build_default_registry(workspace: Path | str = ".") -> OperationRegistry:
     registry.register("skill_sync", make_skill_sync(workspace_path))
     registry.register("event_log_dump", make_event_log_dump(workspace_path))
     registry.register("event_log_list", make_event_log_list(workspace_path))
+    registry.register("retrieve_cascade", make_retrieve_cascade(workspace_path))
+    registry.register("fetch_url_reader", make_fetch_url_reader(workspace_path))
     registry.register("memory_remember_core", make_memory_remember_core(workspace_path))
     registry.register("memory_forget_core", make_memory_forget_core(workspace_path))
     registry.register("memory_recall", make_memory_recall(workspace_path))

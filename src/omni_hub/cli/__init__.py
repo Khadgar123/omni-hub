@@ -27,6 +27,7 @@ from . import (
     policy,
     propose,
     reports,
+    retrieve,
     skill,
     task,
     worker,
@@ -35,6 +36,7 @@ from . import (
 _AREAS = [
     capture, memory, skill, api_management, policy, argilla,
     propose, task, worker, harness, reports, optimizer, event, mcp,
+    retrieve,
 ]
 
 
