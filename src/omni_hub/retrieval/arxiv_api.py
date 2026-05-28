@@ -6,6 +6,7 @@ enforcement — respect this strictly).
 
 from __future__ import annotations
 
+import urllib.parse
 import xml.etree.ElementTree as ET
 
 from .base import DEFAULT_TIMEOUT_SEC, RetrievalRecord, http_get_text
@@ -45,11 +46,14 @@ class ArxivSource:
         else:
             search_query = f"all:{query}"
 
-        url = (
-            f"{QUERY_URL}?search_query={search_query}"
-            f"&start=0&max_results={min(limit, 25)}"
-            "&sortBy=submittedDate&sortOrder=descending"
-        )
+        params = {
+            "search_query": search_query,
+            "start": "0",
+            "max_results": str(min(limit, 25)),
+            "sortBy": "submittedDate",
+            "sortOrder": "descending",
+        }
+        url = f"{QUERY_URL}?{urllib.parse.urlencode(params)}"
         text, _ = http_get_text(url, timeout=self.timeout, accept="application/atom+xml")
         root = ET.fromstring(text)
 

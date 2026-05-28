@@ -12,6 +12,7 @@ import json
 import sys
 import tempfile
 import unittest
+import urllib.parse
 from pathlib import Path
 from unittest.mock import patch
 
@@ -25,6 +26,7 @@ from omni_hub.retrieval import (
     builtin_sources,
     normalize_records,
 )
+from omni_hub.retrieval.base import http_get_json
 from omni_hub.retrieval.arxiv_api import ArxivSource
 from omni_hub.retrieval.cascade import CascadeResult
 from omni_hub.retrieval.gdelt import GDELTSource
@@ -56,6 +58,47 @@ class BaseRecordTests(unittest.TestCase):
         self.assertEqual(len(out), 3)
         self.assertEqual(out[0].source, "a")        # first wins
         self.assertEqual(out[2].source, "d")
+
+
+class _FakeHTTPResponse:
+    def __init__(self, body: bytes = b"{}") -> None:
+        self._body = body
+        self.headers = {"content-type": "application/json"}
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        return None
+
+    def read(self) -> bytes:
+        return self._body
+
+
+class BaseHTTPTests(unittest.TestCase):
+    def test_json_get_expands_sequence_params(self) -> None:
+        captured_urls: list[str] = []
+
+        def fake_urlopen(req, timeout):
+            captured_urls.append(req.full_url)
+            return _FakeHTTPResponse()
+
+        with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            http_get_json(
+                "https://example.test/search",
+                params={
+                    "fields[]": ["title", "abstract"],
+                    "conditions[term]": "EPA rule",
+                    "skip": None,
+                },
+            )
+
+        parsed = urllib.parse.urlparse(captured_urls[0])
+        query = urllib.parse.parse_qs(parsed.query)
+        self.assertEqual(query["fields[]"], ["title", "abstract"])
+        self.assertEqual(query["conditions[term]"], ["EPA rule"])
+        self.assertNotIn("skip", query)
+        self.assertNotIn("%5B%27title%27", captured_urls[0])
 
 
 class JinaReaderTests(unittest.TestCase):
@@ -261,8 +304,25 @@ class ArxivTests(unittest.TestCase):
         ) as mock:
             adapter.retrieve("x", domain="ai_progress")
         url = mock.call_args[0][0]
-        self.assertIn("cat:cs.AI", url)
-        self.assertIn("cat:cs.LG", url)
+        query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+        search_query = query["search_query"][0]
+        self.assertIn("cat:cs.AI", search_query)
+        self.assertIn("cat:cs.LG", search_query)
+
+    def test_multi_word_query_is_urlencoded(self) -> None:
+        adapter = ArxivSource()
+        with patch(
+            "omni_hub.retrieval.arxiv_api.http_get_text",
+            return_value=("<feed xmlns=\"http://www.w3.org/2005/Atom\"></feed>", {}),
+        ) as mock:
+            adapter.retrieve("truthfulqa hallucination detection", domain="ai_progress")
+        url = mock.call_args[0][0]
+        query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+        self.assertNotIn(" ", url)
+        self.assertEqual(
+            query["search_query"][0],
+            "(cat:cs.AI OR cat:cs.LG OR cat:cs.CL) AND all:truthfulqa hallucination detection",
+        )
 
 
 class WikipediaTests(unittest.TestCase):

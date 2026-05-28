@@ -100,8 +100,16 @@ def http_get_json(
     """GET ``url``, return parsed JSON.  Raises :class:`RetrievalError` on failure."""
 
     if params:
+        cleaned_params: dict[str, Any] = {}
+        for key, value in params.items():
+            if value is None:
+                continue
+            if isinstance(value, (list, tuple)):
+                cleaned_params[key] = [str(item) for item in value if item is not None]
+            else:
+                cleaned_params[key] = str(value)
         qs = urllib.parse.urlencode(
-            {k: str(v) for k, v in params.items() if v is not None},
+            cleaned_params,
             doseq=True,
         )
         joiner = "&" if "?" in url else "?"
