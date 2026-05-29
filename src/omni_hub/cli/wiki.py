@@ -29,6 +29,18 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     reindex.add_argument("--force", action="store_true",
                           help="No-op for now; reserved for future incremental modes")
 
+    render = subparsers.add_parser(
+        "wiki-render",
+        help=(
+            "Rebuild synthesis pages AS PROJECTIONS of claims (WS1: claims are "
+            "the single source of truth).  Pages are byte-identical rebuilds, so "
+            "vault/wiki/syntheses is disposable."
+        ),
+    )
+    render.add_argument("--path", default="",
+                         help="Rebuild a single page (vault/wiki/syntheses/<slug>.md); "
+                              "omit to rebuild all synthesis pages")
+
     subparsers.add_parser(
         "wiki-doctor",
         help=(
@@ -201,6 +213,18 @@ def _reindex(args, *, runner, workspace) -> int:
             name="wiki_reindex",
             action="reindex",
             payload={},
+            risk_level=RiskLevel.LOCAL_WRITE,
+        ),
+    )
+
+
+def _render(args, *, runner, workspace) -> int:
+    return run_and_print(
+        runner,
+        OperationSpec(
+            name="wiki_render",
+            action="render",
+            payload={"path": getattr(args, "path", "")},
             risk_level=RiskLevel.LOCAL_WRITE,
         ),
     )
@@ -400,6 +424,7 @@ COMMANDS = {
     "wiki-dream": _dream,
     "wiki-lint": _lint,
     "wiki-reindex": _reindex,
+    "wiki-render": _render,
     "wiki-doctor": _doctor,
     "wiki-graph": _graph,
     "wiki-supersede": _supersede,

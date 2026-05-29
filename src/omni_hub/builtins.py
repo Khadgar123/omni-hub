@@ -1091,6 +1091,40 @@ def make_wiki_reindex(workspace: Path):
     return wiki_reindex
 
 
+def make_wiki_render(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def wiki_render(spec: OperationSpec) -> dict[str, object]:
+        """Rebuild synthesis pages from claims (WS1: wiki = projection).
+
+        ``payload.path`` rebuilds one page; omitted rebuilds all.  After
+        rebuilding, re-index FTS so search reflects the regenerated pages.
+        """
+
+        from . import wiki_projection as _wp
+        from .knowledge_plane import reindex_wiki
+
+        target = str(spec.payload.get("path", "")).strip()
+        if target:
+            page = _wp.render_page(workspace_root, target)
+            result: dict[str, object] = {
+                "pages_rendered": 0 if page.get("skipped") else 1,
+                "pages_failed": 0,
+                "pages": [page],
+            }
+        else:
+            result = _wp.render_all(workspace_root)
+        # Keep the FTS sidecar consistent with the regenerated bodies.
+        try:
+            reindex_wiki(workspace_root)
+            result["fts_reindexed"] = True
+        except Exception:                                          # noqa: BLE001
+            result["fts_reindexed"] = False
+        return result
+
+    return wiki_render
+
+
 def make_wiki_graph_query(workspace: Path):
     workspace_root = workspace.resolve()
 
@@ -1913,6 +1947,7 @@ def build_default_registry(workspace: Path | str = ".") -> OperationRegistry:
     registry.register("wiki_apply_proposal", make_wiki_apply_proposal(workspace_path))
     registry.register("wiki_ingest", make_wiki_ingest(workspace_path))
     registry.register("wiki_reindex", make_wiki_reindex(workspace_path))
+    registry.register("wiki_render", make_wiki_render(workspace_path))
     registry.register("wiki_doctor", make_wiki_doctor(workspace_path))
     registry.register("wiki_dream", make_wiki_dream(workspace_path))
     registry.register("wiki_lint", make_wiki_lint(workspace_path))

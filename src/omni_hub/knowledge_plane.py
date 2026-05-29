@@ -741,30 +741,69 @@ def apply_wiki_proposal(
         raise PermissionError("wiki update target must stay inside vault/wiki") from exc
 
     target.parent.mkdir(parents=True, exist_ok=True)
-    body = str(proposal.payload["body"])
-    # P0.2: an applied page is APPROVED by definition.  The synthesis body was
-    # emitted with `review_state: proposed` at ingest time; rewrite it so the
-    # approved-only search / context-pack gate consumes it — and any
-    # un-applied `proposed` page stays hidden by default.
-    body = _set_frontmatter_review_state(body, "approved")
-    target.write_text(body.rstrip() + "\n", encoding="utf-8")
-    append_log(workspace_root, op="apply", summary=proposal.title, source=proposal.source_path)
-    _upsert_index_entry(workspace_root, target.relative_to(workspace_root), proposal.title, proposal.summary)
+
+    # WS1 (claims single-source): land claims FIRST — stamped with this page's
+    # target_path — then render synthesis pages AS A PROJECTION of those
+    # claims rather than trusting the proposal's frozen body.  This kills the
+    # drift between a hand-edited page and the claim ledger: a synthesis page
+    # can be rebuilt from claims at any time (`wiki-render`).  concept /
+    # entity / method pages keep their human-authored exposition body.
+    rel_target = str(target.relative_to(workspace_root))
     claims_written = _append_claims(
         workspace_root,
         list(proposal.payload.get("claims", [])),
         proposal_id=proposal.proposal_id,
-        target_path=str(target.relative_to(workspace_root)),
+        target_path=rel_target,
     )
+
+    from . import wiki_projection as _wp
+
+    page_type = str(proposal.payload.get("page_type", ""))
+    is_synthesis = _wp.is_synthesis_target(rel_target, page_type)
+    active_claims = _wp.active_claims_for_page(workspace_root, rel_target) if is_synthesis else []
+    if is_synthesis and active_claims:
+        # Project the page from its claims (the single source of truth).
+        _wp.record_page_meta(
+            workspace_root,
+            rel_target,
+            page_type="synthesis",
+            domain=str(proposal.payload.get("domain", "")),
+            title=str(proposal.payload.get("title", "")),
+            query=str(proposal.payload.get("query", "")),
+        )
+        body = _wp.render_synthesis_from_claims(
+            workspace_root,
+            rel_target,
+            page_meta={
+                "page_type": "synthesis",
+                "domain": str(proposal.payload.get("domain", "")),
+                "title": str(proposal.payload.get("title", "")),
+                "query": str(proposal.payload.get("query", "")),
+            },
+        )
+    else:
+        # No claims to project (degenerate synthesis) OR an authored
+        # concept/entity/method page — keep the proposal's body.  P0.2: an
+        # applied page is APPROVED by definition, so flip review_state.
+        body = _set_frontmatter_review_state(str(proposal.payload["body"]), "approved")
+
+    target.write_text(body.rstrip() + "\n", encoding="utf-8")
+    append_log(workspace_root, op="apply", summary=proposal.title, source=proposal.source_path)
+    _upsert_index_entry(workspace_root, target.relative_to(workspace_root), proposal.title, proposal.summary)
 
     # Feed the DSPy/GEPA flywheel without depending on Argilla: an approved
     # wiki_update is by definition a positive demonstration of the
     # synthesis-page schema, so record it as an accepted PreferenceRecord.
+    # WS1: record the *authored* proposal body as the demonstration, not the
+    # machine projection — the human-meaningful synthesis is the training
+    # signal; the projection is reproducible from claims and would be a poor
+    # exemplar.  Falls back to the written body when no authored body exists.
     # Failures here are non-fatal — the apply step already succeeded.
+    authored_body = str(proposal.payload.get("body", "")) or body
     preference_path = ""
     try:
         preference_path = _record_wiki_preference(
-            workspace_root, proposal=proposal, body=body, claims_written=claims_written,
+            workspace_root, proposal=proposal, body=authored_body, claims_written=claims_written,
         )
     except Exception:                                           # noqa: BLE001
         # Preference flywheel is opportunistic; never block apply.
