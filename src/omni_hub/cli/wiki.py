@@ -69,6 +69,21 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     propose.add_argument("--path", required=True)
     propose.add_argument("--domain", default="research")
 
+    rf_ingest = subparsers.add_parser(
+        "wiki-ingest-researchflow",
+        help=(
+            "WS3: decompose a ResearchFlow main_analysis.json "
+            "(conclusion / method / result findings) into candidate claims "
+            "and emit a wiki_update Proposal.  Approve to project the synthesis "
+            "page from claims (WS1).  Richer than wiki-propose-research."
+        ),
+    )
+    rf_ingest.add_argument("--analysis-json", required=True,
+                            help="Path to a ResearchFlow main_analysis.json")
+    rf_ingest.add_argument("--domain", default="research")
+    rf_ingest.add_argument("--title", default="",
+                            help="Override page title (default: paper_metadata.title)")
+
     apply = subparsers.add_parser("wiki-apply-proposal")
     apply.add_argument("--proposal", required=True)
     apply.add_argument("--preview", action="store_true",
@@ -225,6 +240,22 @@ def _render(args, *, runner, workspace) -> int:
             name="wiki_render",
             action="render",
             payload={"path": getattr(args, "path", "")},
+            risk_level=RiskLevel.LOCAL_WRITE,
+        ),
+    )
+
+
+def _ingest_researchflow(args, *, runner, workspace) -> int:
+    return run_and_print(
+        runner,
+        OperationSpec(
+            name="wiki_ingest_researchflow",
+            action="ingest",
+            payload={
+                "analysis_json": args.analysis_json,
+                "domain": args.domain,
+                "title": args.title,
+            },
             risk_level=RiskLevel.LOCAL_WRITE,
         ),
     )
@@ -418,6 +449,7 @@ COMMANDS = {
     "wiki-status": _status,
     "wiki-search": _search,
     "wiki-propose-research": _propose_research,
+    "wiki-ingest-researchflow": _ingest_researchflow,
     "wiki-apply-proposal": _apply_proposal,
     "wiki-ingest": _ingest,
     "wiki-log": _log,
