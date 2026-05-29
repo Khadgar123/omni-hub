@@ -61,6 +61,7 @@ def run_doctor(workspace: Path | str = ".") -> DoctorReport:
         _check_supersede_graph(workspace_root),
         _check_index_md(workspace_root),
         _check_orphan_skill_md(workspace_root),
+        _check_projection(workspace_root),
     ]
     counts = {"info": 0, "warn": 0, "error": 0}
     for check in checks:
@@ -352,5 +353,36 @@ def _check_orphan_skill_md(workspace: Path) -> DoctorCheck:
             "registered": len(registered_ids),
             "orphans": orphans[:8],
             "suggestion": "run `omni-hub skill-sync --apply`" if orphans else "",
+        },
+    )
+
+
+def _check_projection(workspace: Path) -> DoctorCheck:
+    """WS1: claims<->synthesis-page projection integrity.
+
+    Detects drift between the claim ledger (source of truth) and the
+    synthesis pages projected from it: orphan pages on disk with no backing
+    active claim, and claim-referenced synthesis targets with no page.
+    Wrapped so the probe can never crash the doctor.
+    """
+
+    try:
+        from . import wiki_projection as _wp
+        pj = _wp.doctor_projection(workspace)
+    except Exception as exc:                                       # noqa: BLE001
+        return DoctorCheck(
+            name="projection_integrity", ok=True, severity="info",
+            detail={"skipped": str(exc)},
+        )
+    orphans = pj.get("orphan_pages", [])
+    unrendered = pj.get("unrendered", [])
+    ok = bool(pj.get("ok", not orphans and not unrendered))
+    return DoctorCheck(
+        name="projection_integrity", ok=ok,
+        severity="info" if ok else "error",
+        detail={
+            "orphan_pages": orphans[:8],
+            "unrendered": unrendered[:8],
+            "suggestion": "run `omni-hub wiki-render` to rebuild pages from claims" if not ok else "",
         },
     )
