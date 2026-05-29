@@ -1810,6 +1810,49 @@ def make_harness_compile_skill(workspace: Path):
     return harness_compile_skill
 
 
+def make_harness_propose_skill(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def harness_propose_skill(spec: OperationSpec) -> dict[str, object]:
+        """GEPA auto-relay: compile SKILL.md into staging -> Proposal(skill_update).
+
+        Human-gated (HR#13): the live skill is unchanged until the proposal is
+        approved and applied via ``harness_apply_skill_update``.
+        """
+
+        from .harness.dspy_compile import propose_skill_update
+
+        payload = spec.payload
+        return propose_skill_update(
+            workspace_root,
+            domain=str(payload["domain"]),
+            skill_id=str(payload.get("skill_id", "")),
+            max_positive=int(payload.get("max_positive", 10)),
+            max_negative=int(payload.get("max_negative", 4)),
+            backend=str(payload.get("backend", "manual")),
+            trace_id=spec.trace_id,
+        )
+
+    return harness_propose_skill
+
+
+def make_harness_apply_skill_update(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def harness_apply_skill_update(spec: OperationSpec) -> dict[str, object]:
+        """Write the live SKILL.md from an APPROVED skill_update proposal."""
+
+        from .harness.dspy_compile import apply_skill_update_proposal
+
+        return apply_skill_update_proposal(
+            workspace_root,
+            proposal_id=str(spec.payload["proposal_id"]),
+            trace_id=spec.trace_id,
+        )
+
+    return harness_apply_skill_update
+
+
 def make_harness_redundancy_scan(workspace: Path):
     workspace_root = workspace.resolve()
 
@@ -1924,6 +1967,8 @@ def build_default_registry(workspace: Path | str = ".") -> OperationRegistry:
     registry.register("harness_preference_add", make_harness_preference_add(workspace_path))
     registry.register("harness_compile", make_harness_compile(workspace_path))
     registry.register("harness_compile_skill", make_harness_compile_skill(workspace_path))
+    registry.register("harness_propose_skill", make_harness_propose_skill(workspace_path))
+    registry.register("harness_apply_skill_update", make_harness_apply_skill_update(workspace_path))
     registry.register("harness_redundancy_scan", make_harness_redundancy_scan(workspace_path))
     registry.register("argilla_export_proposals", make_argilla_export_proposals(workspace_path))
     registry.register("argilla_sync_feedback", make_argilla_sync_feedback(workspace_path))

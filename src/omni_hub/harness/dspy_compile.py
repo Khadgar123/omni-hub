@@ -661,3 +661,128 @@ def _render_skill_body(
         "",
     ])
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# GEPA auto-relay (closes the optimisation loop, human-gated)
+#
+# compile_skill_md() writes the live SKILL.md directly (and auto-syncs the
+# registry) — a self-promotion that bypasses review.  The sanctioned loop
+# closure compiles into a STAGING dir, captures the body, and routes it
+# through Proposal(kind="skill_update") so a human approves before the live
+# skill changes (HR#13: no auto-promotion; the anti-reward-hacking
+# consensus).  This is the missing relay the RFC flagged: compiled prompt ->
+# Proposal -> human -> live SKILL.md.
+# ---------------------------------------------------------------------------
+
+
+def propose_skill_update(
+    workspace: "Path | str" = ".",
+    *,
+    domain: str,
+    skill_id: str = "",
+    max_positive: int = 10,
+    max_negative: int = 4,
+    backend: str = "manual",
+    trace_id: str = "",
+) -> dict:
+    """Compile a SKILL.md into staging and emit it as a Proposal.
+
+    Does NOT touch the live ``.agents/skills/<id>/SKILL.md`` — compiles into a
+    temp dir, reads the body, and returns a pending
+    Proposal(kind="skill_update").  Apply via ``apply_skill_update_proposal``
+    after human approval.
+    """
+
+    import tempfile
+    from pathlib import Path as _Path
+
+    from ..proposals import PENDING, Proposal, ProposalStore
+    from .preference import PreferenceStore
+
+    workspace_root = _Path(workspace).resolve()
+    resolved_id = (skill_id or f"{domain.replace('_', '-')}-wiki").strip().lower()
+    live_rel = f".agents/skills/{resolved_id}/SKILL.md"
+
+    with tempfile.TemporaryDirectory(dir=workspace_root) as staging:
+        report = compile_skill_md(
+            domain=domain,
+            skill_id=resolved_id,
+            output_root=staging,
+            preference_store=PreferenceStore(workspace_root / ".omni" / "preference"),
+            max_positive=max_positive,
+            max_negative=max_negative,
+            backend=backend,
+        )
+        body = _Path(report.target_path).read_text(encoding="utf-8")
+
+    proposal = Proposal(
+        kind="skill_update",
+        state=PENDING,
+        title=f"[skill_update] {resolved_id}",
+        summary=(
+            f"GEPA-compiled SKILL.md for {domain} "
+            f"({report.positive_used} positive / {report.negative_used} negative "
+            f"exemplars, backend={report.backend}) — awaiting review."
+        ),
+        source_path=live_rel,
+        payload={
+            "domain": domain,
+            "skill_id": resolved_id,
+            "skill_path": live_rel,
+            "body": body,
+            "backend": report.backend,
+            "positive_used": report.positive_used,
+            "negative_used": report.negative_used,
+            "prompt_version": report.prompt_version,
+        },
+    )
+    stored = ProposalStore(workspace_root).store(proposal)
+    proposal_id = stored.get("proposal_id", proposal.proposal_id)
+    return {
+        "proposal_id": proposal_id,
+        "domain": domain,
+        "skill_id": resolved_id,
+        "skill_path": live_rel,
+        "kind": "skill_update",
+        "positive_used": report.positive_used,
+        "negative_used": report.negative_used,
+        "trace_id": trace_id,
+    }
+
+
+def apply_skill_update_proposal(
+    workspace: "Path | str" = ".",
+    proposal_id: str = "",
+    *,
+    trace_id: str = "",
+) -> dict:
+    """Write the compiled SKILL.md from an APPROVED skill_update proposal."""
+
+    from pathlib import Path as _Path
+
+    from ..proposals import APPROVED, ProposalStore
+
+    workspace_root = _Path(workspace).resolve()
+    proposal = ProposalStore(workspace_root).load(proposal_id)
+    if proposal.kind != "skill_update":
+        raise ValueError(
+            f"apply_skill_update_proposal only handles kind='skill_update'; "
+            f"got {proposal.kind!r}"
+        )
+    if proposal.state != APPROVED:
+        raise ValueError("skill_update proposal must be approved before apply")
+
+    skill_rel = str(proposal.payload["skill_path"])
+    body = str(proposal.payload["body"])
+    skill_path = workspace_root / skill_rel
+    skill_path.parent.mkdir(parents=True, exist_ok=True)
+    skill_path.write_text(body, encoding="utf-8")
+    return {
+        "proposal_id": proposal.proposal_id,
+        "domain": str(proposal.payload.get("domain", "")),
+        "skill_id": str(proposal.payload.get("skill_id", "")),
+        "skill_path": skill_rel,
+        "applied": True,
+        "trace_id": trace_id,
+    }
