@@ -4,16 +4,18 @@ Runtime is **Colima** (pure-CLI Docker on macOS — no Docker Desktop, no GUI,
 Apache-2.0, no license tier). The `docker` / `docker compose` CLIs are
 unchanged; only the daemon/VM behind them differs.
 
-## Status (verified 2026-05-29 — gateway brought up live)
+## Status (verified 2026-05-29 — full chain live)
 
 | Item | State |
 |------|-------|
 | Runtime | ✅ Colima (2 CPU / 4 GB / 20 GB), docker context `colima` |
+| `docker compose` | ✅ v2.39.4 (brew plugin, symlinked into `~/.docker/cli-plugins/`) |
 | `.env` (root) — `CCLOAD_PASS`, `METAPI_AUTH_TOKEN`, `METAPI_PROXY_TOKEN`, `CCLOAD_API_TOKENS` | ✅ set (gitignored) |
-| DeepSeek key (`local:omni-hub/api/deepseek/default`) | ✅ set |
-| `omni-ccload` (`:8080`) | ✅ running, healthy (302 → admin UI) |
-| `omni-metapi` (`:4000`) | ✅ running, healthy (HTTP 200) |
+| `omni-ccload` (`:8080`) | ✅ running, healthy |
+| `omni-metapi` (`:4000`) | ✅ running, healthy |
 | `api-management-status` → `all_services_reachable` | ✅ True |
+| ccLoad channel `deepseek-direct` → api.deepseek.com | ✅ created, enabled |
+| **End-to-end LLM call through gateway** | ✅ `POST :8080/v1/chat/completions` → HTTP 200, deepseek-chat replied |
 
 ## Daily operations (all CLI, no GUI)
 
@@ -23,34 +25,47 @@ colima start                       # uses the saved 2cpu/4gb/20gb profile
 
 # bring the gateway up (idempotent)
 cd ~/Desktop/简历/个人知识库
-docker compose --env-file api-management/env.example \
+docker compose --env-file ./.env \
   -f api-management/compose.yml up -d
 
 # verify
-docker compose -f api-management/compose.yml ps
+docker compose --env-file ./.env -f api-management/compose.yml ps
 ~/opt/anaconda3/envs/omni-hub/bin/python -m omni_hub.cli api-management-status
 
 # stop the gateway (keep VM) / stop the VM (frees RAM+CPU)
-docker compose -f api-management/compose.yml down
+docker compose --env-file ./.env -f api-management/compose.yml down
 colima stop
 ```
+
+> ⚠️ **Use `--env-file ./.env`, NOT `api-management/env.example`.** env.example
+> holds `change-me-...` placeholders; the real secrets live in the root `.env`.
+> Bringing the gateway up with env.example starts ccLoad with the placeholder
+> admin password and login fails.
 
 Endpoints:
 - ccLoad admin/proxy: `http://127.0.0.1:8080`  (admin UI `/web/`)
 - metapi admin/proxy: `http://127.0.0.1:4000`
 
-Optional — auto-start Colima at login:
-```bash
-brew services start colima
-```
+Optional — auto-start Colima at login: `brew services start colima`
 
-## First-time gateway config (one-off)
+## First-time gateway config — DONE (2026-05-29)
 
-ccLoad is up but has no upstream channel yet. In the admin UI
+The `deepseek-direct` channel was created via the admin API (login → POST
+`/admin/channels`). To add/replace a channel later, in the admin UI
 (`http://127.0.0.1:8080/web/`, password = `CCLOAD_PASS` from `.env`):
-1. add a channel pointing at DeepSeek (`https://api.deepseek.com`), or at
-   metapi (`http://omni-metapi:4000`, bearer = `METAPI_PROXY_TOKEN`);
+1. add a channel → DeepSeek (`https://api.deepseek.com`, type `openai`,
+   api_key = the DeepSeek key, models `deepseek-chat`/`deepseek-reasoner`),
+   or → metapi (`http://omni-metapi:4000`, bearer = `METAPI_PROXY_TOKEN`);
 2. point Claude Code / Codex / the omni-hub harness at ccLoad on `:8080`.
+
+Smoke-test a completion through the gateway (proxy token = first entry of
+`CCLOAD_API_TOKENS`):
+```bash
+curl -s http://127.0.0.1:8080/v1/chat/completions \
+  -H "Authorization: Bearer <CCLOAD_API_TOKENS first token>" \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"deepseek-chat","messages":[{"role":"user","content":"ping"}],"max_tokens":5}'
+```
 
 ## Working without the gateway (direct DeepSeek)
 
@@ -79,17 +94,24 @@ $PY -m omni_hub.cli wiki-vec-build
 $PY -m omni_hub.cli wiki-hybrid-search --query "<query>"
 ```
 
-## Migration note: Docker Desktop → Colima
+## Migration note: Docker Desktop → Colima (DONE 2026-05-29)
 
-Done 2026-05-29. `docker` resolves to `/opt/homebrew/bin/docker` (brew,
-earlier on PATH than Desktop's `/usr/local/bin/docker`), so the CLI survives
-removing Desktop. To uninstall Docker Desktop (frees ~2 GB + stops its
-background helpers):
+Docker Desktop was uninstalled (`/Applications/Docker.app/Contents/MacOS/uninstall`
++ removed app bundle + `~/Library/...` support dirs). `docker` now resolves to
+`/opt/homebrew/bin/docker` (brew). **The Desktop uninstall removed the bundled
+`docker compose` plugin**, so it was re-wired to the brew one:
 
 ```bash
-/Applications/Docker.app/Contents/MacOS/uninstall   # official uninstaller
-# then drag Docker.app to Trash, and optionally:
-rm -rf ~/Library/Containers/com.docker.docker \
-       ~/Library/Application\ Support/Docker\ Desktop
-hash -r   # refresh shell so `docker` -> the brew binary
+# brew's compose plugin -> the default dir docker scans
+mkdir -p ~/.docker/cli-plugins
+ln -sf /opt/homebrew/lib/docker/cli-plugins/docker-compose \
+       ~/.docker/cli-plugins/docker-compose
+# and prune Desktop leftovers from ~/.docker/config.json:
+#   removed "credsStore": "desktop" (helper is gone) + Desktop-only plugins/features
+hash -r
+docker compose version   # -> v2.39.4
 ```
+
+Residual (harmless, needs sudo to remove): a dangling root-owned symlink
+`/usr/local/bin/com.docker.cli`. Remove with
+`sudo rm /usr/local/bin/com.docker.cli` if desired.
