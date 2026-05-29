@@ -27,9 +27,12 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     retrieve.add_argument(
         "--domain", default="default",
         help=(
-            "Domain profile (engineering | research | photography | fashion | "
-            "chat_relationships | finance | policy | international_relations | "
-            "ai_progress | default)"
+            "Domain profile (source of truth: domain_schemas.DOMAIN_SCHEMAS). "
+            "One of the 19 domains — research | engineering | photography | "
+            "fashion | chat_relationships | finance | us_policy | cn_policy | "
+            "international_relations | ai_progress | agent_systems | social_en | "
+            "social_zh | meta | fitness_wellness | cooking | travel | marketing | "
+            "enterprise — or 'default'"
         ),
     )
     retrieve.add_argument(
