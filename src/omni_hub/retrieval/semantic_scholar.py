@@ -30,6 +30,7 @@ _DEFAULT_FIELDS = (
     # bloat every record and nothing in the repo does vector search.
     "title,abstract,tldr,year,authors,venue,"
     "citationCount,influentialCitationCount,openAccessPdf,url,externalIds,"
+    "fieldsOfStudy,publicationDate,publicationTypes,journal,"
     "references.externalIds"
 )
 
@@ -123,6 +124,11 @@ class SemanticScholarSource:
                 canonical_id=canonical,
                 metadata={
                     "authors": [a for a in authors if a],
+                    "authors_detailed": [
+                        {"name": a.get("name", ""), "author_id": a.get("authorId", "")}
+                        for a in (item.get("authors") or [])
+                        if isinstance(a, dict)
+                    ],
                     "year": item.get("year"),
                     "venue": item.get("venue", ""),
                     "citation_count": item.get("citationCount", 0),
@@ -134,6 +140,11 @@ class SemanticScholarSource:
                     # citation-graph consumer can walk these.
                     "reference_ids": reference_ids,
                     "reference_count": len(refs),
+                    # v0.49: stop under-extraction (Q2/Q3)
+                    "fields_of_study": list(item.get("fieldsOfStudy") or []),
+                    "publication_date": item.get("publicationDate", "") or "",
+                    "publication_types": list(item.get("publicationTypes") or []),
+                    "journal": item.get("journal") if isinstance(item.get("journal"), dict) else {},
                 },
             ))
         return records

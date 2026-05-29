@@ -86,6 +86,22 @@ class ArxivSource:
             # arXiv IDs are versioned (2510.01234v1).  Strip the version
             # suffix so v1 and v2 of the same paper collapse to one record.
             base_id = arxiv_id.rsplit("v", 1)[0] if "v" in arxiv_id else arxiv_id
+            # v0.49: stop under-extraction (Q2/Q3) — the Atom feed carries the
+            # journal DOI, journal_ref, the free-text comment (often the
+            # acceptance venue, e.g. "Accepted at NeurIPS 2025"), the primary
+            # category, the updated timestamp, and per-author affiliations.
+            doi = (entry.findtext("arxiv:doi", default="", namespaces=ATOM_NS) or "").strip()
+            journal_ref = (entry.findtext("arxiv:journal_ref", default="", namespaces=ATOM_NS) or "").strip()
+            comment = (entry.findtext("arxiv:comment", default="", namespaces=ATOM_NS) or "").strip()
+            updated = entry.findtext("atom:updated", default="", namespaces=ATOM_NS) or ""
+            primary_el = entry.find("arxiv:primary_category", ATOM_NS)
+            primary_category = primary_el.attrib.get("term", "") if primary_el is not None else ""
+            authors_detailed = []
+            for author in entry.findall("atom:author", ATOM_NS):
+                nm = (author.findtext("atom:name", default="", namespaces=ATOM_NS) or "").strip()
+                aff = (author.findtext("arxiv:affiliation", default="", namespaces=ATOM_NS) or "").strip()
+                if nm:
+                    authors_detailed.append({"name": nm, "affiliation": aff})
             records.append(RetrievalRecord(
                 source=self.name,
                 title=title,
@@ -97,8 +113,14 @@ class ArxivSource:
                     "arxiv_id": arxiv_id,
                     "arxiv_base_id": base_id,
                     "authors": authors,
+                    "authors_detailed": authors_detailed,
                     "published": published,
+                    "updated": updated,
                     "categories": categories,
+                    "primary_category": primary_category,
+                    "doi": doi,
+                    "journal_ref": journal_ref,
+                    "comment": comment,
                     # arxiv.org/html/<id> renders the paper as accessible HTML —
                     # use this for cheaper extraction than the PDF.
                     "html_url": f"https://arxiv.org/html/{arxiv_id}",
