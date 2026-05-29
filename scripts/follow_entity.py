@@ -71,6 +71,14 @@ _SOURCE_DISPATCH = {
     "edgar": ("edgar_tickers", lambda t: t),                     # list → multi
     "truth": ("truth_social_handle", lambda h: h),
     "mastodon": ("mastodon_tag", lambda t: f"#{t}"),
+    # v0.49: broad AI-source axis (X / GitHub / HF Hub / 小红书 / 公众号).
+    # Key/broker-gated sources fail-soft (no-op) until configured — adding
+    # them to an entity is always safe.
+    "x": ("x_query", lambda q: q),
+    "github": ("github_query", lambda q: q),
+    "hf_hub": ("hf_hub_query", lambda q: q),
+    "xhs": ("xhs_query", lambda q: q),
+    "wechat": ("wechat_query", lambda q: q),
 }
 
 
@@ -162,6 +170,32 @@ def _gather_one(
         for r in _safe("mastodon", Ms().retrieve,
                        f"#{src_config['mastodon_tag']}", limit=limit, domain="social_en"):
             records.append({**r.to_dict(), "_via": "mastodon"})
+
+    # v0.49 broad AI sources — all fail-soft via _safe (key/broker missing → []).
+    if "x" in sources_selected and src_config.get("x_query"):
+        X = _import("twitterapi_io", "TwitterApiIoSource")
+        for r in _safe("x", X().retrieve, src_config["x_query"], limit=limit, domain="social_en"):
+            records.append({**r.to_dict(), "_via": "x"})
+
+    if "github" in sources_selected and src_config.get("github_query"):
+        GH = _import("github", "GitHubRepoSource")
+        for r in _safe("github", GH().retrieve, src_config["github_query"], limit=limit, domain="engineering"):
+            records.append({**r.to_dict(), "_via": "github"})
+
+    if "hf_hub" in sources_selected and src_config.get("hf_hub_query"):
+        HFH = _import("hf_hub", "HFHubSource")
+        for r in _safe("hf_hub", HFH().retrieve, src_config["hf_hub_query"], limit=limit, domain="ai_progress"):
+            records.append({**r.to_dict(), "_via": "hf_hub"})
+
+    if "xhs" in sources_selected and src_config.get("xhs_query"):
+        XHS = _import("xhs", "XiaohongshuSource")
+        for r in _safe("xhs", XHS().retrieve, src_config["xhs_query"], limit=limit, domain="social_zh"):
+            records.append({**r.to_dict(), "_via": "xhs"})
+
+    if "wechat" in sources_selected and src_config.get("wechat_query"):
+        WMP = _import("wechat_mp", "WeChatMPSource")
+        for r in _safe("wechat", WMP().retrieve, src_config["wechat_query"], limit=limit, domain="social_zh"):
+            records.append({**r.to_dict(), "_via": "wechat"})
 
     return records
 
