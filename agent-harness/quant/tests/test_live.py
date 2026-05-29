@@ -73,4 +73,5 @@ def test_symbol_and_interval_validation():
         live._product("DOGEUSDT", "coinbase")
     with pytest.raises(ValueError):
         live.fetch_candles("BTCUSDT", "3h", venue="coinbase", opener=_opener(_CB_RAW))
-    assert live._COINBASE_GRAN["4h"] == 14400 and live._KRAKEN_INT["4h"] == 240
+    assert "4h" not in live._COINBASE_GRAN  # Coinbase has no 4h granularity
+    assert live._COINBASE_GRAN["6h"] == 21600 and live._KRAKEN_INT["4h"] == 240

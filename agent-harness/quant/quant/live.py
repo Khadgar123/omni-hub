@@ -25,8 +25,11 @@ SYMBOL_MAP = {
     "BTC-USD": {"coinbase": "BTC-USD", "kraken": "XBTUSD"},
     "ETH-USD": {"coinbase": "ETH-USD", "kraken": "ETHUSD"},
 }
-_COINBASE_GRAN = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600, "6h": 21600, "4h": 14400, "1d": 86400}
+# Coinbase has NO 4h granularity (only 1m/5m/15m/1h/6h/1d); Kraken does.
+_COINBASE_GRAN = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600, "6h": 21600, "1d": 86400}
 _KRAKEN_INT = {"1m": 1, "5m": 5, "15m": 15, "1h": 60, "4h": 240, "1d": 1440}
+# venue-appropriate mid "confirm" timeframe (Coinbase lacks 4h -> use 6h)
+_CONFIRM_TF = {"coinbase": "6h", "kraken": "4h"}
 _UA = "omni-hub-quant-live/0.1"
 _MICROS = 1_000_000
 
@@ -89,8 +92,10 @@ def fetch_candles(symbol, interval, *, venue="coinbase", opener=None, timeout=15
     raise ValueError(f"unknown venue {venue!r}")
 
 
-def live_market_state(symbol, *, venue="coinbase", htf="1d", confirm="4h", opener=None):
+def live_market_state(symbol, *, venue="coinbase", htf="1d", confirm=None, opener=None):
     """Assemble the top-down MarketState from live candles (no store needed)."""
+    if confirm is None:
+        confirm = _CONFIRM_TF.get(venue, "4h")
     htf_bars = fetch_candles(symbol, htf, venue=venue, opener=opener)
     confirm_bars = fetch_candles(symbol, confirm, venue=venue, opener=opener)
     h = regime.classify(htf_bars)
