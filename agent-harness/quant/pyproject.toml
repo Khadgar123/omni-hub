@@ -1,0 +1,21 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "omni-hub-quant"
+version = "0.0.1"
+description = "Single-user quant market store (DuckDB + Hive-partitioned Parquet). GATED scaffold — separate from the stdlib-only main repo."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+# These deps live HERE, never in the main omni-hub repo (which pins
+# dependencies = []).  This sub-instance is opt-in, like agent-harness/researchflow.
+dependencies = [
+  "duckdb>=1.1",
+  "polars>=1.0",
+  "pyarrow>=17.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["market_store.py"]
