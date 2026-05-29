@@ -67,6 +67,10 @@ class FederalRegisterSource:
                 "fields[]": [
                     "title", "abstract", "publication_date", "type",
                     "html_url", "document_number", "agencies",
+                    # v0.49: stop under-extraction (Q2/Q3) — regulatory detail
+                    "effective_on", "comments_close_on", "significant",
+                    "cfr_references", "docket_ids", "regulation_id_numbers",
+                    "action", "citation", "raw_text_url",
                 ],
             },
             timeout=self.timeout,
@@ -90,6 +94,17 @@ class FederalRegisterSource:
                     "document_type": item.get("type", ""),
                     "publication_date": item.get("publication_date", ""),
                     "agencies": agencies,
+                    # v0.49: full regulatory metadata (effective/comment dates,
+                    # economic-significance flag, CFR cites, docket/RIN, raw text)
+                    "effective_on": item.get("effective_on", "") or "",
+                    "comments_close_on": item.get("comments_close_on", "") or "",
+                    "significant": bool(item.get("significant", False)),
+                    "cfr_references": list(item.get("cfr_references") or []),
+                    "docket_ids": list(item.get("docket_ids") or []),
+                    "regulation_id_numbers": list(item.get("regulation_id_numbers") or []),
+                    "action": item.get("action", "") or "",
+                    "citation": item.get("citation", "") or "",
+                    "raw_text_url": item.get("raw_text_url", "") or "",
                 },
             ))
         return records
@@ -192,6 +207,13 @@ class RegulationsGovSource:
                     "agency": agency,
                     "posted_date": attrs.get("postedDate", ""),
                     "docket_id": attrs.get("docketId", ""),
+                    # v0.49: comment-period + status detail (Q2/Q3)
+                    "comment_start_date": attrs.get("commentStartDate", "") or "",
+                    "comment_end_date": attrs.get("commentEndDate", "") or "",
+                    "open_for_comment": bool(attrs.get("openForComment", False)),
+                    "withdrawn": bool(attrs.get("withdrawn", False)),
+                    "rin": attrs.get("rin", "") or "",
+                    "fr_doc_num": attrs.get("frDocNum", "") or "",
                 },
             ))
         return records
@@ -279,6 +301,15 @@ class CongressGovSource:
                     "number": number,
                     "update_date": item.get("updateDate", ""),
                     "latest_action": (item.get("latestAction") or {}).get("text", ""),
+                    # v0.49: chamber + dates + policy area (Q2/Q3). Full
+                    # sponsors/committees need a per-bill detail call (deferred).
+                    "origin_chamber": item.get("originChamber", "") or "",
+                    "introduced_date": item.get("introducedDate", "") or "",
+                    "policy_area": (
+                        (item.get("policyArea") or {}).get("name", "")
+                        if isinstance(item.get("policyArea"), dict) else ""
+                    ),
+                    "latest_action_date": (item.get("latestAction") or {}).get("actionDate", ""),
                 },
             ))
         return records

@@ -21,6 +21,11 @@ from omni_hub.retrieval.crossref import CrossrefSource
 from omni_hub.retrieval.github import GitHubRepoSource
 from omni_hub.retrieval.openalex import OpenAlexSource
 from omni_hub.retrieval.semantic_scholar import SemanticScholarSource
+from omni_hub.retrieval.us_gov import (
+    CongressGovSource,
+    FederalRegisterSource,
+    RegulationsGovSource,
+)
 
 
 _FAKE_OPENALEX = {
@@ -305,6 +310,86 @@ class GitHubExtractionTests(unittest.TestCase):
         self.assertEqual(audit["forks"], 900)
         self.assertEqual(audit["watchers"], 300)
         self.assertEqual(audit["language"], "Python")
+
+
+_FAKE_FEDREG = {
+    "results": [
+        {
+            "title": "AI Safety Rule", "abstract": "An abstract", "type": "Rule",
+            "html_url": "https://federalregister.gov/d/2026-1",
+            "document_number": "2026-1", "publication_date": "2026-05-01",
+            "agencies": [{"name": "Department of Commerce"}],
+            "effective_on": "2026-06-01", "comments_close_on": "2026-05-20",
+            "significant": True,
+            "cfr_references": [{"title": 15, "part": 700}],
+            "docket_ids": ["DOC-2026-0001"],
+            "regulation_id_numbers": ["0694-AI12"],
+            "action": "Final rule", "citation": "91 FR 12345",
+            "raw_text_url": "https://federalregister.gov/d/2026-1.txt",
+        }
+    ]
+}
+
+
+class FederalRegisterExtractionTests(unittest.TestCase):
+    def test_captures_regulatory_detail(self) -> None:
+        with patch("omni_hub.retrieval.us_gov.http_get_json", return_value=_FAKE_FEDREG):
+            md = FederalRegisterSource().retrieve("AI safety", limit=5)[0].metadata
+        self.assertEqual(md["effective_on"], "2026-06-01")
+        self.assertTrue(md["significant"])
+        self.assertEqual(md["comments_close_on"], "2026-05-20")
+        self.assertEqual(md["docket_ids"], ["DOC-2026-0001"])
+        self.assertEqual(md["citation"], "91 FR 12345")
+        self.assertEqual(md["raw_text_url"], "https://federalregister.gov/d/2026-1.txt")
+
+
+_FAKE_REGS = {
+    "data": [
+        {
+            "id": "DOC-1",
+            "attributes": {
+                "title": "Comment doc", "documentType": "Proposed Rule",
+                "agencyId": "EPA", "postedDate": "2026-05-01",
+                "docketId": "EPA-2026-1", "subject": "subj",
+                "commentEndDate": "2026-06-01", "openForComment": True,
+                "withdrawn": False, "rin": "2060-AZ", "frDocNum": "2026-9",
+            },
+        }
+    ]
+}
+
+
+class RegulationsGovExtractionTests(unittest.TestCase):
+    def test_captures_comment_period(self) -> None:
+        with patch("omni_hub.retrieval.us_gov.http_get_json", return_value=_FAKE_REGS):
+            md = RegulationsGovSource(api_key="test").retrieve("epa", limit=5)[0].metadata
+        self.assertEqual(md["comment_end_date"], "2026-06-01")
+        self.assertTrue(md["open_for_comment"])
+        self.assertEqual(md["rin"], "2060-AZ")
+        self.assertEqual(md["fr_doc_num"], "2026-9")
+
+
+_FAKE_CONGRESS = {
+    "bills": [
+        {
+            "congress": 119, "type": "HR", "number": 1234, "title": "AI Act",
+            "updateDate": "2026-05-01",
+            "latestAction": {"text": "Referred to committee", "actionDate": "2026-04-15"},
+            "originChamber": "House", "introducedDate": "2026-03-01",
+            "policyArea": {"name": "Science, Technology, Communications"},
+        }
+    ]
+}
+
+
+class CongressGovExtractionTests(unittest.TestCase):
+    def test_captures_chamber_dates_policy_area(self) -> None:
+        with patch("omni_hub.retrieval.us_gov.http_get_json", return_value=_FAKE_CONGRESS):
+            md = CongressGovSource(api_key="test").retrieve("AI", limit=5)[0].metadata
+        self.assertEqual(md["origin_chamber"], "House")
+        self.assertEqual(md["introduced_date"], "2026-03-01")
+        self.assertEqual(md["policy_area"], "Science, Technology, Communications")
+        self.assertEqual(md["latest_action_date"], "2026-04-15")
 
 
 if __name__ == "__main__":  # pragma: no cover
