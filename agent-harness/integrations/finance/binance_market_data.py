@@ -45,6 +45,10 @@ def _load_sibling(name: str):
     spec = importlib.util.spec_from_file_location(name, _HERE / f"{name}.py")
     assert spec and spec.loader
     mod = importlib.util.module_from_spec(spec)
+    # Register BEFORE exec: @dataclass resolves cls.__module__ via
+    # sys.modules[name], which is None until the module is registered (py3.12
+    # raises AttributeError on the missing entry otherwise).
+    sys.modules[name] = mod
     spec.loader.exec_module(mod)
     return mod
 

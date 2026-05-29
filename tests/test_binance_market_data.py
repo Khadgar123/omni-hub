@@ -90,6 +90,22 @@ def test_fetch_agg_trades_from_id_precedence():
     assert seen["params"]["fromId"] == 42 and "startTime" not in seen["params"]
 
 
+# ---- live default-fetch wiring (no network) --------------------------------
+
+
+def test_load_sibling_registers_module_for_dataclass():
+    """Regression: the default-fetch path (`_default_request_json` ->
+    `_load_sibling`) must register ``sys.modules[name]`` BEFORE ``exec_module``,
+    or ``binance_spot_live``'s ``@dataclass`` raises under py3.12
+    (``sys.modules.get(cls.__module__)`` -> None). This path is unexercised by
+    the injected-``request_fn`` tests above, which is how the bug hid.
+    """
+    sib = bmd._load_sibling("binance_spot_live")
+    assert hasattr(sib, "request_json")
+    creds = sib.BinanceCredentials(api_key="k", api_secret="s")  # @dataclass must build
+    assert creds.present is True
+
+
 # ---- ingestion write path (quant venv only) --------------------------------
 
 
