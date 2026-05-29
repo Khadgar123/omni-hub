@@ -221,6 +221,23 @@ class FunctionalBuiltinsTests(unittest.TestCase):
         self.assertEqual(out["status"], "succeeded")
         self.assertNotIn("context_pack", out["output"])
 
+    def test_app_route_multi_grounds_each_domain(self) -> None:
+        # R3 multi-domain: a cross-domain query gets a grounded context_pack
+        # per retained domain (fan-out). route_multi always keeps >=1 domain.
+        out = self._run("app_route_multi", {"query": "diffusion models overview"})
+        self.assertEqual(out["status"], "succeeded")
+        packs = out["output"].get("context_packs")
+        self.assertIsInstance(packs, dict)
+        self.assertGreaterEqual(len(packs), 1)
+        for p in packs.values():
+            self.assertIn("grounded", p)
+
+    def test_app_route_multi_ground_opt_out(self) -> None:
+        out = self._run("app_route_multi",
+                        {"query": "diffusion models overview", "ground": False})
+        self.assertEqual(out["status"], "succeeded")
+        self.assertNotIn("context_packs", out["output"])
+
     def test_order_propose_lands_proposal(self) -> None:
         out = self._run("order_propose", {
             "user_id": "u_x", "instrument": "NVDA",

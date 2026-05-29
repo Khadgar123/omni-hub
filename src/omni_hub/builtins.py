@@ -3085,6 +3085,8 @@ def make_app_route_task(workspace: Path):
 
 
 def make_app_route_multi(workspace: Path):
+    workspace_root = workspace.resolve()
+
     def app_route_multi(spec: OperationSpec) -> dict:
         from .app import TaskRouter
         from .channels.base import InboundMessage
@@ -3104,10 +3106,29 @@ def make_app_route_multi(workspace: Path):
             min_ratio=float(spec.payload.get("min_ratio", 0.5)),
             max_domains=int(spec.payload.get("max_domains", 4)),
         )
-        return {
+        result: dict[str, object] = {
             "inbound": inbound.to_dict(),
             "decision": decision.to_dict(),
         }
+        # composes: [context-pack] per domain — a multi-domain task gets a
+        # grounded knowledge pack for EACH retained domain (the gather half of
+        # gather-then-synthesize), so the downstream answer can cite across
+        # domains.  Opt out via {"ground": False}.
+        if spec.payload.get("ground", True):
+            packs: dict[str, object] = {}
+            for dr in getattr(decision, "domains", []) or []:
+                rp = getattr(dr, "recommended_payload", None) or {}
+                domain = str(rp.get("domain") or getattr(dr, "skill_id", "")).removesuffix("-wiki")
+                if not domain:
+                    continue
+                packs[domain] = _compose_domain_context(
+                    workspace_root,
+                    query=str(rp.get("query") or body),
+                    domain=domain,
+                    tier=str(rp.get("tier", "standard")),
+                )
+            result["context_packs"] = packs
+        return result
 
     return app_route_multi
 
