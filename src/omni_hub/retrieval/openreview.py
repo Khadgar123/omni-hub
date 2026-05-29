@@ -110,6 +110,59 @@ class OpenReviewSource:
             ))
         return records
 
+    def venue_submissions(
+        self, venueid: str, *, limit: int = 100,
+    ) -> list[RetrievalRecord]:
+        """The full ACCEPTED-paper list for a venue, e.g.
+        ``"ICLR.cc/2026/Conference"``.
+
+        OpenReview assigns ``content.venueid`` only to accepted / camera-ready
+        submissions, so filtering on it yields the official accepted list —
+        the post-conference full dump that the cascade's ``retrieve()``
+        term-search cannot enumerate.  Each record carries ``accepted: True``
+        + ``venueid`` (and a ``doi`` when present) so the identity-resolution
+        engine (``paper_identity.merge_papers``) can fold it into an existing
+        arXiv-preprint record instead of duplicating it.
+        """
+        vid = str(venueid).strip()
+        if not vid:
+            return []
+        try:
+            data = http_get_json(
+                NOTES_FORUM,
+                params={"content.venueid": vid, "limit": str(min(max(limit, 1), 1000))},
+                timeout=self.timeout,
+            )
+        except RetrievalError:
+            return []
+        notes = (data.get("notes") or []) if isinstance(data, dict) else []
+        records: list[RetrievalRecord] = []
+        for note in notes[:limit]:
+            if not isinstance(note, dict):
+                continue
+            content = note.get("content", {})
+            title = str(_v(content, "title") or "")
+            if not title:
+                continue
+            forum = str(note.get("forum") or note.get("id") or "")
+            abstract = str(_v(content, "abstract") or "")
+            records.append(RetrievalRecord(
+                source=self.name,
+                title=title,
+                url=f"https://openreview.net/forum?id={forum}" if forum else "",
+                snippet=abstract[:500],
+                canonical_id=f"openreview:{forum}" if forum else "",
+                metadata={
+                    "forum_id": forum,
+                    "venue": str(_v(content, "venue") or vid),
+                    "venueid": vid,
+                    "accepted": True,
+                    "doi": str(_v(content, "doi") or ""),
+                    "authors": _v(content, "authors") or [],
+                },
+            ))
+        return records
+
     def forum_thread(self, forum_id: str) -> dict | None:
         """Structured review thread for ONE paper: reviews, ratings, the
         decision, and a derived ``accepted`` flag.  Best-effort → ``None``.
