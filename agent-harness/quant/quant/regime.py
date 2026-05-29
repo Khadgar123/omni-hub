@@ -126,6 +126,32 @@ def cusum_standdown(
     return out
 
 
+def _fuse(adx_v, slope_per_atr):
+    """(adx, scale-free EMA slope) -> (label, direction, strength). Shared by
+    classify() and classify_series() so the rule is defined once."""
+    if slope_per_atr is None:
+        direction = "flat"
+    elif slope_per_atr > SLOPE_EPS:
+        direction = "up"
+    elif slope_per_atr < -SLOPE_EPS:
+        direction = "down"
+    else:
+        direction = "flat"
+    if adx_v is None:
+        strength = "weak"
+    elif adx_v >= ADX_STRONG:
+        strength = "strong"
+    elif adx_v >= ADX_TREND:
+        strength = "normal"
+    else:
+        strength = "weak"
+    if direction == "flat" or strength == "weak" or (adx_v is not None and adx_v < ADX_RANGE):
+        label = "range"
+    else:
+        label = ("strong_" if strength == "strong" else "") + direction
+    return label, direction, strength
+
+
 def classify(bars: Sequence[dict]) -> RegimeResult:
     """Classify the regime as of the last bar in ``bars`` (sorted ascending)."""
     n = len(bars)
@@ -142,33 +168,7 @@ def classify(bars: Sequence[dict]) -> RegimeResult:
     stand_down = cusum_standdown(vol_series)[-1] if n else False
 
     slope_per_atr = (slope_v / atr_v) if (slope_v is not None and atr_v) else None
-
-    # direction from scale-free EMA slope
-    if slope_per_atr is None:
-        direction = "flat"
-    elif slope_per_atr > SLOPE_EPS:
-        direction = "up"
-    elif slope_per_atr < -SLOPE_EPS:
-        direction = "down"
-    else:
-        direction = "flat"
-
-    # strength from ADX
-    if adx_v is None:
-        strength = "weak"
-    elif adx_v >= ADX_STRONG:
-        strength = "strong"
-    elif adx_v >= ADX_TREND:
-        strength = "normal"
-    else:
-        strength = "weak"
-
-    # fuse -> label
-    if direction == "flat" or strength == "weak" or (adx_v is not None and adx_v < ADX_RANGE):
-        label = "range"
-    else:
-        prefix = "strong_" if strength == "strong" else ""
-        label = f"{prefix}{direction}"
+    label, direction, strength = _fuse(adx_v, slope_per_atr)
 
     return RegimeResult(
         as_of=as_of,
@@ -187,3 +187,41 @@ def classify(bars: Sequence[dict]) -> RegimeResult:
             "ema_len": EMA_LEN,
         },
     )
+
+
+def classify_series(bars: Sequence[dict]) -> list[dict]:
+    """Per-bar regime labels over a whole series (indicators computed ONCE → O(n)).
+
+    Returns one dict per bar with the fields a backtest/harness needs:
+    ``as_of, label, direction, strength, stand_down, insufficient, adx,
+    slope_per_atr``. This is the point-in-time regime track for the HTF/confirm
+    timeframes the MTF assembly consumes.
+    """
+    n = len(bars)
+    if n == 0:
+        return []
+    closes = features.closes(bars)
+    adx_s = features.adx(bars, ADX_LEN)["adx"]
+    ema_s = features.ema(closes, EMA_LEN)
+    slope_s = features.slope(ema_s, SLOPE_LOOKBACK)
+    atr_s = features.atr(bars, ATR_LEN)
+    stand_down_s = cusum_standdown(features.realized_vol(closes, VOL_LEN))
+
+    out: list[dict] = []
+    for i in range(n):
+        adx_v = adx_s[i]
+        slope_v = slope_s[i]
+        atr_v = atr_s[i]
+        spa = (slope_v / atr_v) if (slope_v is not None and atr_v) else None
+        label, direction, strength = _fuse(adx_v, spa)
+        out.append({
+            "as_of": int(bars[i].get("bucket_ts", 0)),
+            "label": label,
+            "direction": direction,
+            "strength": strength,
+            "stand_down": bool(stand_down_s[i]),
+            "insufficient": adx_v is None and spa is None,
+            "adx": adx_v,
+            "slope_per_atr": spa,
+        })
+    return out
