@@ -191,6 +191,72 @@ class OpenAlexSource:
             ))
         return records
 
+    def venue_works(
+        self,
+        *,
+        source_id: str = "",
+        venue_name: str = "",
+        year: int | None = None,
+        limit: int = 200,
+    ) -> list[RetrievalRecord]:
+        """Accepted/published works for a VENUE + year — the non-OpenReview
+        accepted-list path (CVPR / AAAI / ACL / KDD / ...).
+
+        Prefer ``source_id`` (a stable OpenAlex venue id like ``S4306420609``,
+        from ``api.openalex.org/sources?search=NAME``); else fall back to a
+        venue display-name search.  Records are lightweight (title / doi /
+        venue / year / authors) — enough for the accepted index + the
+        ``paper_identity`` dedup; full enrichment is a later pass.
+        """
+        if source_id:
+            vfilter = f"primary_location.source.id:{source_id}"
+        elif venue_name:
+            vfilter = f"primary_location.source.display_name.search:{venue_name}"
+        else:
+            return []
+        filters = [vfilter] + ([f"publication_year:{year}"] if year else [])
+        params: dict[str, str] = {
+            "filter": ",".join(filters),
+            "per-page": str(min(max(limit, 1), 200)),
+        }
+        if self.mailto:
+            params["mailto"] = self.mailto
+        data = http_get_json(WORKS_URL, params=params, timeout=self.timeout)
+        results = (data.get("results") or []) if isinstance(data, dict) else []
+        records: list[RetrievalRecord] = []
+        for item in results[:limit]:
+            if not isinstance(item, dict):
+                continue
+            doi = item.get("doi", "") or ""
+            venue = (
+                (item.get("primary_location") or {}).get("source") or {}
+            ).get("display_name", "")
+            canonical = (
+                _normalise_doi(doi)
+                or (item.get("id", "") or "").replace("https://openalex.org/", "openalex:")
+            )
+            authors = [
+                (a.get("author") or {}).get("display_name", "")
+                for a in (item.get("authorships") or [])
+            ][:8]
+            records.append(RetrievalRecord(
+                source=self.name,
+                title=item.get("display_name", ""),
+                url=item.get("id", "") or doi,
+                snippet=venue,
+                score=float(item.get("cited_by_count", 0)),
+                canonical_id=canonical,
+                metadata={
+                    "doi": doi,
+                    "venue": venue,
+                    "year": item.get("publication_year"),
+                    "authors": [a for a in authors if a],
+                    "accepted": True,
+                    "openalex_id": item.get("id", ""),
+                },
+            ))
+        return records
+
 
 def _reconstruct_abstract(inverted: dict[str, list[int]]) -> str:
     """OpenAlex stores abstracts as ``{word: [positions]}`` for copyright
