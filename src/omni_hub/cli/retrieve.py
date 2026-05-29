@@ -49,6 +49,15 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         ),
     )
     retrieve.add_argument(
+        "--quality-weight", type=float, default=0.0,
+        help=(
+            "Blend learned source-quality (SourceQualityStore: success-rate x "
+            "freshness) into fusion ranking, 0..1. Default 0.0 = pure "
+            "priority/RRF. Decouples measured quality from cascade priority — a "
+            "fallback/degraded source is not assumed worse."
+        ),
+    )
+    retrieve.add_argument(
         "--grader", choices=["heuristic"], default=None,
         help=(
             "CRAG-style grader applied post-fusion. ``heuristic`` drops "
@@ -124,6 +133,7 @@ def _retrieve(args, *, runner, workspace) -> int:
         "per_source_limit": args.per_source_limit,
         "total_limit": args.total_limit,
         "fusion": args.fusion,
+        "quality_weight": float(args.quality_weight),
         "use_cache": bool(args.cache),
         "persist_evidence": bool(args.persist_evidence),
     }
