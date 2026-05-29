@@ -68,6 +68,7 @@ def _new_id() -> str:
 class Task:
     id: int = 0
     idempotency_key: str = ""
+    trace_id: str = ""                        # W3C trace correlation (HR #4)
     domain_profile: str = ""
     lane: str = "python"                      # python | claude | codex | ...
     packet: dict[str, Any] = field(default_factory=dict)
@@ -98,6 +99,7 @@ class Task:
         return {
             "id": self.id,
             "idempotency_key": self.idempotency_key,
+            "trace_id": self.trace_id,
             "domain_profile": self.domain_profile,
             "lane": self.lane,
             "packet": self.packet,
@@ -120,6 +122,8 @@ def _task_from_row(row: sqlite3.Row) -> Task:
     return Task(
         id=int(row["id"]),
         idempotency_key=row["idempotency_key"] or "",
+        # trace_id added by migration; tolerate missing column on legacy dbs.
+        trace_id=row["trace_id"] if "trace_id" in keys and row["trace_id"] is not None else "",
         domain_profile=row["domain_profile"] or "",
         lane=row["lane"],
         packet=json.loads(row["packet_json"]) if row["packet_json"] else {},
@@ -163,6 +167,7 @@ class TaskQueue:
         lane: str,
         packet: dict[str, Any],
         domain_profile: str = "",
+        trace_id: str = "",
         idempotency_key: str | None = None,
         available_at: int | None = None,
         max_attempts: int = 3,
@@ -179,15 +184,15 @@ class TaskQueue:
                 cur = conn.execute(
                     """
                     INSERT INTO tasks (
-                        idempotency_key, domain_profile, lane, packet_json,
+                        idempotency_key, trace_id, domain_profile, lane, packet_json,
                         state, attempts, max_attempts, available_at,
                         created_at, updated_at
                     )
-                    VALUES (?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?)
                     RETURNING *
                     """,
                     (
-                        key, domain_profile, lane, packet_json,
+                        key, trace_id, domain_profile, lane, packet_json,
                         max_attempts, avail, now, now,
                     ),
                 )
@@ -561,6 +566,7 @@ class TaskQueue:
                 CREATE TABLE IF NOT EXISTS tasks (
                     id              INTEGER PRIMARY KEY AUTOINCREMENT,
                     idempotency_key TEXT NOT NULL UNIQUE,
+                    trace_id        TEXT NOT NULL DEFAULT '',
                     domain_profile  TEXT NOT NULL DEFAULT '',
                     lane            TEXT NOT NULL,
                     packet_json     TEXT NOT NULL,
@@ -588,6 +594,10 @@ class TaskQueue:
             if "lease_epoch" not in cols:
                 conn.execute(
                     "ALTER TABLE tasks ADD COLUMN lease_epoch INTEGER NOT NULL DEFAULT 0"
+                )
+            if "trace_id" not in cols:
+                conn.execute(
+                    "ALTER TABLE tasks ADD COLUMN trace_id TEXT NOT NULL DEFAULT ''"
                 )
             conn.commit()
 

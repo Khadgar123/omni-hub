@@ -90,6 +90,39 @@ class OpenAlexSource:
                 item.get("abstract_inverted_index") or {}
             )
 
+            # v0.46: keep the API-native authorship structure (ORCID + ROR +
+            # affiliation + corresponding flag).  This is the recommended way
+            # to close the author / lab / ORCID gap — far cleaner and more
+            # reliable than parsing a PDF header.  `authors` (display names,
+            # capped at 5) stays for the snippet; `authors_detailed` carries
+            # the full structured list (uncapped at the connector, 50 max).
+            authors_detailed = []
+            for a in (item.get("authorships") or [])[:50]:
+                author = a.get("author") or {}
+                authors_detailed.append({
+                    "name": author.get("display_name", ""),
+                    "orcid": author.get("orcid") or "",
+                    "is_corresponding": bool(a.get("is_corresponding", False)),
+                    "institutions": [
+                        {
+                            "display_name": (inst or {}).get("display_name", ""),
+                            "ror": (inst or {}).get("ror", ""),
+                            "country_code": (inst or {}).get("country_code", ""),
+                        }
+                        for inst in (a.get("institutions") or [])
+                    ],
+                })
+            topics = [
+                (t or {}).get("display_name", "") for t in (item.get("topics") or [])
+            ]
+            topics = [t for t in topics if t][:8]
+            best_oa = item.get("best_oa_location") or {}
+            oa_pdf_url = (
+                best_oa.get("pdf_url", "")
+                or (item.get("open_access") or {}).get("oa_url", "")
+                or ""
+            )
+
             # DOI is the strongest canonical_id for scholarly works; fall
             # back to the openalex_id when DOI is missing (some grey lit).
             canonical = (
@@ -105,12 +138,15 @@ class OpenAlexSource:
                 canonical_id=canonical,
                 metadata={
                     "authors": [a for a in authors if a],
+                    "authors_detailed": authors_detailed,
+                    "topics": topics,
                     "year": year,
                     "venue": venue,
                     "doi": doi,
                     "openalex_id": item.get("id", ""),
                     "cited_by_count": item.get("cited_by_count", 0),
                     "open_access": (item.get("open_access") or {}).get("is_oa", False),
+                    "oa_pdf_url": oa_pdf_url,
                 },
             ))
         return records

@@ -225,6 +225,7 @@ def make_enqueue_task(workspace: Path):
             lane=str(payload["lane"]),
             packet=dict(payload.get("packet", {})),
             domain_profile=str(payload.get("domain_profile", "")),
+            trace_id=str(payload.get("trace_id") or spec.trace_id or ""),
             idempotency_key=payload.get("idempotency_key"),
             available_at=payload.get("available_at"),
             max_attempts=int(payload.get("max_attempts", 3)),
@@ -511,6 +512,14 @@ def make_memory_promote_recall(workspace: Path):
     return memory_promote_recall
 
 
+# Operator-pinned planner model for query-intent source narrowing.  Left
+# None by default — same gate as the LLM grader inside the op below: with no
+# model, plan() degrades to the full domain cascade (a safe no-op).  An
+# embedder enables narrowing in-process by setting
+# ``omni_hub.builtins.PLANNER_MODEL_CALL = my_llm_callable``.
+PLANNER_MODEL_CALL = None
+
+
 def make_retrieve_cascade(workspace: Path):
     workspace_root = workspace.resolve()
 
@@ -541,15 +550,59 @@ def make_retrieve_cascade(workspace: Path):
         # `llm` grader is intentionally not wireable from CLI yet — the
         # callable needs a model client the operator pins themselves.
 
+        domain = str(payload.get("domain", "default"))
+        query = str(payload["query"])
+
+        # Source-selection precedence:
+        #   1. explicit payload["sources"]  → use verbatim
+        #   2. payload["plan"] truthy        → query-intent narrowing via the
+        #      retrieval planner (plan-then-search).  Its model_call is
+        #      operator-pinned (PLANNER_MODEL_CALL); with no model it degrades
+        #      to the full domain cascade, so plan=true is a safe no-op until a
+        #      model is supplied in-process.
+        #   3. otherwise                     → the domain's DEFAULT cascade
+        sources = list(payload["sources"]) if payload.get("sources") else None
+        plan_meta: dict[str, object] = {}
+        if sources is None and bool(payload.get("plan", False)):
+            from .retrieval import plan as plan_sources
+            available = cascade.cascade_for(domain) or list(cascade.sources)
+            retrieval_plan = plan_sources(
+                query,
+                domain=domain,
+                available_sources=available,
+                model_call=PLANNER_MODEL_CALL,
+            )
+            sources = retrieval_plan.sources or None
+            if (
+                retrieval_plan.rewritten_query
+                and retrieval_plan.rewritten_query != query
+            ):
+                query = retrieval_plan.rewritten_query
+            plan_meta = retrieval_plan.to_dict()
+
         result = cascade.retrieve(
-            str(payload["query"]),
-            domain=str(payload.get("domain", "default")),
+            query,
+            domain=domain,
             per_source_limit=int(payload.get("per_source_limit", 5)),
             total_limit=int(payload.get("total_limit", 20)),
-            sources=list(payload["sources"]) if payload.get("sources") else None,
+            sources=sources,
             fusion=fusion,                # type: ignore[arg-type]
             grader=grader,
         )
+
+        # v0.46 measured-quality telemetry: record which sources actually
+        # delivered this run so the cascade can later rank by quality, not
+        # just priority.  Side-effect only (output unchanged); fail-soft —
+        # telemetry must never break retrieval (same contract as cache writes).
+        try:
+            from .retrieval.source_quality import SourceQualityStore
+
+            SourceQualityStore(workspace_root).record_cascade(
+                tried=result.sources_tried,
+                succeeded=result.sources_succeeded,
+            )
+        except Exception:  # noqa: BLE001
+            pass
 
         # v0.17-K: optional cross-encoder rerank tail (Cohere v4 / Voyage v2.5).
         # Applied AFTER fusion + grader.  Key-gated; falls through silently
@@ -575,6 +628,8 @@ def make_retrieve_cascade(workspace: Path):
                 rerank_meta = {"reranker": reranker_name, "ok": False, "reason": str(exc)}
 
         result_dict = result.to_dict()
+        if plan_meta:
+            result_dict["plan"] = plan_meta
         if rerank_meta:
             result_dict["rerank"] = rerank_meta
 
@@ -2773,9 +2828,10 @@ def make_app_report_build(workspace: Path):
             task = queue.enqueue(
                 lane="claude",
                 packet=narrative_req.to_packet(),
+                trace_id=narrative_req.trace_id,
                 idempotency_key=f"report-narrate-{period.value}-{summary.window_end}",
             )
-            narrative_task_id = task.task_id
+            narrative_task_id = str(task.id)
             summary.narrative_task_id = narrative_task_id
 
         out = summary.to_dict()

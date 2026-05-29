@@ -67,7 +67,12 @@ def _write_evidence(
     record: dict,
     source: str,
 ) -> None:
-    domain_slug = domain.lower().replace("/", "_")
+    # Use the canonical production slugifier (NOT a local replace('/','_'))
+    # so seed output lands in the SAME evidence tree as the live ingest
+    # path — otherwise "ai_progress" (here) and "ai-progress"
+    # (knowledge_plane._slugify) split into two duplicate trees.
+    from omni_hub.knowledge_plane import _slugify
+    domain_slug = _slugify(domain)
     evidence_dir = repo_root / "vault" / "evidence" / domain_slug
     raw_dir = repo_root / "vault" / "raw" / domain_slug / run_id
     evidence_dir.mkdir(parents=True, exist_ok=True)

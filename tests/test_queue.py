@@ -46,6 +46,22 @@ class TaskQueueTests(unittest.TestCase):
             # second enqueue must not overwrite payload
             self.assertEqual(b.packet, {"v": 1})
 
+    def test_trace_id_round_trips_enqueue_claim_to_dict(self) -> None:
+        # HR #4: every write carries a trace_id. It must survive
+        # enqueue -> persist -> claim -> to_dict so the omni-hub ->
+        # ccLoad -> upstream hop can be correlated.
+        with tempfile.TemporaryDirectory() as tmp:
+            q = TaskQueue(tmp)
+            task = q.enqueue(lane="python", packet={}, trace_id="trace-abc-123")
+            self.assertEqual(task.trace_id, "trace-abc-123")
+            self.assertEqual(task.to_dict()["trace_id"], "trace-abc-123")
+            claimed = q.claim(lane="python", claimed_by="w1")
+            assert claimed is not None
+            self.assertEqual(claimed.trace_id, "trace-abc-123")
+            # default stays empty (back-compat for unfenced/legacy callers)
+            t2 = q.enqueue(lane="python", packet={})
+            self.assertEqual(t2.trace_id, "")
+
     def test_claim_transitions_state_and_increments_attempts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             q = TaskQueue(tmp)

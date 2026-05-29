@@ -1726,6 +1726,12 @@ def _write_evidence_files(
             "fetched_at": record.get("fetched_at", _utcnow()),
             "score": record.get("score"),
             "raw_path": raw_path,
+            # v0.46: persist the connector's API-native metadata.  Previously
+            # dropped here, which is why "the API structure is lost" — the
+            # RetrievalRecord.metadata escape hatch never reached disk.  The
+            # seed-script writer already kept it; this aligns the production
+            # path to the same (single) evidence schema.
+            "metadata": record.get("metadata", {}) or {},
         }
         file_name = f"{run_id}__{idx:03d}__{digest}.json"
         target = domain_dir / file_name
@@ -1769,6 +1775,17 @@ def _render_raw_capture(
         str(record.get("snippet", "")),
         "",
     ]
+    metadata = record.get("metadata") or {}
+    if metadata:
+        # Keep raw genuinely lossless (as the docstring promises): preserve
+        # the connector's full API-native metadata so a later re-parse with
+        # a different evidence pipeline can recover fields the summary layer
+        # dropped.
+        lines.append("<!-- omni:metadata -->")
+        lines.append("```json")
+        lines.append(json.dumps(metadata, ensure_ascii=False, indent=2, sort_keys=True))
+        lines.append("```")
+        lines.append("")
     return "\n".join(lines)
 
 
@@ -1785,6 +1802,8 @@ def _claims_from_retrieval_records(
     sharpen these later.
     """
 
+    from .retrieval.source_policy import source_tier as _source_tier
+
     claims: list[dict[str, object]] = []
     seen_statements: set[str] = set()
     for record in records:
@@ -1796,6 +1815,7 @@ def _claims_from_retrieval_records(
             continue
         seen_statements.add(statement.lower())
         canonical = str(record.get("canonical_id") or record.get("url") or "")
+        _meta = record.get("metadata") or {}
         claims.append(
             {
                 "claim_id": _stable_id("claim", domain, query, canonical, statement),
@@ -1807,6 +1827,12 @@ def _claims_from_retrieval_records(
                         "cite_id": record.get("cite_id", ""),
                         "url": record.get("url", ""),
                         "source": record.get("source", ""),
+                        # v0.46 provenance carried onto the claim: cost/access
+                        # tier + how the evidence was served.  Lets downstream
+                        # rank/audit a claim by where it came from WITHOUT
+                        # assuming a fallback/degraded source is worse.
+                        "source_tier": _source_tier(str(record.get("source", ""))),
+                        "served_via": _meta.get("served_via", ""),
                     }
                 ],
                 "against": [],

@@ -33,6 +33,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable, Literal, TYPE_CHECKING
 
 from .base import RetrievalError, RetrievalRecord, RetrievalSource
+from .source_policy import source_tier
 
 if TYPE_CHECKING:
     from .cache import TTLCache
@@ -54,7 +55,7 @@ DEFAULT_DOMAIN_CASCADES: dict[str, list[str]] = {
         # not papers.  Among academic sources, openalex > arxiv > crossref.
         # tavily/exa parallel to brave for cleaned content + semantic fallback.
         # hackernews surfaces dev-tool / OSS / founder-grade discussion.
-        "brave_search", "tavily", "exa", "hackernews",
+        "brave_search", "tavily", "exa", "hackernews", "github",
         "openalex", "arxiv", "crossref", "wikidata", "wikipedia",
     ],
     "research": [
@@ -63,12 +64,13 @@ DEFAULT_DOMAIN_CASCADES: dict[str, list[str]] = {
         #   - openalex:  freshest metadata (Crossref-synced daily), 250M+ works,
         #                key-less, no recycle risk → default main source
         #   - arxiv:     primary PDF entry for preprints
-        #   - semantic_scholar: irreplaceable for TLDR / SPECTER / influentialCitations,
-        #                but corpus refreshes monthly — used as deep-dive supplement
+        #   - semantic_scholar: TLDR one-liner + influentialCitationCount +
+        #                reference edges (all now requested in _DEFAULT_FIELDS);
+        #                corpus refreshes monthly — used as deep-dive supplement
         #   - europe_pmc / pubmed: biomedical fill-in
         #   - crossref:  raw DOI fallback (OpenAlex already ingests it upstream)
         #   - wikidata / wikipedia: concept / entity tail
-        "openalex", "arxiv", "semantic_scholar",
+        "openalex", "arxiv", "semantic_scholar", "openreview",
         "europe_pmc", "pubmed", "crossref",
         "tavily", "exa",                              # AI-friendly + semantic-similar fallback
         "wikidata", "wikipedia",
@@ -112,8 +114,22 @@ DEFAULT_DOMAIN_CASCADES: dict[str, list[str]] = {
     "ai_progress": [
         # hf_daily_papers head: AI Daily-Paper feed is the specialised source.
         # openalex moved ahead of arxiv (broader coverage, fresher metadata).
-        "hf_daily_papers", "openalex", "arxiv", "crossref",
+        # v0.46 paper-artifact layer: openreview (peer review + decision),
+        # hf_hub (released checkpoints/datasets), github (code).
+        "hf_daily_papers", "openalex", "arxiv", "openreview", "crossref",
+        "hf_hub", "github",
         "brave_search", "tavily", "exa", "hackernews",
+        "wikidata", "wikipedia",
+    ],
+    "agent_systems": [
+        # Agent frameworks / SDKs / harness modules — a real vertical domain
+        # (DOMAIN_SCHEMAS["agent_systems"]).  Before v0.46 this key was
+        # MISSING here, so every agent_systems retrieval silently fell
+        # through to "default" and used the wrong sources.  Cascade:
+        # papers (openalex/arxiv) + code (github) + dev-grade discussion
+        # (hackernews) + entity/news tail.
+        "openalex", "arxiv", "github", "hackernews",
+        "brave_search", "tavily", "gdelt",
         "wikidata", "wikipedia",
     ],
     "default": [
@@ -260,15 +276,16 @@ class Cascade:
         # Cache hits short-circuit the source call entirely; only sources
         # without a fresh cache entry are dispatched to the pool.
         deferred: list[tuple[str, RetrievalSource]] = []
-        cache_hits = 0
+        cache_hit_names: set[str] = set()
         for name, adapter in runnable:
             cached = self.cache.get(name, query, domain) if self.cache else None
             if cached is not None:
                 per_source_records[name] = cached
                 result.sources_succeeded.append(name)
-                cache_hits += 1
+                cache_hit_names.add(name)
             else:
                 deferred.append((name, adapter))
+        cache_hits = len(cache_hit_names)
         if cache_hits:
             result.errors.append({
                 "source": "_cache",
@@ -361,6 +378,20 @@ class Cascade:
         # Stable id for citation rendering (R1, R2, …)
         for idx, rec in enumerate(result.records, start=1):
             rec.cite_id = f"R{idx}"
+        # v0.46 provenance: stamp HOW each surviving record was served, its
+        # cost/access tier, and its cascade rank.  These are DESCRIPTIVE
+        # (where did this come from) and kept deliberately separate from
+        # MEASURED quality (source_quality.SourceQualityStore) — a high-rank
+        # "primary" source is not assumed best, a fallback is not assumed
+        # worse.  served_via defaults to "live" unless a connector set it
+        # (e.g. a future hedge path); cache hits are marked "cache".
+        plan_rank = {name: i for i, name in enumerate(result.sources_tried)}
+        for rec in result.records:
+            rec.metadata.setdefault(
+                "served_via", "cache" if rec.source in cache_hit_names else "live"
+            )
+            rec.metadata["source_tier"] = source_tier(rec.source)
+            rec.metadata["cascade_rank"] = plan_rank.get(rec.source, -1)
         return result
 
     # ------------------------------------------------------------------

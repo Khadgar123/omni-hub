@@ -1,9 +1,14 @@
-"""Source Mesh — policy-driven source resolution.
+"""Source policy — capability→source buckets + tier metadata (advisory).
 
-Replaces "tool soup" with "source mesh".  Instead of each domain
-hard-coding a flat list of sources, we group sources by **purpose**
-(broad search, web extraction, social, conflict events, finance, etc.)
-and let domains compose policies.
+Groups sources by **purpose** (broad search, web extraction, social,
+conflict events, finance, etc.) with a tier per source.  This is an
+ADVISORY / reference layer (used by ``resolve_policy`` and the
+``source-policy-grade`` report); it does NOT decide what the cascade
+executes.  The single source of truth for *which sources a domain hits,
+in what order* is ``DEFAULT_DOMAIN_CASCADES`` in
+``omni_hub.retrieval.cascade``.  (v0.46 removed the parallel per-domain
+policy composer that had drifted from the cascade for 20/23 domains and
+was never wired into retrieval.)
 
 Three benefits over raw cascade lists:
 
@@ -19,8 +24,9 @@ Three benefits over raw cascade lists:
    the *social_en* policy, not the *research* policy that just happens
    to also list HN.
 
-This is the v0.42 architecture lift the audit flagged — "Source Mesh,
-not Tool Soup".
+The capability-bucket idea is retained as a grading / reference aid; the
+executed per-domain order lives in the cascade (see note at the bottom of
+this module).
 
 Usage in code::
 
@@ -107,7 +113,7 @@ POLICIES: dict[str, Policy] = {
         primary=[
             PolicyEntry("openalex", 0, note="Crossref-synced daily, 250M works"),
             PolicyEntry("arxiv", 0, note="preprint PDFs"),
-            PolicyEntry("semantic_scholar", 1, note="TLDR + SPECTER embedding + influentialCitations"),
+            PolicyEntry("semantic_scholar", 1, note="TLDR + influentialCitations + reference edges"),
             PolicyEntry("crossref", 0, note="DOI fallback"),
             PolicyEntry("europe_pmc", 0, note="biomedical full-text"),
         ],
@@ -253,62 +259,44 @@ def resolve_policy(
     ]
 
 
-def policies_for_domain(domain: str) -> list[str]:
-    """Reverse map: which policies should compose a domain's cascade?
+def source_tier(name: str) -> int:
+    """Return the *cost/access* tier a source sits at (0/1/2).
 
-    Domains can use multiple policies (e.g. research = academic +
-    long_form + entity_concept).  Cascade combines them while
-    deduplicating sources.
+    0 = free / self-host / open API (no key); 1 = free quota / personal
+    key; 2 = paid / broker / commercial.  When a source appears in several
+    policy buckets the LOWEST (cheapest) tier wins; unknown sources default
+    to tier 0.
+
+    Deliberately ORTHOGONAL to measured quality (see
+    ``omni_hub.retrieval.source_quality.SourceQualityStore``).  Provenance
+    records both so a downstream consumer can tell a *degraded / fallback*
+    record apart from a *primary* one WITHOUT assuming the fallback is
+    worse — "降级的不一定差,优先级高的不一定好".
     """
 
-    return _DOMAIN_TO_POLICIES.get(domain, [])
+    tiers = [
+        entry.tier
+        for policy in POLICIES.values()
+        for entry in policy.primary
+        if entry.source == name
+    ]
+    return min(tiers) if tiers else 0
 
 
-_DOMAIN_TO_POLICIES: dict[str, list[str]] = {
-    "research": ["academic", "long_form", "entity_concept"],
-    "ai_progress": ["academic", "social_en", "long_form", "broad_search", "entity_concept"],
-    "engineering": ["broad_search", "social_en", "academic", "entity_concept"],
-    "biomedical": ["academic", "entity_concept"],
-    "finance": ["finance_us", "broad_search", "entity_concept"],
-    "us_policy": ["us_policy_sources", "broad_search", "entity_concept"],
-    "cn_policy": ["cn_policy_sources", "broad_search", "entity_concept"],
-    "law": ["us_policy_sources", "entity_concept"],
-    "international_relations": ["conflict_events", "stats_macro", "broad_search", "entity_concept"],
-    "statistics": ["stats_macro", "entity_concept"],
-    "agent_systems": ["academic", "social_en", "broad_search", "entity_concept"],
-    "social_en": ["social_en", "broad_search"],
-    "social_zh": ["social_zh"],
-    "marketing": ["social_zh", "broad_search", "entity_concept"],
-    "enterprise": ["finance_us", "broad_search", "entity_concept"],
-    "photography": ["image_media", "entity_concept"],
-    "fashion": ["entity_concept"],
-    "cooking": ["social_zh", "entity_concept"],
-    "travel": ["social_zh", "entity_concept"],
-    "fitness_wellness": ["academic", "entity_concept"],
-    "chat_relationships": [],
-    "meta": [],
-    "default": ["broad_search", "entity_concept"],
-}
-
-
-def domain_sources_via_policy(domain: str, *, allow_paid: bool = False) -> list[str]:
-    """Compose a domain's full source list by union'ing its policies.
-
-    Preserves the first-seen order across policies (so the most
-    relevant policy's head sources stay first), and de-dups.
-    """
-
-    seen: set[str] = set()
-    out: list[str] = []
-    for pname in policies_for_domain(domain):
-        for source in resolve_policy(pname, allow_paid=allow_paid):
-            if source not in seen:
-                seen.add(source)
-                out.append(source)
-    return out
+# NOTE (v0.46): the per-domain policy *composer* that used to live here
+# (``policies_for_domain`` / ``_DOMAIN_TO_POLICIES`` /
+# ``domain_sources_via_policy``) was REMOVED.  It was a parallel,
+# never-wired second source of truth for per-domain source selection:
+# nothing in retrieval read it (the only consumer was a grading script),
+# and it had drifted from the executed cascade for 20/23 domains.  The
+# single source of truth for *which sources a domain hits, in what order*
+# is ``DEFAULT_DOMAIN_CASCADES`` in ``omni_hub.retrieval.cascade``.  This
+# module now serves two narrower, still-live purposes only: the
+# capability→source POLICIES buckets above and their tier metadata
+# (consumed by ``resolve_policy`` and the ``source-policy-grade`` report).
 
 
 __all__ = [
     "Policy", "PolicyEntry", "POLICIES",
-    "resolve_policy", "policies_for_domain", "domain_sources_via_policy",
+    "resolve_policy", "source_tier",
 ]

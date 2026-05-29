@@ -153,9 +153,15 @@ def _seed_domain(repo_root: Path, domain: str, anchors: list[str], limit: int) -
     from omni_hub.retrieval.wikipedia import WikipediaSource
 
     wp = WikipediaSource()
-    run_id = datetime.now().strftime(f"seed-wiki-{domain}-%Y%m%d-%H%M%S")
-    evidence_dir = repo_root / "vault" / "evidence" / domain
-    raw_dir = repo_root / "vault" / "raw" / domain / run_id
+    # Filesystem MUST use the canonical slug (hyphen), never the raw underscore
+    # domain key — otherwise evidence splits into ai_progress/ vs ai-progress/
+    # twins that `wiki-ingest --domain` cannot reconcile.  Mirrors
+    # scripts/seed_orchestrator.py (which already slugifies).
+    from omni_hub.knowledge_plane import _slugify
+    domain_slug = _slugify(domain)
+    run_id = datetime.now().strftime(f"seed-wiki-{domain_slug}-%Y%m%d-%H%M%S")
+    evidence_dir = repo_root / "vault" / "evidence" / domain_slug
+    raw_dir = repo_root / "vault" / "raw" / domain_slug / run_id
     evidence_dir.mkdir(parents=True, exist_ok=True)
     raw_dir.mkdir(parents=True, exist_ok=True)
 

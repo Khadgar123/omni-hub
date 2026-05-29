@@ -22,7 +22,15 @@ SEARCH_URL = "https://api.semanticscholar.org/graph/v1/paper/search"
 S2_SECRET_REF = "local:omni-hub/api/semantic-scholar/default"
 
 _DEFAULT_FIELDS = (
-    "title,abstract,year,authors,venue,citationCount,openAccessPdf,url,externalIds"
+    # v0.46: added tldr (a human-written one-liner — better snippet than a
+    # hard-truncated abstract), influentialCitationCount (citation-farming-
+    # resistant signal), and references.externalIds (the cheapest citation-
+    # graph edge of any connector — S2 returns them inline, no 2nd call).
+    # Deliberately NOT requesting `embedding` (SPECTER): 768-dim vectors
+    # bloat every record and nothing in the repo does vector search.
+    "title,abstract,tldr,year,authors,venue,"
+    "citationCount,influentialCitationCount,openAccessPdf,url,externalIds,"
+    "references.externalIds"
 )
 
 
@@ -94,11 +102,23 @@ class SemanticScholarSource:
                 canonical = f"arxiv:{ext_ids['ArXiv']}"
             elif ext_ids.get("PubMed"):
                 canonical = f"pmid:{ext_ids['PubMed']}"
+            tldr_text = (item.get("tldr") or {}).get("text", "") or ""
+            influential = int(item.get("influentialCitationCount", 0) or 0)
+            refs = item.get("references") or []
+            reference_ids: list[str] = []
+            for r in refs:
+                eid = (r or {}).get("externalIds") or {}
+                if eid.get("DOI"):
+                    reference_ids.append(f"doi:{str(eid['DOI']).lower()}")
+                elif eid.get("ArXiv"):
+                    reference_ids.append(f"arxiv:{eid['ArXiv']}")
             records.append(RetrievalRecord(
                 source=self.name,
                 title=item.get("title", ""),
                 url=item.get("url", "") or item.get("openAccessPdf", {}).get("url", ""),
-                snippet=(item.get("abstract") or "")[:500],
+                # tldr makes a far better snippet than a truncated abstract;
+                # fall back to the abstract when S2 has no tldr for the paper.
+                snippet=tldr_text or (item.get("abstract") or "")[:500],
                 score=float(item.get("citationCount", 0)),
                 canonical_id=canonical,
                 metadata={
@@ -106,8 +126,14 @@ class SemanticScholarSource:
                     "year": item.get("year"),
                     "venue": item.get("venue", ""),
                     "citation_count": item.get("citationCount", 0),
+                    "influential_citation_count": influential,
+                    "tldr": tldr_text,
                     "external_ids": ext_ids,
                     "open_access_pdf": (item.get("openAccessPdf") or {}).get("url", ""),
+                    # Citation-graph edges — cheap, inline; a downstream
+                    # citation-graph consumer can walk these.
+                    "reference_ids": reference_ids,
+                    "reference_count": len(refs),
                 },
             ))
         return records

@@ -32,7 +32,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 
-DOMAIN_SCHEMA_VERSION = "v0.20"
+DOMAIN_SCHEMA_VERSION = "v0.21"
 
 
 @dataclass(slots=True)
@@ -85,6 +85,15 @@ DOMAIN_SCHEMAS: dict[str, DomainSchema] = {
             ("topics", "list of topical tags from the analysis"),
             ("core_operator", "PaperBite-style one-line description of the central operator"),
             ("primary_logic", "PaperBite-style one-line description of the mechanism"),
+            # v0.46 paper-artifact fields — modelled as structured frontmatter,
+            # NOT new entities (KISS).  Populated by the new connectors:
+            ("orcids", "author ORCIDs — from OpenAlex authorships (disambiguation)"),
+            ("affiliations", "author institutions + ROR ids — from OpenAlex"),
+            ("paper_versions", "PaperVersion list: arXiv v1/v2/.. + camera-ready {version,date,url}"),
+            ("review_thread", "ReviewThread: OpenReview decision + avg_rating + n_reviews (openreview.forum_thread)"),
+            ("acceptance", "venue decision: accepted / rejected / withdrawn / unknown (OpenReview)"),
+            ("code_artifact", "Artifact: GitHub stars/license/latest-release/checkpoint (github.repo_audit)"),
+            ("model_artifact", "Artifact: HF Hub model/dataset id + downloads (hf_hub.model_info)"),
         ],
         stale_after_days=730,
         pinned_refs=[

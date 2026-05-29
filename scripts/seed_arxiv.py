@@ -28,6 +28,14 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from pathlib import Path
 
+# Make the in-repo omni_hub importable when run as a standalone script so we
+# share the ONE canonical slug normalizer (knowledge_plane._slugify).  Without
+# this, a local replace('/','_') wrote "ai_progress" while the live ingest path
+# wrote "ai-progress", splitting evidence into two duplicate trees.
+if str(Path(__file__).resolve().parent.parent / "src") not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+from omni_hub.knowledge_plane import _slugify  # noqa: E402
+
 
 QUERY_URL = "https://export.arxiv.org/api/query"
 ATOM_NS = {
@@ -93,7 +101,7 @@ def _write_evidence(
     idx: int,
     paper: dict,
 ) -> None:
-    domain_slug = domain.lower().replace("/", "_")
+    domain_slug = _slugify(domain)
     evidence_dir = repo_root / "vault" / "evidence" / domain_slug
     raw_dir = repo_root / "vault" / "raw" / domain_slug / run_id
     evidence_dir.mkdir(parents=True, exist_ok=True)

@@ -378,6 +378,41 @@ class OpenAlexTests(unittest.TestCase):
         self.assertEqual(rec.metadata["venue"], "NeurIPS")
         self.assertIn("This paper matters", rec.snippet)
 
+    def test_keeps_orcid_ror_topics_and_oa_pdf(self) -> None:
+        # v0.46: API-native author/lab/ORCID structure preserved (closes the
+        # author/lab/ORCID gap without parsing a PDF header).
+        adapter = OpenAlexSource()
+        fake = {"results": [{
+            "id": "https://openalex.org/W2",
+            "display_name": "Paper",
+            "publication_year": 2026,
+            "doi": "https://doi.org/10.y",
+            "cited_by_count": 5,
+            "authorships": [{
+                "is_corresponding": True,
+                "author": {"display_name": "Lin",
+                           "orcid": "https://orcid.org/0000-0002-1825-0097"},
+                "institutions": [{"display_name": "MIT",
+                                  "ror": "https://ror.org/042nb2s44",
+                                  "country_code": "US"}],
+            }],
+            "topics": [{"display_name": "Reinforcement Learning"},
+                       {"display_name": "Robotics"}],
+            "best_oa_location": {"pdf_url": "https://x/paper.pdf"},
+            "open_access": {"is_oa": True, "oa_url": "https://x/oa"},
+            "abstract_inverted_index": {"Hello": [0]},
+        }]}
+        with patch("omni_hub.retrieval.openalex.http_get_json", return_value=fake):
+            rec = adapter.retrieve("q", limit=1)[0]
+        ad = rec.metadata["authors_detailed"][0]
+        self.assertEqual(ad["orcid"], "https://orcid.org/0000-0002-1825-0097")
+        self.assertTrue(ad["is_corresponding"])
+        self.assertEqual(ad["institutions"][0]["ror"], "https://ror.org/042nb2s44")
+        self.assertEqual(ad["institutions"][0]["display_name"], "MIT")
+        self.assertEqual(rec.metadata["topics"],
+                         ["Reinforcement Learning", "Robotics"])
+        self.assertEqual(rec.metadata["oa_pdf_url"], "https://x/paper.pdf")
+
 
 class SemanticScholarTests(unittest.TestCase):
     def test_uses_api_key_header_when_provided(self) -> None:
@@ -391,6 +426,45 @@ class SemanticScholarTests(unittest.TestCase):
         kwargs = mock.call_args.kwargs
         self.assertEqual(kwargs["headers"]["x-api-key"], "secret-key")
         self.assertEqual(records[0].score, 3.0)
+
+    def test_requests_tldr_and_reference_fields_not_embedding(self) -> None:
+        adapter = SemanticScholarSource()
+        with patch(
+            "omni_hub.retrieval.semantic_scholar.http_get_json",
+            return_value={"data": []},
+        ) as mock:
+            adapter.retrieve("x")
+        fields = mock.call_args.kwargs["params"]["fields"]
+        self.assertIn("tldr", fields)
+        self.assertIn("influentialCitationCount", fields)
+        self.assertIn("references.externalIds", fields)
+        self.assertNotIn("embedding", fields)        # no vector consumer
+
+    def test_prefers_tldr_and_keeps_citation_graph_edges(self) -> None:
+        adapter = SemanticScholarSource()
+        fake = {"data": [{
+            "title": "P",
+            "abstract": "long abstract that should be ignored when tldr present",
+            "tldr": {"text": "One-line summary."},
+            "citationCount": 10,
+            "influentialCitationCount": 4,
+            "authors": [{"name": "A"}],
+            "externalIds": {"DOI": "10.Z"},
+            "references": [
+                {"externalIds": {"DOI": "10.AAA"}},
+                {"externalIds": {"ArXiv": "2501.00001"}},
+                {"externalIds": {}},
+            ],
+        }]}
+        with patch(
+            "omni_hub.retrieval.semantic_scholar.http_get_json", return_value=fake,
+        ):
+            rec = adapter.retrieve("x")[0]
+        self.assertEqual(rec.snippet, "One-line summary.")
+        self.assertEqual(rec.metadata["influential_citation_count"], 4)
+        self.assertEqual(rec.metadata["reference_ids"],
+                         ["doi:10.aaa", "arxiv:2501.00001"])
+        self.assertEqual(rec.metadata["reference_count"], 3)
 
 
 class ArxivTests(unittest.TestCase):
@@ -1752,10 +1826,87 @@ class FinanceTests(unittest.TestCase):
             "omni_hub.retrieval.finance.http_get_json", return_value=fake,
         ) as mock:
             records = FREDSource(api_key="fkey").retrieve("unemployment")
-        self.assertEqual(mock.call_args.kwargs["params"]["api_key"], "fkey")
-        self.assertEqual(mock.call_args.kwargs["params"]["order_by"], "popularity")
+        # retrieve() now fires a search call + up-to-3 latest-observation
+        # calls; the *search* request is the first call.
+        search_params = mock.call_args_list[0].kwargs["params"]
+        self.assertEqual(search_params["api_key"], "fkey")
+        self.assertEqual(search_params["order_by"], "popularity")
         self.assertEqual(records[0].canonical_id, "fred:UNRATE")
         self.assertEqual(records[0].score, 99.0)
+
+    def test_fred_enriches_top_series_with_latest_value(self) -> None:
+        # v0.46: the top-N series get their latest observation fetched so
+        # "what is GDP" answers with a number, not just a series link.
+        from omni_hub.retrieval.finance import FREDSource
+        search = {"seriess": [{
+            "id": "GDP", "title": "Gross Domestic Product", "popularity": 95,
+            "frequency": "Quarterly", "units": "Billions of Dollars",
+            "observation_start": "1947-01-01", "observation_end": "2026-01-01",
+            "notes": "Nominal GDP.",
+        }]}
+        observations = {"observations": [{"date": "2026-01-01", "value": "29123.4"}]}
+        with patch(
+            "omni_hub.retrieval.finance.http_get_json",
+            side_effect=[search, observations],
+        ):
+            records = FREDSource(api_key="k").retrieve("GDP")
+        rec = records[0]
+        self.assertEqual(rec.metadata["latest_value"], "29123.4")
+        self.assertEqual(rec.metadata["latest_value_date"], "2026-01-01")
+        self.assertIn("29123.4", rec.snippet)
+
+    def test_fred_observation_missing_value_is_skipped(self) -> None:
+        # FRED encodes missing data as "."; it must not become a value.
+        from omni_hub.retrieval.finance import FREDSource
+        search = {"seriess": [{"id": "X", "title": "X", "popularity": 1, "notes": "n"}]}
+        observations = {"observations": [{"date": "2026-01-01", "value": "."}]}
+        with patch(
+            "omni_hub.retrieval.finance.http_get_json",
+            side_effect=[search, observations],
+        ):
+            records = FREDSource(api_key="k").retrieve("x")
+        self.assertNotIn("latest_value", records[0].metadata)
+
+    def test_edgar_resolve_cik(self) -> None:
+        from omni_hub.retrieval.finance import EdgarSource
+        tickers = {"0": {"cik_str": 320193, "ticker": "AAPL", "title": "Apple Inc."}}
+        with patch("omni_hub.retrieval.finance.http_get_json", return_value=tickers):
+            cik = EdgarSource().resolve_cik("aapl")
+        self.assertEqual(cik, "0000320193")
+
+    def test_edgar_company_concept_picks_latest_period(self) -> None:
+        # v0.46: on-demand XBRL fetch turns "10-K link" into a number.
+        from omni_hub.retrieval.finance import EdgarSource
+        tickers = {"0": {"cik_str": 320193, "ticker": "AAPL", "title": "Apple Inc."}}
+        concept = {
+            "entityName": "Apple Inc.", "label": "Revenues",
+            "units": {"USD": [
+                {"end": "2024-09-30", "val": 391035000000, "fy": 2024,
+                 "fp": "FY", "form": "10-K", "filed": "2024-11-01"},
+                {"end": "2025-09-30", "val": 416000000000, "fy": 2025,
+                 "fp": "FY", "form": "10-K", "filed": "2025-11-01"},
+            ]},
+        }
+        with patch(
+            "omni_hub.retrieval.finance.http_get_json",
+            side_effect=[tickers, concept],
+        ):
+            out = EdgarSource().company_concept("AAPL", "Revenues")
+        self.assertEqual(out["value"], 416000000000)
+        self.assertEqual(out["period_end"], "2025-09-30")
+        self.assertEqual(out["cik"], "0000320193")
+        self.assertEqual(out["unit"], "USD")
+
+    def test_edgar_company_concept_is_not_in_cascade_retrieve(self) -> None:
+        # Guard the audit's rule: the search connector must NOT auto-fetch
+        # XBRL.  retrieve() makes exactly one (search) HTTP call.
+        from omni_hub.retrieval.finance import EdgarSource
+        fake = {"hits": {"hits": []}}
+        with patch(
+            "omni_hub.retrieval.finance.http_get_json", return_value=fake,
+        ) as mock:
+            EdgarSource().retrieve("Apple")
+        self.assertEqual(mock.call_count, 1)
 
 
 # ===========================================================================

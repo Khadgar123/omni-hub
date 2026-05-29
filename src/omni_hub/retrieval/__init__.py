@@ -63,13 +63,16 @@ def builtin_sources() -> dict[str, RetrievalSource]:
     from .exa import ExaSearchSource
     from .finance import EdgarSource, FREDSource
     from .gdelt import GDELTSource
+    from .github import GitHubRepoSource
     from .hackernews import HackerNewsSource
     from .hf_daily_papers import HFDailyPapersSource
+    from .hf_hub import HFHubSource
     from .intl import ACLEDSource, IMFSource, WorldBankSource
     from .jina_reader import JinaReaderFetcher
     from .legal import CourtListenerSource
     from .mastodon import MastodonSource
     from .openalex import OpenAlexSource
+    from .openreview import OpenReviewSource
     from .photo import PexelsSource, UnsplashSource
     from .pixabay import PixabaySource
     from .reddit import RedditSource
@@ -106,6 +109,9 @@ def builtin_sources() -> dict[str, RetrievalSource]:
             GDELTSource(),
             HackerNewsSource(),                       # social_en / engineering, no auth
             HFDailyPapersSource(),
+            HFHubSource(),                            # HF Hub models/datasets (≠ daily_papers)
+            GitHubRepoSource(),                       # repo / release artifact audit
+            OpenReviewSource(),                       # peer-review threads (api2)
             InternetArchiveSource(),
             IMFSource(),
             JinaReaderFetcher(),

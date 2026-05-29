@@ -1,7 +1,7 @@
 ---
 omni_type: domain_schema
 domain: agent_systems
-schema_version: v0.20
+schema_version: v0.21
 stale_after_days: 30
 ---
 
