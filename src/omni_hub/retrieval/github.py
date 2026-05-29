@@ -122,6 +122,20 @@ class GitHubRepoSource:
                 "open_issues": int(repo.get("open_issues_count", 0) or 0),
                 "archived": bool(repo.get("archived", False)),
                 "language": repo.get("language", "") or "",
+                # v0.49: stop under-extraction (Q3 code linkage) — `topics` is
+                # the strongest paper<->code signal; description/homepage/
+                # timestamps/watchers feed maintenance + relevance scoring.
+                "topics": list(repo.get("topics") or []),
+                "description": desc,
+                "homepage": str(repo.get("homepage", "") or ""),
+                "created_at": str(repo.get("created_at", "") or ""),
+                "updated_at": str(repo.get("updated_at", "") or ""),
+                "watchers": int(
+                    repo.get("subscribers_count", repo.get("watchers_count", 0)) or 0
+                ),
+                "default_branch": str(repo.get("default_branch", "") or ""),
+                "has_wiki": bool(repo.get("has_wiki", False)),
+                "has_issues": bool(repo.get("has_issues", False)),
             },
         )
 
@@ -186,4 +200,12 @@ class GitHubRepoSource:
             "releases": releases,
             "homepage": meta.get("homepage", "") or "",
             "url": meta.get("html_url", ""),
+            # v0.49: richer maintenance + linkage signals (Q3)
+            "forks": int(meta.get("forks_count", 0) or 0),
+            "watchers": int(meta.get("subscribers_count", 0) or 0),
+            "topics": list(meta.get("topics") or []),
+            "language": meta.get("language", "") or "",
+            "created_at": meta.get("created_at", "") or "",
+            "updated_at": meta.get("updated_at", "") or "",
+            "description": meta.get("description", "") or "",
         }

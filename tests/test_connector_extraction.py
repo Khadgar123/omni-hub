@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from omni_hub.retrieval.arxiv_api import ArxivSource
 from omni_hub.retrieval.crossref import CrossrefSource
+from omni_hub.retrieval.github import GitHubRepoSource
 from omni_hub.retrieval.openalex import OpenAlexSource
 from omni_hub.retrieval.semantic_scholar import SemanticScholarSource
 
@@ -256,6 +257,54 @@ class ArxivExtractionTests(unittest.TestCase):
         md = self._md()
         self.assertEqual(md["authors_detailed"][0]["name"], "Jane Doe")
         self.assertEqual(md["authors_detailed"][0]["affiliation"], "MIT")
+
+
+_FAKE_GH_REPO = {
+    "full_name": "google/transformer",
+    "html_url": "https://github.com/google/transformer",
+    "stargazers_count": 5000,
+    "license": {"spdx_id": "Apache-2.0"},
+    "pushed_at": "2026-05-01T00:00:00Z",
+    "created_at": "2017-06-01T00:00:00Z",
+    "updated_at": "2026-05-02T00:00:00Z",
+    "forks_count": 900,
+    "open_issues_count": 12,
+    "archived": False,
+    "language": "Python",
+    "topics": ["transformer", "attention", "nlp"],
+    "description": "Reference implementation",
+    "homepage": "https://example.org",
+    "subscribers_count": 300,
+    "default_branch": "main",
+    "has_wiki": True,
+    "has_issues": True,
+}
+
+
+class GitHubExtractionTests(unittest.TestCase):
+    def test_search_captures_topics_description_homepage(self) -> None:
+        with patch(
+            "omni_hub.retrieval.github.http_get_json",
+            return_value={"items": [_FAKE_GH_REPO]},
+        ):
+            md = GitHubRepoSource(token="").retrieve("transformer", limit=5)[0].metadata
+        self.assertEqual(md["topics"], ["transformer", "attention", "nlp"])
+        self.assertEqual(md["description"], "Reference implementation")
+        self.assertEqual(md["homepage"], "https://example.org")
+        self.assertEqual(md["watchers"], 300)
+        self.assertEqual(md["default_branch"], "main")
+
+    def test_repo_audit_captures_topics_and_forks(self) -> None:
+        with patch(
+            "omni_hub.retrieval.github.http_get_json",
+            side_effect=[_FAKE_GH_REPO, []],
+        ):
+            audit = GitHubRepoSource(token="").repo_audit("google/transformer")
+        self.assertIsNotNone(audit)
+        self.assertEqual(audit["topics"], ["transformer", "attention", "nlp"])
+        self.assertEqual(audit["forks"], 900)
+        self.assertEqual(audit["watchers"], 300)
+        self.assertEqual(audit["language"], "Python")
 
 
 if __name__ == "__main__":  # pragma: no cover
