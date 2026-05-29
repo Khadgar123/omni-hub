@@ -539,9 +539,9 @@ def make_retrieve_cascade(workspace: Path):
 
         cascade = Cascade(builtin_sources(), cache=cache)
 
-        fusion = str(payload.get("fusion", "concat"))
+        fusion = str(payload.get("fusion", "rrf"))
         if fusion not in ("rrf", "concat"):
-            fusion = "concat"
+            fusion = "rrf"
 
         grader = None
         grader_name = str(payload.get("grader", "")).strip().lower()

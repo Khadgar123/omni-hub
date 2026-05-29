@@ -1710,7 +1710,11 @@ def _write_evidence_files(
         # actually saw at fetch time).
         raw_name = f"{idx:03d}__{digest}.md"
         raw_target = raw_run_dir / raw_name
-        raw_body = _render_raw_capture(record, run_id=run_id, idx=idx)
+        raw_hash = _record_raw_hash(record)
+        license_str = _record_license(record)
+        raw_body = _render_raw_capture(
+            record, run_id=run_id, idx=idx, raw_hash=raw_hash, license_=license_str,
+        )
         raw_target.write_text(raw_body, encoding="utf-8")
         raw_path = str(raw_target.relative_to(workspace))
 
@@ -1726,6 +1730,10 @@ def _write_evidence_files(
             "fetched_at": record.get("fetched_at", _utcnow()),
             "score": record.get("score"),
             "raw_path": raw_path,
+            # v0.46 bronze provenance: content fingerprint (tamper-evident +
+            # run-independent dedup key) + best-effort source license.
+            "raw_hash": raw_hash,
+            "license": license_str,
             # v0.46: persist the connector's API-native metadata.  Previously
             # dropped here, which is why "the API structure is lost" — the
             # RetrievalRecord.metadata escape hatch never reached disk.  The
@@ -1743,11 +1751,55 @@ def _write_evidence_files(
     return written
 
 
+def _record_raw_hash(record: dict[str, object]) -> str:
+    """Content fingerprint of what we captured — tamper-evident + a dedup key.
+
+    Hashes the stable fetch-time payload (title/url/snippet/canonical_id +
+    the connector's API-native metadata), independent of run_id/idx so the
+    same artifact fetched twice hashes identically.
+    """
+
+    payload = {
+        "title": record.get("title", ""),
+        "url": record.get("url", ""),
+        "snippet": record.get("snippet", ""),
+        "canonical_id": record.get("canonical_id", ""),
+        "metadata": record.get("metadata", {}) or {},
+    }
+    blob = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+def _record_license(record: dict[str, object]) -> str:
+    """Best-effort source license / usage terms for the bronze artifact.
+
+    Several connectors already surface it (Crossref ``license``, GitHub SPDX
+    ``license``, OpenAlex OA status); capture whatever is present and leave it
+    blank otherwise — honest, never invented.
+    """
+
+    meta = record.get("metadata") or {}
+    lic = (
+        record.get("license")
+        or meta.get("license")
+        or meta.get("spdx_license")
+        or meta.get("oa_status")
+        or ""
+    )
+    if isinstance(lic, dict):
+        lic = lic.get("name") or lic.get("spdx_id") or lic.get("url") or ""
+    if isinstance(lic, (list, tuple)):
+        lic = ", ".join(str(x) for x in lic if x)
+    return str(lic)
+
+
 def _render_raw_capture(
     record: dict[str, object],
     *,
     run_id: str,
     idx: int,
+    raw_hash: str = "",
+    license_: str = "",
 ) -> str:
     """Render a retrieval record as raw-layer markdown.
 
@@ -1768,6 +1820,8 @@ def _render_raw_capture(
         f"cite_id: {record.get('cite_id', '')}",
         f"title: {json.dumps(str(record.get('title', '')), ensure_ascii=False)}",
         f"fetched_at: {record.get('fetched_at', _utcnow())}",
+        f"raw_hash: {raw_hash}",
+        f"license: {json.dumps(license_, ensure_ascii=False)}",
         "---",
         "",
         f"# {record.get('title') or 'Untitled retrieval record'}",

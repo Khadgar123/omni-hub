@@ -302,10 +302,22 @@ class BiomedicalSourceTests(unittest.TestCase):
                 },
             },
         }
+        # efetch (abstracts) goes through http_get_text, not http_get_json —
+        # mock it too so the test stays network-free and we can assert the
+        # v0.46 abstract enrichment lands.
+        efetch_xml = (
+            '<?xml version="1.0"?><PubmedArticleSet><PubmedArticle>'
+            "<MedlineCitation><PMID>12345</PMID><Article><Abstract>"
+            "<AbstractText>A clinical evidence abstract.</AbstractText>"
+            "</Abstract></Article></MedlineCitation></PubmedArticle></PubmedArticleSet>"
+        )
         with patch(
             "omni_hub.retrieval.biomedical.http_get_json",
             side_effect=[esearch, esummary],
-        ) as mock:
+        ) as mock, patch(
+            "omni_hub.retrieval.biomedical.http_get_text",
+            return_value=(efetch_xml, {}),
+        ) as text_mock:
             records = PubMedSource(
                 email="dev@example.org",
                 api_key="ncbi-key",
@@ -317,8 +329,12 @@ class BiomedicalSourceTests(unittest.TestCase):
         self.assertEqual(rec.url, "https://pubmed.ncbi.nlm.nih.gov/12345/")
         self.assertEqual(rec.metadata["pmid"], "12345")
         self.assertEqual(rec.metadata["authors"], ["Ada Lovelace"])
+        # v0.46: efetch abstract is captured and preferred as the snippet.
+        self.assertEqual(rec.metadata["abstract"], "A clinical evidence abstract.")
+        self.assertEqual(rec.snippet, "A clinical evidence abstract.")
         self.assertEqual(mock.call_args_list[0].kwargs["params"]["db"], "pubmed")
         self.assertEqual(mock.call_args_list[1].kwargs["params"]["id"], "12345")
+        self.assertEqual(text_mock.call_count, 1)  # one efetch call
 
 
 class StructuredFactSourceTests(unittest.TestCase):

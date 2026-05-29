@@ -10,9 +10,9 @@ cascade — we still return whatever the working sources gave us.
 
 Fusion strategies (`fusion=` kwarg on :meth:`Cascade.retrieve`):
 
-* ``"concat"`` (legacy default) — preserve per-source order, concatenate
+* ``"concat"`` (opt-in) — preserve per-source order, concatenate
   in cascade order, dedup. This is what omni-hub shipped in v0.9 part 1.
-* ``"rrf"`` (new, 2026 universal default) — Reciprocal Rank Fusion across
+* ``"rrf"`` (default since v0.46) — Reciprocal Rank Fusion across
   sources: ``score = Σ 1/(k + rank_i)`` with ``k=60``.  Cross-source
   comparable; a record appearing in 2 sources ranks above one in 1.
   Matches LangChain ``EnsembleRetriever`` and Perplexity stage-1 fusion.
@@ -233,7 +233,7 @@ class Cascade:
         per_source_limit: int = 5,
         total_limit: int = 20,
         sources: list[str] | None = None,
-        fusion: FusionMode = "concat",
+        fusion: FusionMode = "rrf",
         timeout: float = 15.0,
         grader: Grader | None = None,
     ) -> CascadeResult:

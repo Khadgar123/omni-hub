@@ -129,6 +129,8 @@ def http_get_json(
             body_preview = exc.read().decode("utf-8", errors="replace")[:300]
         except Exception:  # pragma: no cover
             pass
+        finally:
+            exc.close()  # release the socket/tempfile fp (no ResourceWarning)
         raise RetrievalError(
             f"{url} returned HTTP {exc.code}: {body_preview}"
         ) from exc
@@ -164,6 +166,7 @@ def http_get_text(
             raw = resp.read()
             response_headers = {k.lower(): v for k, v in resp.headers.items()}
     except urllib.error.HTTPError as exc:
+        exc.close()  # release the socket/tempfile fp (no ResourceWarning)
         raise RetrievalError(f"{url} returned HTTP {exc.code}") from exc
     except urllib.error.URLError as exc:
         raise RetrievalError(f"{url} unreachable: {exc.reason}") from exc
