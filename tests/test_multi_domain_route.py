@@ -54,5 +54,32 @@ class MultiDomainRouteTests(unittest.TestCase):
         self.assertEqual(d.primary_skill_id, self.r.default_skill_id)
 
 
+class AppRouteMultiOpTests(unittest.TestCase):
+    """The CLI op (app_route_multi) end-to-end through the builtin."""
+
+    def test_op_returns_multi_domain_plan(self) -> None:
+        import tempfile
+        from pathlib import Path
+
+        from omni_hub import builtins as ohb
+        from omni_hub.models import OperationSpec, RiskLevel
+
+        with tempfile.TemporaryDirectory() as d:
+            op = ohb.make_app_route_multi(Path(d))
+            spec = OperationSpec(
+                name="app_route_multi", action="route",
+                payload={
+                    "query": "compare the 10-k earnings stock options report "
+                             "with the arxiv paper doi citation venue",
+                },
+                risk_level=RiskLevel.READ_ONLY,
+            )
+            out = op(spec)
+        self.assertTrue(out["decision"]["is_multi_domain"])
+        ids = {dom["skill_id"] for dom in out["decision"]["domains"]}
+        self.assertIn("finance", ids)
+        self.assertIn("research", ids)
+
+
 if __name__ == "__main__":
     unittest.main()

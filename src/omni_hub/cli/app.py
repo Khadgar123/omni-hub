@@ -65,6 +65,22 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     intent.add_argument("--channel", default="cli",
                          choices=["cli", "mcp", "email", "feishu", "discord"])
 
+    multi = subparsers.add_parser(
+        "app-route-multi",
+        help="Plan a query that may span MULTIPLE knowledge domains "
+             "(cross-domain).  Returns an ordered per-domain plan, each with "
+             "its recommended op — gather one context-pack per domain, then "
+             "synthesise once.  Heuristic; no LLM call.",
+    )
+    multi.add_argument("--query", required=True)
+    multi.add_argument("--subject", default="")
+    multi.add_argument("--sender", default="cli-user")
+    multi.add_argument("--channel", default="cli",
+                       choices=["cli", "mcp", "email", "feishu", "discord"])
+    multi.add_argument("--min-ratio", type=float, default=0.5,
+                       help="Keep domains scoring >= min_ratio × top (default 0.5)")
+    multi.add_argument("--max-domains", type=int, default=4)
+
     sync = subparsers.add_parser(
         "skill-stubs-sync",
         help="Regenerate .agents/skills/<slug>-wiki/SKILL.md stubs from "
@@ -142,9 +158,29 @@ def _app_intent_route(args, *, runner, workspace) -> int:
     )
 
 
+def _app_route_multi(args, *, runner, workspace) -> int:
+    return run_and_print(
+        runner,
+        OperationSpec(
+            name="app_route_multi",
+            action="route",
+            payload={
+                "query": args.query,
+                "subject": args.subject,
+                "sender": args.sender,
+                "channel": args.channel,
+                "min_ratio": args.min_ratio,
+                "max_domains": args.max_domains,
+            },
+            risk_level=RiskLevel.READ_ONLY,
+        ),
+    )
+
+
 COMMANDS = {
     "app-report-build": _app_report_build,
     "app-route-task": _app_route_task,
+    "app-route-multi": _app_route_multi,
     "app-intent-route": _app_intent_route,
     "skill-stubs-sync": _skill_stubs_sync,
 }

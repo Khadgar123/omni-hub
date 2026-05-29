@@ -1947,6 +1947,7 @@ def build_default_registry(workspace: Path | str = ".") -> OperationRegistry:
     registry.register("s2_heartbeat", make_s2_heartbeat(workspace_path))
     registry.register("app_report_build", make_app_report_build(workspace_path))
     registry.register("app_route_task", make_app_route_task(workspace_path))
+    registry.register("app_route_multi", make_app_route_multi(workspace_path))
     registry.register("skill_stubs_sync", make_skill_stubs_sync(workspace_path))
     # v0.23 Judge LLM framework.
     registry.register("judge_evaluate", make_judge_evaluate(workspace_path))
@@ -2878,6 +2879,34 @@ def make_app_route_task(workspace: Path):
         }
 
     return app_route_task
+
+
+def make_app_route_multi(workspace: Path):
+    def app_route_multi(spec: OperationSpec) -> dict:
+        from .app import TaskRouter
+        from .channels.base import InboundMessage
+
+        body = str(spec.payload.get("query") or spec.payload.get("body") or "").strip()
+        subject = str(spec.payload.get("subject", "")).strip()
+        sender = str(spec.payload.get("sender", "cli-user"))
+        channel = str(spec.payload.get("channel", "cli"))
+        if not body and not subject:
+            raise ValueError("query (or body) is required")
+        inbound = InboundMessage.new(
+            channel=channel, sender=sender, body=body, subject=subject,
+        )
+        router = TaskRouter()
+        decision = router.route_multi(
+            inbound,
+            min_ratio=float(spec.payload.get("min_ratio", 0.5)),
+            max_domains=int(spec.payload.get("max_domains", 4)),
+        )
+        return {
+            "inbound": inbound.to_dict(),
+            "decision": decision.to_dict(),
+        }
+
+    return app_route_multi
 
 
 def make_skill_stubs_sync(workspace: Path):
