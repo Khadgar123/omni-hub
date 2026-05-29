@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from . import market_store as ms
+from quant import market_store as ms
 
 NS_PER_US = 1_000
 
