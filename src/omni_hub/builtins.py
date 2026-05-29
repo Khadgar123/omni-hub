@@ -2050,6 +2050,7 @@ def build_default_registry(workspace: Path | str = ".") -> OperationRegistry:
     registry.register("app_route_task", make_app_route_task(workspace_path))
     registry.register("app_route_multi", make_app_route_multi(workspace_path))
     registry.register("app_orchestrate", make_app_orchestrate(workspace_path))
+    registry.register("paper_enrich", make_paper_enrich(workspace_path))
     registry.register("skill_stubs_sync", make_skill_stubs_sync(workspace_path))
     # v0.23 Judge LLM framework.
     registry.register("judge_evaluate", make_judge_evaluate(workspace_path))
@@ -3037,6 +3038,35 @@ def make_app_orchestrate(workspace: Path):
         return bundle.to_dict()
 
     return app_orchestrate
+
+
+def make_paper_enrich(workspace: Path):
+    """Paper enrichment op (review gap #2): API-first venue/code/checkpoint
+    dossier.  Read-only; fail-soft per field."""
+
+    def paper_enrich(spec: OperationSpec) -> dict:
+        from .retrieval.paper_enrichment import enrich_paper
+
+        p = spec.payload
+        repos = p.get("code_repos") or []
+        if isinstance(repos, str):
+            repos = [r.strip() for r in repos.split(",") if r.strip()]
+        token = ""
+        try:
+            from .secrets import resolve_secret_ref
+            token = resolve_secret_ref("local:omni-hub/api/github/default") or ""
+        except Exception:                                          # noqa: BLE001
+            token = ""
+        dossier = enrich_paper(
+            arxiv_id=str(p.get("arxiv_id", "")),
+            doi=str(p.get("doi", "")),
+            title=str(p.get("title", "")),
+            code_repos=repos,
+            github_token=token,
+        )
+        return dossier.to_dict()
+
+    return paper_enrich
 
 
 def make_skill_stubs_sync(workspace: Path):
