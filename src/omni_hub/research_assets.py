@@ -315,3 +315,253 @@ def _frontmatter(path: Path) -> dict[str, str]:
             current_parts.append(line.strip().strip("> ").strip('"'))
     flush()
     return metadata
+
+
+# ---------------------------------------------------------------------------
+# WS3: ResearchFlow deep-parse (main_analysis.json) -> candidate claims -> Proposal
+#
+# ResearchFlow's main_analysis.json (MinerU-extracted sections / figures /
+# tables / formulas + a verified analysis object) is the research-domain
+# Layer-4 the parent repo lacks.  This adapter decomposes that object into
+# candidate claims in the omni-hub claim schema, then emits them through the
+# sanctioned Proposal[T] path (HR#5: never a direct wiki write).  Once
+# approved, WS1 projects the synthesis page from those claims.
+# ---------------------------------------------------------------------------
+
+import hashlib as _hashlib
+from datetime import datetime as _datetime, timezone as _timezone
+
+
+def _rf_claim_id(*parts: str) -> str:
+    return _hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()[:16]
+
+
+def _rf_utcnow() -> str:
+    return _datetime.now(_timezone.utc).isoformat()
+
+
+def researchflow_analysis_to_claims(
+    analysis: object,
+    *,
+    source_id: str = "researchflow",
+    analysis_path: str = "",
+    domain: str = "research",
+) -> list[dict[str, object]]:
+    """Decompose a ResearchFlow ``main_analysis.json`` into candidate claims.
+
+    Three claim families (each retains an evidence anchor back to the RF
+    section/figure for audit):
+
+    * ``analysis_truth.decisive_evidence[]`` + ``core_insight`` -> conclusion
+    * ``method.changed_slots[]``                                -> method-change
+    * ``experiments.main_results[]``                            -> result
+
+    Conservative + lossless-on-skip: malformed entries are skipped (they stay
+    in the RF note as evidence), never crash.  Dedups by statement; ids are
+    deterministic so re-ingesting the same analysis is idempotent.
+    """
+
+    if not isinstance(analysis, dict):
+        return []
+
+    claims: list[dict[str, object]] = []
+    seen: set[str] = set()
+
+    def _add(statement: str, anchor: object, confidence: object, kind: str) -> None:
+        s = (statement or "").strip()
+        if not s or s.lower() in seen:
+            return
+        seen.add(s.lower())
+        try:
+            conf = float(confidence) if confidence not in (None, "") else 0.6
+        except (TypeError, ValueError):
+            conf = 0.6
+        claims.append({
+            "claim_id": _rf_claim_id("rf", domain, kind, source_id, analysis_path, s),
+            "domain": domain,
+            "statement": s,
+            "support": [{
+                "source_id": source_id,
+                "path": analysis_path,
+                "anchor": str(anchor or ""),
+                "source": "researchflow",
+                "served_via": "deep_parse",
+                "claim_kind": kind,
+            }],
+            "against": [],
+            "confidence": conf,
+            "uncertainty": (
+                "ResearchFlow deep-parse evidence; awaits human review + "
+                "cross-source confirmation"
+            ),
+            "review_state": "proposed",
+            "t_valid_from": _rf_utcnow(),
+            "t_valid_to": None,
+            "supersedes": [],
+            "superseded_by": None,
+        })
+
+    truth = analysis.get("analysis_truth")
+    if isinstance(truth, dict):
+        for ev in truth.get("decisive_evidence", []) or []:
+            if isinstance(ev, dict):
+                _add(str(ev.get("claim", "")), ev.get("anchor", ""),
+                     ev.get("confidence"), "conclusion")
+        _add(str(truth.get("core_insight", "")), "analysis_truth.core_insight",
+             0.6, "conclusion")
+
+    method = analysis.get("method")
+    if isinstance(method, dict):
+        proposed = str(method.get("proposed_method_name", "")).strip()
+        for slot in method.get("changed_slots", []) or []:
+            if not isinstance(slot, dict):
+                continue
+            name = str(slot.get("slot_name", "")).strip()
+            if not name:
+                continue
+            base = str(slot.get("baseline_value", "")).strip()
+            new = str(slot.get("proposed_value", "")).strip()
+            prefix = f"{proposed}: " if proposed else ""
+            statement = (
+                f"{prefix}{name} changed from '{base}' to '{new}'"
+                if (base or new) else f"{prefix}{name} is the proposed change"
+            )
+            _add(statement, slot.get("evidence_anchor", ""),
+                 slot.get("confidence"), "method")
+
+    experiments = analysis.get("experiments")
+    if isinstance(experiments, dict):
+        for res in experiments.get("main_results", []) or []:
+            if not isinstance(res, dict):
+                continue
+            bench = str(res.get("benchmark", "")).strip()
+            metric = str(res.get("metric", "")).strip()
+            if not bench and not metric:
+                continue
+            prop = str(res.get("proposed", "")).strip()
+            base = str(res.get("baseline", "")).strip()
+            delta = str(res.get("delta", "")).strip()
+            statement = (
+                f"On {bench} ({metric}): proposed {prop} vs baseline {base}"
+                + (f" (delta {delta})" if delta else "")
+            )
+            _add(statement, res.get("anchor", ""), res.get("confidence"), "result")
+
+    return claims
+
+
+def propose_researchflow_analysis(
+    workspace="/.",
+    *,
+    analysis_json: str = "",
+    domain: str = "research",
+    title: str = "",
+    trace_id: str = "",
+) -> dict[str, object]:
+    """Read a ResearchFlow main_analysis.json -> candidate claims -> Proposal.
+
+    The target is a synthesis page, so on approve the body is rendered FROM
+    the claims (WS1 projection).  Emits a Proposal[T] for human review — the
+    only sanctioned path from a ResearchFlow deep-parse to the parent ledger.
+    """
+
+    import json as _json
+    from pathlib import Path as _Path
+
+    from .knowledge_plane import (
+        _slugify,
+        _synthesis_target_path,
+        append_log,
+        init_layout,
+        safe_workspace_path,
+    )
+    from .proposals import PENDING, Proposal, ProposalStore
+
+    workspace_root = _Path(workspace).resolve()
+    init_layout(workspace_root)
+
+    analysis_file = safe_workspace_path(workspace_root, analysis_json)
+    if not analysis_file.exists():
+        raise FileNotFoundError(f"ResearchFlow analysis not found: {analysis_json}")
+    try:
+        analysis = _json.loads(analysis_file.read_text(encoding="utf-8"))
+    except _json.JSONDecodeError as exc:
+        raise ValueError(f"invalid analysis json {analysis_json}: {exc}") from exc
+
+    paper_meta = analysis.get("paper_metadata") if isinstance(analysis, dict) else {}
+    paper_meta = paper_meta if isinstance(paper_meta, dict) else {}
+    resolved_title = (
+        title.strip() or str(paper_meta.get("title", "")).strip()
+        or "ResearchFlow analysis"
+    )
+    source_id = f"researchflow:{_slugify(resolved_title)}"
+    rel_analysis = str(analysis_file.relative_to(workspace_root))
+
+    claims = researchflow_analysis_to_claims(
+        analysis, source_id=source_id, analysis_path=rel_analysis, domain=domain,
+    )
+    if not claims:
+        raise ValueError(
+            "no candidate claims extracted from analysis "
+            "(empty analysis_truth/method/experiments)"
+        )
+
+    target_path = _synthesis_target_path(resolved_title, source_id)
+    body = (
+        f"---\npage_type: synthesis\ndomain: {domain}\n"
+        f"review_state: proposed\n---\n\n# {resolved_title}\n\n"
+        f"_Pending projection from {len(claims)} ResearchFlow claim(s)._\n"
+    )
+
+    proposal = Proposal(
+        kind="wiki_update",
+        state=PENDING,
+        title=f"[researchflow] {resolved_title}",
+        summary=f"{len(claims)} candidate claim(s) from ResearchFlow deep-parse.",
+        source_path=rel_analysis,
+        payload={
+            "target_path": target_path,
+            "domain": domain,
+            "page_type": "synthesis",
+            "title": resolved_title,
+            "query": resolved_title,
+            "body": body,
+            "claims": claims,
+            "researchflow": {
+                "analysis_path": rel_analysis,
+                "venue": paper_meta.get("venue", ""),
+                "year": paper_meta.get("year", ""),
+            },
+        },
+    )
+    stored = ProposalStore(workspace_root).store(proposal)
+    proposal_id = stored.get("proposal_id", proposal.proposal_id)
+    append_log(
+        workspace_root, op="ingest",
+        summary=f"researchflow {resolved_title} ({len(claims)} claims)",
+        source=rel_analysis,
+    )
+    return {
+        "proposal_id": proposal_id,
+        "target_path": target_path,
+        "claim_count": len(claims),
+        "source_id": source_id,
+        "trace_id": trace_id,
+    }
+
+
+__all__ = [
+    "ResearchAssetSource",
+    "ResearchAssetRecord",
+    "ResearchFlowSkill",
+    "default_sources",
+    "status",
+    "search",
+    "read_analysis",
+    "list_researchflow_skills",
+    "iter_index",
+    "count_index_records",
+    "count_analysis_notes",
+    "researchflow_analysis_to_claims",
+    "propose_researchflow_analysis",
+]

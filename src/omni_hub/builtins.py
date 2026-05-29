@@ -890,6 +890,26 @@ def make_wiki_propose_research(workspace: Path):
     return wiki_propose_research
 
 
+def make_wiki_ingest_researchflow(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def wiki_ingest_researchflow(spec: OperationSpec) -> dict[str, object]:
+        """WS3: ResearchFlow main_analysis.json -> candidate claims -> Proposal."""
+
+        from .research_assets import propose_researchflow_analysis
+
+        payload = spec.payload
+        return propose_researchflow_analysis(
+            workspace_root,
+            analysis_json=str(payload.get("analysis_json", "")),
+            domain=str(payload.get("domain", "research")),
+            title=str(payload.get("title", "")),
+            trace_id=spec.trace_id,
+        )
+
+    return wiki_ingest_researchflow
+
+
 def make_wiki_apply_proposal(workspace: Path):
     workspace_root = workspace.resolve()
 
@@ -1944,6 +1964,7 @@ def build_default_registry(workspace: Path | str = ".") -> OperationRegistry:
     registry.register("wiki_status", make_wiki_status(workspace_path))
     registry.register("wiki_search", make_wiki_search(workspace_path))
     registry.register("wiki_propose_research", make_wiki_propose_research(workspace_path))
+    registry.register("wiki_ingest_researchflow", make_wiki_ingest_researchflow(workspace_path))
     registry.register("wiki_apply_proposal", make_wiki_apply_proposal(workspace_path))
     registry.register("wiki_ingest", make_wiki_ingest(workspace_path))
     registry.register("wiki_reindex", make_wiki_reindex(workspace_path))
