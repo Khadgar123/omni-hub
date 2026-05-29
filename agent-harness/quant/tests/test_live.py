@@ -75,3 +75,25 @@ def test_symbol_and_interval_validation():
         live.fetch_candles("BTCUSDT", "3h", venue="coinbase", opener=_opener(_CB_RAW))
     assert "4h" not in live._COINBASE_GRAN  # Coinbase has no 4h granularity
     assert live._COINBASE_GRAN["6h"] == 21600 and live._KRAKEN_INT["4h"] == 240
+
+
+def test_watch_loop_flags_regime_change(monkeypatch):
+    from types import SimpleNamespace
+    seq = [
+        SimpleNamespace(regime_label="range", composite_bias="flat", stand_down=False),
+        SimpleNamespace(regime_label="up", composite_bias="long", stand_down=False),
+    ]
+    calls = {"i": 0}
+
+    def fake_live_alerts(symbol, *, venue="coinbase", emit_path=None):
+        st = seq[min(calls["i"], len(seq) - 1)]
+        calls["i"] += 1
+        return [], st
+
+    monkeypatch.setattr(live, "live_alerts", fake_live_alerts)
+    recs = []
+    n = live.watch_loop(["BTCUSDT"], max_iters=2, sleep_fn=lambda s: None, on_tick=recs.append)
+    assert n == 2 and len(recs) == 2
+    assert recs[0]["regime_changed"] is False   # first tick: no prior state
+    assert recs[1]["regime_changed"] is True     # range -> up transition flagged
+    assert recs[1]["regime"] == "up"

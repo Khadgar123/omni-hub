@@ -132,17 +132,58 @@ def live_alerts(symbol, *, venue="coinbase", tf="1h", strategies=None, opener=No
     return alerts, state
 
 
+def watch_loop(symbols, *, venue="coinbase", interval=300, emit_path=None, max_iters=None,
+               sleep_fn=None, on_tick=None):
+    """Always-on sensor for launchd: poll live alerts, emit TradeAlerts, and log a
+    line per (symbol, tick) flagging regime/bias/stand_down CHANGES (so a notifier
+    can alert on transitions, not every tick). Never places an order.
+
+    ``max_iters``/``sleep_fn`` make it bounded + testable; default runs forever.
+    """
+    import time as _time
+
+    sleep_fn = sleep_fn or _time.sleep
+    last = {}
+    i = 0
+    while max_iters is None or i < max_iters:
+        for symbol in symbols:
+            try:
+                alerts, st = live_alerts(symbol, venue=venue, emit_path=emit_path)
+                key = (st.regime_label, st.composite_bias, st.stand_down)
+                changed = symbol in last and last[symbol] != key
+                last[symbol] = key
+                rec = {"symbol": symbol, "venue": venue, "regime": st.regime_label,
+                       "bias": st.composite_bias, "stand_down": st.stand_down,
+                       "n_suggestions": len(alerts), "regime_changed": changed}
+            except Exception as exc:  # never let one bad poll kill the watcher
+                rec = {"symbol": symbol, "venue": venue, "error": str(exc)}
+            (on_tick or (lambda r: print(json.dumps(r, ensure_ascii=False, default=str), flush=True)))(rec)
+        i += 1
+        if max_iters is not None and i >= max_iters:
+            break
+        sleep_fn(interval)
+    return i
+
+
 def main(argv=None):
     import argparse
     import sys
     from pathlib import Path
 
     p = argparse.ArgumentParser(prog="quant.live", description=__doc__)
-    p.add_argument("command", choices=["state", "alerts"])
+    p.add_argument("command", choices=["state", "alerts", "watch"])
     p.add_argument("--symbol", default="BTCUSDT")
+    p.add_argument("--symbols", default=None, help="comma-separated (watch); default --symbol")
     p.add_argument("--venue", default="coinbase", choices=["coinbase", "kraken"])
+    p.add_argument("--interval", type=int, default=300, help="watch poll seconds")
     p.add_argument("--emit", dest="emit_path", default=None)
     args = p.parse_args(argv)
+
+    if args.command == "watch":
+        syms = [s.strip() for s in (args.symbols or args.symbol).split(",") if s.strip()]
+        emit_path = Path(args.emit_path).expanduser() if args.emit_path else None
+        watch_loop(syms, venue=args.venue, interval=args.interval, emit_path=emit_path)
+        return 0
 
     if args.command == "state":
         st = live_market_state(args.symbol, venue=args.venue)
