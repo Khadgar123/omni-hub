@@ -61,7 +61,7 @@ curl -s -X POST localhost:8080/admin/channels -H "Authorization: Bearer $TOK" \
   -H 'Content-Type: application/json' -d "{\"name\":\"deepseek-direct\",\
 \"url\":\"https://api.deepseek.com\",\"api_key\":\"$DSKEY\",\"priority\":100,\
 \"enabled\":true,\"channel_type\":\"openai\",\
-\"models\":[\"deepseek-chat\",\"deepseek-reasoner\"]}"
+\"models\":[{\"model\":\"deepseek-chat\"},{\"model\":\"deepseek-reasoner\"}]}"
 
 # 3) register the proxy auth-token (clients send this as the bearer)
 curl -s -X POST localhost:8080/admin/auth-tokens -H "Authorization: Bearer $TOK" \
