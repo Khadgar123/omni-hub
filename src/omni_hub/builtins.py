@@ -1983,6 +1983,7 @@ def build_default_registry(workspace: Path | str = ".") -> OperationRegistry:
     registry.register("app_report_build", make_app_report_build(workspace_path))
     registry.register("app_route_task", make_app_route_task(workspace_path))
     registry.register("app_route_multi", make_app_route_multi(workspace_path))
+    registry.register("app_orchestrate", make_app_orchestrate(workspace_path))
     registry.register("skill_stubs_sync", make_skill_stubs_sync(workspace_path))
     # v0.23 Judge LLM framework.
     registry.register("judge_evaluate", make_judge_evaluate(workspace_path))
@@ -2942,6 +2943,34 @@ def make_app_route_multi(workspace: Path):
         }
 
     return app_route_multi
+
+
+def make_app_orchestrate(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def app_orchestrate(spec: OperationSpec) -> dict:
+        """WS2 multi-domain orchestrator: route -> one shared retrieval per
+        domain with explicit delegation contracts (gather-only; synthesis +
+        any persistent claim still go through Proposal[T])."""
+
+        from .app.multi_domain import orchestrate
+
+        payload = spec.payload
+        query = str(payload.get("query") or payload.get("body") or "").strip()
+        if not query:
+            raise ValueError("query (or body) is required")
+        bundle = orchestrate(
+            workspace_root,
+            query,
+            max_domains=int(payload.get("max_domains", 4)),
+            min_ratio=float(payload.get("min_ratio", 0.5)),
+            per_source_limit=int(payload.get("per_source_limit", 5)),
+            total_limit=int(payload.get("total_limit", 12)),
+            fusion=str(payload.get("fusion", "rrf")),
+        )
+        return bundle.to_dict()
+
+    return app_orchestrate
 
 
 def make_skill_stubs_sync(workspace: Path):

@@ -81,5 +81,93 @@ class AppRouteMultiOpTests(unittest.TestCase):
         self.assertIn("research", ids)
 
 
+class MultiDomainOrchestratorTests(unittest.TestCase):
+    """WS2: orchestrate() fans out ONE shared cascade.retrieve per routed domain."""
+
+    # both finance + research tokens -> a 2-domain plan (mirrors the route test)
+    MULTI_QUERY = (
+        "compare the 10-k earnings stock options report with the "
+        "arxiv paper doi citation venue"
+    )
+
+    class _FakeResult:
+        def __init__(self, domain, succeeded):
+            self.sources_tried = ["a", "b", "c", "d"]
+            self.sources_succeeded = succeeded
+            self.records = [{"title": f"{domain} hit", "cite_id": "R1"}]
+
+    class _FakeCascade:
+        def __init__(self):
+            self.calls = []
+
+        def retrieve(self, query, *, domain, per_source_limit, total_limit, fusion):
+            self.calls.append(domain)
+            # finance well-covered; everything else under-sourced (1/4)
+            succ = ["a", "b", "c"] if domain == "finance" else ["a"]
+            return MultiDomainOrchestratorTests._FakeResult(domain, succ)
+
+    def _run(self, query):
+        from omni_hub.app.multi_domain import orchestrate
+        fc = self._FakeCascade()
+        bundle = orchestrate(".", query, cascade=fc)
+        return bundle, fc
+
+    def test_one_retrieval_per_domain_no_overlap(self) -> None:
+        bundle, fc = self._run(self.MULTI_QUERY)
+        self.assertGreaterEqual(len(fc.calls), 2)            # multi-domain
+        self.assertEqual(len(fc.calls), len(set(fc.calls)))  # no dup calls
+        self.assertEqual(len(bundle.domains), len(fc.calls))
+        self.assertTrue(all(d.objective for d in bundle.domains))  # delegation contracts
+
+    def test_coverage_warning_on_under_sourced_domain(self) -> None:
+        bundle, _ = self._run(self.MULTI_QUERY)
+        non_finance = [d for d in bundle.domains if d.domain != "finance"]
+        self.assertTrue(non_finance)
+        self.assertTrue(any(not d.coverage_ok for d in non_finance))
+        self.assertTrue(bundle.coverage_warnings)
+
+    def test_empty_query_rejected(self) -> None:
+        from omni_hub.app.multi_domain import orchestrate
+        with self.assertRaises(ValueError):
+            orchestrate(".", "   ")
+
+    def test_retrieval_failure_isolated(self) -> None:
+        from omni_hub.app.multi_domain import orchestrate
+
+        class Boom:
+            def retrieve(self, *a, **k):
+                raise RuntimeError("network down")
+
+        bundle = orchestrate(".", self.MULTI_QUERY, cascade=Boom())
+        self.assertTrue(all(d.error for d in bundle.domains))
+        self.assertTrue(bundle.coverage_warnings)
+        # a crashing worker still yields a structured (errored) row, no exception
+        self.assertGreaterEqual(len(bundle.domains), 1)
+
+    def test_app_orchestrate_op_end_to_end(self) -> None:
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+
+        from omni_hub import builtins as ohb
+        from omni_hub.models import OperationSpec, RiskLevel
+
+        with tempfile.TemporaryDirectory() as d:
+            op = ohb.make_app_orchestrate(Path(d))
+            spec = OperationSpec(
+                name="app_orchestrate", action="orchestrate",
+                payload={"query": self.MULTI_QUERY},
+                risk_level=RiskLevel.READ_ONLY,
+            )
+            with patch(
+                "omni_hub.retrieval.Cascade",
+                return_value=self._FakeCascade(),
+            ):
+                out = op(spec)
+        self.assertIn("domains", out)
+        self.assertGreaterEqual(out["domain_count"], 2)
+        self.assertTrue(all(dd["objective"] for dd in out["domains"]))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -81,6 +81,19 @@ def register(subparsers: argparse._SubParsersAction) -> None:
                        help="Keep domains scoring >= min_ratio × top (default 0.5)")
     multi.add_argument("--max-domains", type=int, default=4)
 
+    orch = subparsers.add_parser(
+        "app-orchestrate",
+        help="Multi-domain orchestrator (WS2): route a query to N domains and "
+             "fan out ONE shared retrieval per domain with explicit delegation "
+             "contracts.  Gather-only — synthesis/claims still go via Proposal[T].",
+    )
+    orch.add_argument("--query", required=True)
+    orch.add_argument("--max-domains", type=int, default=4)
+    orch.add_argument("--min-ratio", type=float, default=0.5)
+    orch.add_argument("--per-source-limit", type=int, default=5)
+    orch.add_argument("--total-limit", type=int, default=12)
+    orch.add_argument("--fusion", choices=["rrf", "concat"], default="rrf")
+
     sync = subparsers.add_parser(
         "skill-stubs-sync",
         help="Regenerate .agents/skills/<slug>-wiki/SKILL.md stubs from "
@@ -177,10 +190,30 @@ def _app_route_multi(args, *, runner, workspace) -> int:
     )
 
 
+def _app_orchestrate(args, *, runner, workspace) -> int:
+    return run_and_print(
+        runner,
+        OperationSpec(
+            name="app_orchestrate",
+            action="orchestrate",
+            payload={
+                "query": args.query,
+                "max_domains": args.max_domains,
+                "min_ratio": args.min_ratio,
+                "per_source_limit": args.per_source_limit,
+                "total_limit": args.total_limit,
+                "fusion": args.fusion,
+            },
+            risk_level=RiskLevel.READ_ONLY,
+        ),
+    )
+
+
 COMMANDS = {
     "app-report-build": _app_report_build,
     "app-route-task": _app_route_task,
     "app-route-multi": _app_route_multi,
+    "app-orchestrate": _app_orchestrate,
     "app-intent-route": _app_intent_route,
     "skill-stubs-sync": _skill_stubs_sync,
 }
