@@ -1,6 +1,6 @@
 ---
 omni_type: wiki_schema
-schema_version: v0.11
+schema_version: v0.19
 ---
 
 # Omni Wiki Schema
@@ -42,9 +42,11 @@ frontmatter. Exemptions: `AGENTS.md`, `index.md`, `log.md`.
 ```yaml
 ---
 page_type: concept | entity | event | method | synthesis | domain_page
-domain: research | engineering | finance | policy | international_relations
-         | ai_progress | photography | fashion | chat_relationships
-         | agent_systems | social_en | social_zh
+domain: research | engineering | finance | us_policy | cn_policy
+         | international_relations | ai_progress | photography | fashion
+         | chat_relationships | agent_systems | social_en | social_zh
+         | meta | fitness_wellness | cooking | travel | marketing
+         | enterprise
 claim_ids: [c_a1b2c3d4, c_e5f6g7h8]      # cross-ref into .omni/claims.jsonl
 source_ids: [arxiv:2510.04618, doi:10.xx]  # canonical_id list backing this page
 t_valid_from: 2026-05-28                  # when content becomes correct (bitemporal)

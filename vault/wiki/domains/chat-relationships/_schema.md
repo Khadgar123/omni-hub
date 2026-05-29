@@ -1,7 +1,7 @@
 ---
 omni_type: domain_schema
 domain: chat_relationships
-schema_version: v0.13
+schema_version: v0.20
 stale_after_days: 180
 ---
 

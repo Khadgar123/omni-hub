@@ -21,12 +21,27 @@ out of scope — omni-hub is a knowledge harness, not a trading platform.
 from __future__ import annotations
 
 import os
+import re
 
 from .base import DEFAULT_TIMEOUT_SEC, RetrievalError, RetrievalRecord, http_get_json
 from .health import env_var_probe
 
 
 EDGAR_FT_SEARCH = "https://efts.sec.gov/LATEST/search-index"
+
+# Human-readable labels for the common form types so synthesized answers
+# read naturally ("Annual report (10-K)" not bare "10-K").
+_EDGAR_FORM_LABELS = {
+    "10-K": "Annual report",
+    "10-Q": "Quarterly report",
+    "8-K": "Current report (material event)",
+    "6-K": "Foreign issuer report",
+    "20-F": "Foreign annual report",
+    "S-1": "IPO registration",
+    "424B4": "Prospectus",
+    "DEF 14A": "Proxy statement",
+    "40-F": "Canadian annual report",
+}
 FRED_SEARCH = "https://api.stlouisfed.org/fred/series/search"
 
 
@@ -81,6 +96,13 @@ class EdgarSource:
             return "ok", "SEC_USER_AGENT polite-set"
         return "warn", "default UA; set SEC_USER_AGENT='Name email@x.com' to be polite"
 
+    # Core company filing forms — what users almost always mean by "the
+    # company's filings".  Excludes fund/adviser noise (NPORT-P, 13F-HR,
+    # 497, N-CEN, etc.) that floods full-text search for common terms like
+    # "Federal Reserve" or a ticker, because thousands of funds *hold* the
+    # stock and mention it in routine filings.
+    _CORE_FORMS = "10-K,10-Q,8-K,6-K,20-F,S-1,424B4,DEF 14A,40-F"
+
     def retrieve(
         self,
         query: str,
@@ -90,9 +112,15 @@ class EdgarSource:
     ) -> list[RetrievalRecord]:
         if not query.strip():
             return []
+        params: dict[str, str] = {"q": query, "hits": str(min(limit, 25))}
+        # v0.45: for finance / enterprise domains, restrict to core company
+        # forms so fund-holding noise (NPORT-P etc.) doesn't drown the
+        # actual company filings.  Other domains keep full-text breadth.
+        if domain in {"finance", "enterprise"}:
+            params["forms"] = self._CORE_FORMS
         data = http_get_json(
             EDGAR_FT_SEARCH,
-            params={"q": query, "hits": str(min(limit, 25))},
+            params=params,
             headers={"User-Agent": self.user_agent},
             timeout=self.timeout,
         )
@@ -118,11 +146,28 @@ class EdgarSource:
                 if cik and adsh and accession_clean
                 else ""
             )
+            # Richer snippet: form-type + filer + date + any FTS highlight
+            # so the synthesizer/judge can tell what the filing actually is.
+            highlight = ""
+            hl = hit.get("highlight") if isinstance(hit, dict) else None
+            if isinstance(hl, dict):
+                frags = []
+                for v in hl.values():
+                    if isinstance(v, list):
+                        frags.extend(str(x) for x in v)
+                highlight = re.sub(r"<[^>]+>", "", " … ".join(frags))[:300]
+            form_label = _EDGAR_FORM_LABELS.get(form, form)
+            snippet_parts = [p for p in [
+                f"{form_label} ({form})" if form_label != form else form,
+                f"filed {file_date}" if file_date else "",
+                ", ".join(str(n) for n in display_names[:2]),
+                highlight,
+            ] if p]
             records.append(RetrievalRecord(
                 source=self.name,
                 title=f"{form} — {issuer}" if form and issuer else (form or issuer),
                 url=url,
-                snippet=", ".join(str(n) for n in display_names[:3])[:500],
+                snippet=" · ".join(snippet_parts)[:600],
                 score=0.0,
                 canonical_id=f"edgar:{adsh}" if adsh else "",
                 metadata={

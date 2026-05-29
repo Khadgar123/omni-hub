@@ -578,6 +578,21 @@ def make_retrieve_cascade(workspace: Path):
         if rerank_meta:
             result_dict["rerank"] = rerank_meta
 
+        # v0.45: optional synthesis tail — fuse top records into one
+        # cited answer.  Closes the v0.44 quality gap (record-dump → answer).
+        if bool(payload.get("synthesize", False)) and result.records:
+            try:
+                from .retrieval.synthesize import synthesize_answer
+                syn = synthesize_answer(
+                    str(payload["query"]),
+                    list(result.records),
+                    domain=str(payload.get("domain", "default")),
+                    max_records=int(payload.get("synthesize_max_records", 8)),
+                )
+                result_dict["synthesis"] = syn.to_dict()
+            except Exception as exc:                            # noqa: BLE001
+                result_dict["synthesis"] = {"error": str(exc), "mode": "error"}
+
         if bool(payload.get("persist_evidence", False)):
             evidence_store = EvidenceStore(workspace_root)
             extra = {"operation": "retrieve_cascade"}

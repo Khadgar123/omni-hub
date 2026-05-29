@@ -77,6 +77,18 @@ def register(subparsers: argparse._SubParsersAction) -> None:
             "cohere=Rerank 4 (COHERE_API_KEY)."
         ),
     )
+    retrieve.add_argument(
+        "--synthesize", action="store_true",
+        help=(
+            "After fusion + rerank, synthesize the top records into one "
+            "cited answer via the LLM (ccLoad → DeepSeek → concat fallback). "
+            "Turns a record dump into an actual answer."
+        ),
+    )
+    retrieve.add_argument(
+        "--synthesize-max-records", type=int, default=8,
+        help="How many top records to feed the synthesizer (default 8).",
+    )
 
     fetch = subparsers.add_parser(
         "fetch-url",
@@ -118,6 +130,9 @@ def _retrieve(args, *, runner, workspace) -> int:
         payload["grader"] = args.grader
     if args.reranker and args.reranker != "none":
         payload["reranker"] = args.reranker
+    if getattr(args, "synthesize", False):
+        payload["synthesize"] = True
+        payload["synthesize_max_records"] = int(args.synthesize_max_records)
     if args.run_id:
         payload["run_id"] = args.run_id
     return run_and_print(
