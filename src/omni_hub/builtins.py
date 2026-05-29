@@ -2545,6 +2545,42 @@ def make_inbox_classify(workspace: Path):
     return inbox_classify
 
 
+def _compose_domain_context(
+    workspace_root: Path,
+    *,
+    query: str,
+    domain: str,
+    tier: str = "standard",
+) -> dict[str, object]:
+    """Executable form of an Application-Plane skill's ``composes: [context-pack]``.
+
+    Pulls a read-only (L0) domain knowledge pack (vault/wiki + claims) so a
+    functional skill can GROUND its output in curated knowledge before acting
+    — the "knowledge -> productivity" edge that the ``composes`` contract
+    declares.  Auxiliary by design: returns ``{"grounded": False, "reason":
+    ...}`` instead of raising when the wiki is empty / uninitialised, so the
+    host skill never fails because grounding was unavailable.
+    """
+    query = (query or "").strip()
+    if not query:
+        return {"grounded": False, "reason": "no grounding query"}
+    try:
+        from .knowledge_plane import build_context_pack
+
+        pack = build_context_pack(
+            workspace_root,
+            query=query,
+            domain=domain or "research",
+            persist=False,
+            tier=tier,
+        )
+        data = pack.to_dict()
+        data["grounded"] = True
+        return data
+    except Exception as exc:  # noqa: BLE001 - grounding is auxiliary, never fatal
+        return {"grounded": False, "reason": str(exc)}
+
+
 def make_project_plan(workspace: Path):
     workspace_root = workspace.resolve()
 
@@ -2604,6 +2640,12 @@ def make_pptx_build(workspace: Path):
         output_rel = str(spec.payload.get("output_path", "vault/decks/out.pptx"))
         output_path = workspace_root / output_rel
         output_path.parent.mkdir(parents=True, exist_ok=True)
+        # composes: [context-pack] — ground the deck in curated domain knowledge.
+        context_pack = _compose_domain_context(
+            workspace_root,
+            query=str(spec.payload.get("grounding_query", "") or outline.title),
+            domain=str(spec.payload.get("domain", "research")),
+        )
         builder = StubPPTXBuilder()
         if not builder.available():
             return {
@@ -2611,9 +2653,12 @@ def make_pptx_build(workspace: Path):
                 "reason": "pptx-omni broker not on PATH; install "
                           "agent-harness/integrations/pptx/ first",
                 "outline_slide_count": outline.slide_count(),
+                "context_pack": context_pack,
             }
         result = builder.render(outline, output_path)
-        return result.to_dict()
+        data = result.to_dict()
+        data["context_pack"] = context_pack
+        return data
 
     return pptx_build
 
@@ -2729,10 +2774,18 @@ def make_finance_screen(workspace: Path):
         )
         analyst = FinanceAnalyst(workspace_root)
         signals = analyst.screen(criteria)
+        # composes: [retrieve, context-pack] — ground the screen in curated
+        # finance-domain knowledge (claims/wiki), even when signals are empty.
+        grounding_q = " ".join(
+            p for p in (criteria.sector, criteria.market, *criteria.tickers) if p
+        ).strip() or "market screen"
         return {
             "criteria": criteria.to_dict(),
             "count": len(signals),
             "signals": [s.to_dict() for s in signals],
+            "context_pack": _compose_domain_context(
+                workspace_root, query=grounding_q, domain=criteria.domain,
+            ),
         }
 
     return finance_screen

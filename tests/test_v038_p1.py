@@ -177,6 +177,29 @@ class FunctionalBuiltinsTests(unittest.TestCase):
         self.assertIn("count", out["output"])
         self.assertGreaterEqual(out["output"]["count"], 0)
 
+    def test_finance_screen_grounds_in_domain_context(self) -> None:
+        # R3 knowledge->productivity edge: composes:[retrieve, context-pack]
+        # now EXECUTES — the screen returns a domain knowledge pack, not just
+        # signals.  build_context_pack reads local vault/wiki+claims only, so
+        # this is deterministic and network-free.
+        out = self._run("finance_screen", {"tickers": ["NVDA"], "domain": "finance"})
+        self.assertEqual(out["status"], "succeeded")
+        pack = out["output"].get("context_pack")
+        self.assertIsInstance(pack, dict)
+        self.assertIn("grounded", pack)
+
+    def test_pptx_build_grounds_in_domain_context(self) -> None:
+        # R3: composes:[context-pack] now EXECUTES even on the broker-skipped
+        # path — the deck is grounded in domain knowledge before render.
+        out = self._run("pptx_build",
+                        {"outline": {"title": "ACE context engineering", "slides": []},
+                         "domain": "research"},
+                        risk="L1", approved=True)
+        self.assertEqual(out["status"], "succeeded")
+        pack = out["output"].get("context_pack")
+        self.assertIsInstance(pack, dict)
+        self.assertIn("grounded", pack)
+
     def test_order_propose_lands_proposal(self) -> None:
         out = self._run("order_propose", {
             "user_id": "u_x", "instrument": "NVDA",
