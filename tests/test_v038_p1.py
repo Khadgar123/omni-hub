@@ -200,6 +200,27 @@ class FunctionalBuiltinsTests(unittest.TestCase):
         self.assertIsInstance(pack, dict)
         self.assertIn("grounded", pack)
 
+    def test_app_route_task_grounds_knowledge_query(self) -> None:
+        # R3: chat-route composes:[retrieve, context-pack] — a knowledge query
+        # (recommended op = context_pack_build) now returns an EXECUTED
+        # context_pack, not just a recommendation string.
+        out = self._run("app_route_task", {"query": "diffusion models overview"})
+        self.assertEqual(out["status"], "succeeded")
+        self.assertEqual(
+            out["output"]["decision"]["recommended_operation"],
+            "context_pack_build",
+        )
+        pack = out["output"].get("context_pack")
+        self.assertIsInstance(pack, dict)
+        self.assertIn("grounded", pack)
+
+    def test_app_route_task_ground_opt_out(self) -> None:
+        # Opt-out: {"ground": False} returns routing only, no context_pack.
+        out = self._run("app_route_task",
+                        {"query": "diffusion models overview", "ground": False})
+        self.assertEqual(out["status"], "succeeded")
+        self.assertNotIn("context_pack", out["output"])
+
     def test_order_propose_lands_proposal(self) -> None:
         out = self._run("order_propose", {
             "user_id": "u_x", "instrument": "NVDA",

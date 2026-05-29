@@ -3042,6 +3042,8 @@ def make_app_report_build(workspace: Path):
 
 
 def make_app_route_task(workspace: Path):
+    workspace_root = workspace.resolve()
+
     def app_route_task(spec: OperationSpec) -> dict:
         from .app import TaskRouter
         from .channels.base import InboundMessage
@@ -3057,11 +3059,27 @@ def make_app_route_task(workspace: Path):
         )
         router = TaskRouter()
         decision = router.route(inbound)
-        return {
+        result = {
             "inbound": inbound.to_dict(),
             "decision": decision.to_dict(),
             "reply_template": router.reply_template(inbound, decision).to_dict(),
         }
+        # composes: [retrieve, context-pack] — when the route is a knowledge
+        # query (recommended op = context_pack_build), EXECUTE the grounding
+        # rather than only recommending it, so chat-route returns curated
+        # domain knowledge in one hop.  Opt out via payload {"ground": False}.
+        if (
+            spec.payload.get("ground", True)
+            and decision.recommended_operation == "context_pack_build"
+        ):
+            rp = decision.recommended_payload or {}
+            result["context_pack"] = _compose_domain_context(
+                workspace_root,
+                query=str(rp.get("query") or body),
+                domain=str(rp.get("domain") or decision.selected_skill_id),
+                tier=str(rp.get("tier", "standard")),
+            )
+        return result
 
     return app_route_task
 
