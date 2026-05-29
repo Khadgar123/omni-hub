@@ -177,7 +177,7 @@ class ACLEDSource:
             headers={"Authorization": f"Bearer {token}"},
             timeout=self.timeout,
         )
-        events = data.get("data", []) if isinstance(data, dict) else []
+        events = (data.get("data") or []) if isinstance(data, dict) else []
         records: list[RetrievalRecord] = []
         for item in events[:limit]:
             event_id = str(item.get("event_id_cnty", "") or item.get("data_id", ""))

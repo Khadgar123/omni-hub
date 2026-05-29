@@ -92,7 +92,7 @@ class UnsplashSource:
             headers={"Authorization": f"Client-ID {self.api_key}"},
             timeout=self.timeout,
         )
-        results = data.get("results", []) if isinstance(data, dict) else []
+        results = (data.get("results") or []) if isinstance(data, dict) else []
         records: list[RetrievalRecord] = []
         for item in results[:limit]:
             user = (item.get("user") or {}).get("name", "")
@@ -160,7 +160,7 @@ class PexelsSource:
             headers={"Authorization": self.api_key},
             timeout=self.timeout,
         )
-        photos = data.get("photos", []) if isinstance(data, dict) else []
+        photos = (data.get("photos") or []) if isinstance(data, dict) else []
         records: list[RetrievalRecord] = []
         for item in photos[:limit]:
             photographer = item.get("photographer", "")

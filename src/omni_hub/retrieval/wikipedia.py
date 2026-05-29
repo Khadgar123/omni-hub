@@ -52,7 +52,7 @@ class WikipediaSource:
             params={"q": query, "limit": str(min(limit, 10))},
             timeout=self.timeout,
         )
-        pages = data.get("pages", []) if isinstance(data, dict) else []
+        pages = (data.get("pages") or []) if isinstance(data, dict) else []
 
         records: list[RetrievalRecord] = []
         for page in pages[:limit]:

@@ -363,7 +363,7 @@ class FREDSource:
             },
             timeout=self.timeout,
         )
-        series = data.get("seriess", []) if isinstance(data, dict) else []
+        series = (data.get("seriess") or []) if isinstance(data, dict) else []
         records: list[RetrievalRecord] = []
         for rank, item in enumerate(series[:limit]):
             sid = str(item.get("id", ""))
@@ -430,7 +430,7 @@ class FREDSource:
             )
         except RetrievalError:
             return None
-        obs = data.get("observations", []) if isinstance(data, dict) else []
+        obs = (data.get("observations") or []) if isinstance(data, dict) else []
         if not obs:
             return None
         latest = obs[0] if isinstance(obs[0], dict) else {}

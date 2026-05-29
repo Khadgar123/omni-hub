@@ -75,7 +75,7 @@ class CourtListenerSource:
             headers=headers,
             timeout=self.timeout,
         )
-        items = data.get("results", []) if isinstance(data, dict) else []
+        items = (data.get("results") or []) if isinstance(data, dict) else []
         records: list[RetrievalRecord] = []
         for item in items[:limit]:
             if not isinstance(item, dict):

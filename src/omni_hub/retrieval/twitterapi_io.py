@@ -71,7 +71,7 @@ class TwitterApiIoSource:
             headers={"Authorization": f"Bearer {self.api_key}"},
             timeout=self.timeout,
         )
-        tweets = data.get("tweets", []) if isinstance(data, dict) else []
+        tweets = (data.get("tweets") or []) if isinstance(data, dict) else []
         records: list[RetrievalRecord] = []
         for item in tweets[:limit]:
             if not isinstance(item, dict):

@@ -49,7 +49,7 @@ class WikidataSource:
             },
             timeout=self.timeout,
         )
-        items = data.get("search", []) if isinstance(data, dict) else []
+        items = (data.get("search") or []) if isinstance(data, dict) else []
 
         records: list[RetrievalRecord] = []
         for item in items[:limit]:

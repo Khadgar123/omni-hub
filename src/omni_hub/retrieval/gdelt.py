@@ -75,7 +75,7 @@ class GDELTSource:
         else:
             data = self._fetch_with_retry(url)
             self._cache[url] = (time.time(), data)
-        articles = data.get("articles", []) if isinstance(data, dict) else []
+        articles = (data.get("articles") or []) if isinstance(data, dict) else []
 
         records: list[RetrievalRecord] = []
         for art in articles[:limit]:

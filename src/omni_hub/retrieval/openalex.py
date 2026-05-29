@@ -73,7 +73,7 @@ class OpenAlexSource:
             params["mailto"] = self.mailto
 
         data = http_get_json(WORKS_URL, params=params, timeout=self.timeout)
-        results = data.get("results", []) if isinstance(data, dict) else []
+        results = (data.get("results") or []) if isinstance(data, dict) else []
 
         records: list[RetrievalRecord] = []
         for item in results[:limit]:

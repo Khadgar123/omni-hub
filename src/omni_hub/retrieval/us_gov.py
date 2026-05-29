@@ -75,7 +75,7 @@ class FederalRegisterSource:
             },
             timeout=self.timeout,
         )
-        results = data.get("results", []) if isinstance(data, dict) else []
+        results = (data.get("results") or []) if isinstance(data, dict) else []
         records: list[RetrievalRecord] = []
         for item in results[:limit]:
             doc_num = str(item.get("document_number", ""))
@@ -187,7 +187,7 @@ class RegulationsGovSource:
             headers={"X-Api-Key": self.api_key},
             timeout=self.timeout,
         )
-        items = data.get("data", []) if isinstance(data, dict) else []
+        items = (data.get("data") or []) if isinstance(data, dict) else []
         records: list[RetrievalRecord] = []
         for item in items[:limit]:
             attrs = item.get("attributes") or {}
@@ -270,7 +270,7 @@ class CongressGovSource:
             },
             timeout=self.timeout,
         )
-        bills = data.get("bills", []) if isinstance(data, dict) else []
+        bills = (data.get("bills") or []) if isinstance(data, dict) else []
         records: list[RetrievalRecord] = []
         for item in bills[:limit]:
             congress = str(item.get("congress", ""))

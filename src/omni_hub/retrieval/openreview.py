@@ -84,7 +84,7 @@ class OpenReviewSource:
             )
         except RetrievalError:
             return []                                  # fail-soft: cascade continues
-        notes = data.get("notes", []) if isinstance(data, dict) else []
+        notes = (data.get("notes") or []) if isinstance(data, dict) else []
         records: list[RetrievalRecord] = []
         for note in notes[:limit]:
             if not isinstance(note, dict):
@@ -129,7 +129,7 @@ class OpenReviewSource:
             )
         except RetrievalError:
             return None
-        notes = data.get("notes", []) if isinstance(data, dict) else []
+        notes = (data.get("notes") or []) if isinstance(data, dict) else []
         title = ""
         reviews: list[dict[str, object]] = []
         decision_text = ""

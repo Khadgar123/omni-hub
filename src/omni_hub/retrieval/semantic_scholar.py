@@ -90,7 +90,7 @@ class SemanticScholarSource:
         data = http_get_json(
             SEARCH_URL, params=params, headers=headers, timeout=self.timeout,
         )
-        items = data.get("data", []) if isinstance(data, dict) else []
+        items = (data.get("data") or []) if isinstance(data, dict) else []
 
         records: list[RetrievalRecord] = []
         for item in items[:limit]:

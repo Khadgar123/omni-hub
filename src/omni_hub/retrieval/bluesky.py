@@ -52,7 +52,7 @@ class BlueskySource:
             headers={"Accept": "application/json"},
             timeout=self.timeout,
         )
-        posts = data.get("posts", []) if isinstance(data, dict) else []
+        posts = (data.get("posts") or []) if isinstance(data, dict) else []
         records: list[RetrievalRecord] = []
         for post in posts[:limit]:
             if not isinstance(post, dict):

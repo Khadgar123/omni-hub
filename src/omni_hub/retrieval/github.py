@@ -89,7 +89,7 @@ class GitHubRepoSource:
             )
         except RetrievalError:
             return []                                  # fail-soft: cascade continues
-        items = data.get("items", []) if isinstance(data, dict) else []
+        items = (data.get("items") or []) if isinstance(data, dict) else []
         return [self._repo_record(r) for r in items[:limit] if isinstance(r, dict)]
 
     def _repo_record(self, repo: dict) -> RetrievalRecord:
