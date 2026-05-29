@@ -1111,6 +1111,33 @@ def make_wiki_reindex(workspace: Path):
     return wiki_reindex
 
 
+def make_wiki_vec_build(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def wiki_vec_build(spec: OperationSpec) -> dict[str, object]:
+        """Build the sqlite-vec KNN index over active wiki pages (hybrid search)."""
+        from . import wiki_vec as _wv
+        return _wv.build_from_workspace(workspace_root)
+
+    return wiki_vec_build
+
+
+def make_wiki_hybrid_search(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def wiki_hybrid_search(spec: OperationSpec) -> dict[str, object]:
+        """FTS5/substring + vector KNN fused via RRF. Fail-soft to lexical-only."""
+        from . import wiki_vec as _wv
+        q = str(spec.payload.get("query", "")).strip()
+        if not q:
+            raise ValueError("query is required")
+        limit = int(spec.payload.get("limit", 10))
+        paths = _wv.hybrid_search(workspace_root, q, limit=limit)
+        return {"query": q, "count": len(paths), "results": paths}
+
+    return wiki_hybrid_search
+
+
 def make_wiki_render(workspace: Path):
     workspace_root = workspace.resolve()
 
@@ -2014,6 +2041,8 @@ def build_default_registry(workspace: Path | str = ".") -> OperationRegistry:
     registry.register("wiki_ingest", make_wiki_ingest(workspace_path))
     registry.register("wiki_reindex", make_wiki_reindex(workspace_path))
     registry.register("wiki_render", make_wiki_render(workspace_path))
+    registry.register("wiki_vec_build", make_wiki_vec_build(workspace_path))
+    registry.register("wiki_hybrid_search", make_wiki_hybrid_search(workspace_path))
     registry.register("wiki_doctor", make_wiki_doctor(workspace_path))
     registry.register("wiki_dream", make_wiki_dream(workspace_path))
     registry.register("wiki_lint", make_wiki_lint(workspace_path))

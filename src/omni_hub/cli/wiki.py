@@ -191,6 +191,18 @@ def _init(args, *, runner, workspace) -> int:
         ),
     )
 
+    vec_build = subparsers.add_parser(
+        "wiki-vec-build",
+        help="Build the sqlite-vec KNN index over wiki pages (enables hybrid search).",
+    )
+
+    hybrid = subparsers.add_parser(
+        "wiki-hybrid-search",
+        help="Hybrid wiki search: FTS5/substring + vector KNN fused via RRF.",
+    )
+    hybrid.add_argument("--query", required=True)
+    hybrid.add_argument("--limit", type=int, default=10)
+
 
 def _status(args, *, runner, workspace) -> int:
     return run_and_print(
@@ -444,6 +456,27 @@ def _context_pack(args, *, runner, workspace) -> int:
     )
 
 
+
+def _vec_build(args, *, runner, workspace) -> int:
+    return run_and_print(
+        runner,
+        OperationSpec(
+            name="wiki_vec_build", action="build",
+            payload={}, risk_level=RiskLevel.LOCAL_WRITE,
+        ),
+    )
+
+
+def _hybrid_search(args, *, runner, workspace) -> int:
+    return run_and_print(
+        runner,
+        OperationSpec(
+            name="wiki_hybrid_search", action="search",
+            payload={"query": args.query, "limit": args.limit},
+            risk_level=RiskLevel.READ_ONLY,
+        ),
+    )
+
 COMMANDS = {
     "wiki-init": _init,
     "wiki-status": _status,
@@ -457,6 +490,8 @@ COMMANDS = {
     "wiki-lint": _lint,
     "wiki-reindex": _reindex,
     "wiki-render": _render,
+    "wiki-vec-build": _vec_build,
+    "wiki-hybrid-search": _hybrid_search,
     "wiki-doctor": _doctor,
     "wiki-graph": _graph,
     "wiki-supersede": _supersede,

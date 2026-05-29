@@ -215,10 +215,60 @@ def _default_embed_fn() -> EmbedFn:
     return embed
 
 
+def build_from_workspace(workspace, *, embed_fn=None):
+    """Index every active wiki page under vault/wiki/ into the vec store.
+
+    Reads page bodies via knowledge_plane's own page lister (imported lazily
+    to avoid a cycle). Returns the rebuild report.
+    """
+
+    from pathlib import Path as _P
+    root = _P(workspace).resolve()
+    wiki_root = root / "vault" / "wiki"
+    pages = []
+    if wiki_root.exists():
+        for md in sorted(wiki_root.rglob("*.md")):
+            name = md.name.lower()
+            if name in {"index.md", "log.md", "agents.md", "_schema.md"}:
+                continue
+            try:
+                text = md.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            rel = str(md.relative_to(root))
+            pages.append((rel, text))
+    return WikiVecIndex(root, embed_fn=embed_fn).rebuild(pages)
+
+
+def hybrid_search(workspace, query, *, limit=10, embed_fn=None, k=60):
+    """Fuse FTS5/substring lexical search with vector KNN via RRF.
+
+    Composes knowledge_plane.search_wiki (lexical) + WikiVecIndex.search
+    (semantic). Fail-soft: if the vector side is unavailable it returns the
+    lexical ranking unchanged, so a caller can always use hybrid safely.
+    Returns a list of page paths, best first.
+    """
+
+    from pathlib import Path as _P
+    root = _P(workspace).resolve()
+    try:
+        from .knowledge_plane import search_wiki
+        lex = [r.path for r in search_wiki(root, query=query, limit=max(limit, 10))]
+    except Exception:  # noqa: BLE001
+        lex = []
+    vec_hits = WikiVecIndex(root, embed_fn=embed_fn).search(query, limit=max(limit, 10))
+    vec = [p for p, _d in vec_hits]
+    if not vec:
+        return lex[:limit]
+    return rrf_fuse(lex, vec, k=k, limit=limit)
+
+
 __all__ = [
     "VEC_DB_PATH",
     "EmbedFn",
     "WikiVecIndex",
     "sqlite_vec_available",
     "rrf_fuse",
+    "build_from_workspace",
+    "hybrid_search",
 ]
