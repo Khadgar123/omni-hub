@@ -1,0 +1,158 @@
+"""Live market-data (Coinbase / Kraken public REST) -> real-time MarketState + alerts.
+
+Per the data-source decision: the strict Binance signed API is dropped; live
+second/minute monitoring uses the fast, stable, US-friendly public feeds
+(Coinbase, Kraken). Pure-stdlib ``urllib`` (dep-light, like binance_spot_live);
+the HTTP getter is injectable so the candle mappers are unit-testable with NO
+network. This is the always-on "盯盘" sensor for the NOTIFY+MANUAL surface: it
+fetches recent candles, assembles the top-down regime, runs the gated strategies
+from flat, and emits TradeAlert suggestions. It NEVER places an order.
+"""
+
+from __future__ import annotations
+
+import json
+import urllib.request
+from types import SimpleNamespace
+
+from quant import regime
+from quant.market_state import _compose_bias
+
+# store symbol -> venue product symbols
+SYMBOL_MAP = {
+    "BTCUSDT": {"coinbase": "BTC-USD", "kraken": "XBTUSD"},
+    "ETHUSDT": {"coinbase": "ETH-USD", "kraken": "ETHUSD"},
+    "BTC-USD": {"coinbase": "BTC-USD", "kraken": "XBTUSD"},
+    "ETH-USD": {"coinbase": "ETH-USD", "kraken": "ETHUSD"},
+}
+_COINBASE_GRAN = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600, "6h": 21600, "4h": 14400, "1d": 86400}
+_KRAKEN_INT = {"1m": 1, "5m": 5, "15m": 15, "1h": 60, "4h": 240, "1d": 1440}
+_UA = "omni-hub-quant-live/0.1"
+_MICROS = 1_000_000
+
+
+def _get_json(url, *, opener=None, timeout=15.0):
+    opener = opener or urllib.request.urlopen
+    req = urllib.request.Request(url, headers={"User-Agent": _UA})
+    with opener(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def _product(symbol, venue):
+    m = SYMBOL_MAP.get(symbol.upper())
+    if not m or venue not in m:
+        raise ValueError(f"no {venue} mapping for {symbol!r}")
+    return m[venue]
+
+
+def coinbase_candles(raw) -> list[dict]:
+    """Coinbase ``[[time(s), low, high, open, close, volume], ...]`` (newest-first)
+    -> ascending bar dicts."""
+    out = []
+    for row in raw:
+        t, low, high, op, close, vol = row[0], row[1], row[2], row[3], row[4], row[5]
+        out.append({"bucket_ts": int(t) * _MICROS, "open": float(op), "high": float(high),
+                    "low": float(low), "close": float(close), "volume": float(vol),
+                    "vwap": float(close), "trades": 0})
+    out.sort(key=lambda b: b["bucket_ts"])
+    return out
+
+
+def kraken_ohlc(raw, pair) -> list[dict]:
+    """Kraken OHLC ``result[pair] = [[time, o, h, l, c, vwap, volume, count], ...]``."""
+    result = raw.get("result", {})
+    key = next((k for k in result if k != "last"), None)
+    rows = result.get(key, []) if key else []
+    out = []
+    for r in rows:
+        out.append({"bucket_ts": int(r[0]) * _MICROS, "open": float(r[1]), "high": float(r[2]),
+                    "low": float(r[3]), "close": float(r[4]), "vwap": float(r[5]),
+                    "volume": float(r[6]), "trades": int(r[7])})
+    out.sort(key=lambda b: b["bucket_ts"])
+    return out
+
+
+def fetch_candles(symbol, interval, *, venue="coinbase", opener=None, timeout=15.0) -> list[dict]:
+    product = _product(symbol, venue)
+    if venue == "coinbase":
+        g = _COINBASE_GRAN.get(interval)
+        if g is None:
+            raise ValueError(f"coinbase has no native {interval} granularity")
+        url = f"https://api.exchange.coinbase.com/products/{product}/candles?granularity={g}"
+        return coinbase_candles(_get_json(url, opener=opener, timeout=timeout))
+    if venue == "kraken":
+        iv = _KRAKEN_INT.get(interval)
+        if iv is None:
+            raise ValueError(f"kraken has no {interval} interval")
+        url = f"https://api.kraken.com/0/public/OHLC?pair={product}&interval={iv}"
+        return kraken_ohlc(_get_json(url, opener=opener, timeout=timeout), product)
+    raise ValueError(f"unknown venue {venue!r}")
+
+
+def live_market_state(symbol, *, venue="coinbase", htf="1d", confirm="4h", opener=None):
+    """Assemble the top-down MarketState from live candles (no store needed)."""
+    htf_bars = fetch_candles(symbol, htf, venue=venue, opener=opener)
+    confirm_bars = fetch_candles(symbol, confirm, venue=venue, opener=opener)
+    h = regime.classify(htf_bars)
+    c = regime.classify(confirm_bars)
+    return SimpleNamespace(
+        symbol=symbol,
+        regime_label=h.label,
+        composite_bias=_compose_bias(h, c),
+        stand_down=bool(h.stand_down or c.stand_down),
+        htf=h.to_dict(),
+        confirm=c.to_dict(),
+        venue=venue,
+    )
+
+
+def live_alerts(symbol, *, venue="coinbase", tf="1h", strategies=None, opener=None, emit_path=None):
+    """Fetch live candles + regime, run gated strategies from flat, emit suggestions."""
+    from quant import alert as alert_mod
+    from quant.strategy.base import gated_evaluate
+    from quant.strategy.registry import default_strategies
+
+    strategies = strategies if strategies is not None else default_strategies()
+    state = live_market_state(symbol, venue=venue, opener=opener)
+    bars = fetch_candles(symbol, tf, venue=venue, opener=opener)
+    alerts = []
+    for strat in strategies:
+        intent = gated_evaluate(strat, bars, state, position_qty=0.0)
+        if intent is not None and intent.direction != "flat":
+            a = alert_mod.intent_to_alert(intent, state)
+            a.source = f"live:{venue}"
+            alerts.append(a)
+            if emit_path:
+                alert_mod.emit(a, emit_path)
+    return alerts, state
+
+
+def main(argv=None):
+    import argparse
+    import sys
+    from pathlib import Path
+
+    p = argparse.ArgumentParser(prog="quant.live", description=__doc__)
+    p.add_argument("command", choices=["state", "alerts"])
+    p.add_argument("--symbol", default="BTCUSDT")
+    p.add_argument("--venue", default="coinbase", choices=["coinbase", "kraken"])
+    p.add_argument("--emit", dest="emit_path", default=None)
+    args = p.parse_args(argv)
+
+    if args.command == "state":
+        st = live_market_state(args.symbol, venue=args.venue)
+        out = {"symbol": st.symbol, "venue": st.venue, "regime": st.regime_label,
+               "composite_bias": st.composite_bias, "stand_down": st.stand_down}
+    else:
+        emit_path = Path(args.emit_path).expanduser() if args.emit_path else None
+        alerts, st = live_alerts(args.symbol, venue=args.venue, emit_path=emit_path)
+        out = {"symbol": args.symbol, "venue": args.venue, "regime": st.regime_label,
+               "composite_bias": st.composite_bias, "stand_down": st.stand_down,
+               "n_suggestions": len(alerts), "suggestions": [a.to_dict() for a in alerts]}
+    json.dump(out, sys.stdout, ensure_ascii=False, indent=2, default=str)
+    sys.stdout.write("\n")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
