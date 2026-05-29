@@ -129,6 +129,32 @@ class OpenAlexSource:
                 _normalise_doi(doi)
                 or (item.get("id", "") or "").replace("https://openalex.org/", "openalex:")
             )
+
+            # v0.49: stop under-extraction (Q2/Q3 review) — preserve the
+            # API-native citation graph + bibliographic detail so nothing the
+            # API offered is silently dropped before the raw layer.
+            biblio = item.get("biblio") or {}
+            concepts = [
+                {
+                    "display_name": (c or {}).get("display_name", ""),
+                    "score": (c or {}).get("score", 0.0),
+                    "level": (c or {}).get("level", 0),
+                    "wikidata": (c or {}).get("wikidata", ""),
+                }
+                for c in (item.get("concepts") or [])
+                if (c or {}).get("display_name")
+            ][:12]
+            keywords = [
+                (k or {}).get("display_name", "") for k in (item.get("keywords") or [])
+            ]
+            keywords = [k for k in keywords if k][:12]
+            grants = [
+                {
+                    "funder": (g or {}).get("funder_display_name", ""),
+                    "award_id": (g or {}).get("award_id", ""),
+                }
+                for g in (item.get("grants") or [])
+            ]
             records.append(RetrievalRecord(
                 source=self.name,
                 title=item.get("display_name", ""),
@@ -147,6 +173,20 @@ class OpenAlexSource:
                     "cited_by_count": item.get("cited_by_count", 0),
                     "open_access": (item.get("open_access") or {}).get("is_oa", False),
                     "oa_pdf_url": oa_pdf_url,
+                    # v0.49: full-payload preservation (Q2/Q3)
+                    "referenced_works": list(item.get("referenced_works") or []),
+                    "related_works": list(item.get("related_works") or []),
+                    "concepts": concepts,
+                    "keywords": keywords,
+                    "biblio": {
+                        "volume": biblio.get("volume", "") or "",
+                        "issue": biblio.get("issue", "") or "",
+                        "first_page": biblio.get("first_page", "") or "",
+                        "last_page": biblio.get("last_page", "") or "",
+                    },
+                    "grants": grants,
+                    "is_retracted": bool(item.get("is_retracted", False)),
+                    "language": item.get("language", "") or "",
                 },
             ))
         return records
