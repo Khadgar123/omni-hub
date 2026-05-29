@@ -9,7 +9,7 @@ from __future__ import annotations
 import urllib.parse
 import xml.etree.ElementTree as ET
 
-from .base import DEFAULT_TIMEOUT_SEC, RetrievalRecord, http_get_text
+from .base import DEFAULT_TIMEOUT_SEC, RetrievalError, RetrievalRecord, http_get_text
 
 
 QUERY_URL = "https://export.arxiv.org/api/query"
@@ -65,7 +65,13 @@ class ArxivSource:
         }
         url = f"{QUERY_URL}?{urllib.parse.urlencode(params)}"
         text, _ = http_get_text(url, timeout=self.timeout, accept="application/atom+xml")
-        root = ET.fromstring(text)
+        try:
+            root = ET.fromstring(text)
+        except ET.ParseError as exc:
+            # Malformed / empty feed (arXiv 5xx HTML error page, truncated
+            # body): fail soft as a source error the cascade catches, not a
+            # bare ParseError that crashes the whole retrieve.
+            raise RetrievalError(f"arxiv returned non-XML: {exc}") from exc
 
         records: list[RetrievalRecord] = []
         for entry in root.findall("atom:entry", ATOM_NS):

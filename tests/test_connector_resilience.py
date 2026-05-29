@@ -71,6 +71,21 @@ _MALFORMED += [
     )
 ]
 
+# http_get_text connectors return (body, headers); malformed body = empty,
+# junk, or unparseable XML/RSS (the ET.fromstring ParseError trap).
+_TEXT_CONNECTORS = [
+    ("arxiv_api", "ArxivSource"),
+    ("cn_policy", "GovCnSource"),
+    ("wechat_mp", "WeChatMPSource"),
+]
+_MALFORMED_TEXT = [
+    ("", {}),
+    ("not xml at all", {}),
+    ("<broken><unclosed>", {}),
+    ("<?xml version='1.0'?><feed></feed>", {}),
+    ("{}", {}),
+]
+
 
 class ConnectorResilienceTests(unittest.TestCase):
     def test_fail_soft_on_malformed_response(self) -> None:
@@ -95,6 +110,30 @@ class ConnectorResilienceTests(unittest.TestCase):
                         self.assertIsInstance(
                             out, list,
                             f"{mod_name} returned non-list on malformed input",
+                        )
+
+    def test_fail_soft_on_malformed_text(self) -> None:
+        from omni_hub.retrieval.base import RetrievalError
+
+        for mod_name, cls_name in _TEXT_CONNECTORS:
+            mod = importlib.import_module(f"omni_hub.retrieval.{mod_name}")
+            if not hasattr(mod, "http_get_text") or not hasattr(mod, cls_name):
+                continue
+            Source = getattr(mod, cls_name)
+            try:
+                src = Source()
+            except Exception as exc:  # noqa: BLE001
+                self.fail(f"{mod_name}.{cls_name} construction needs args: {exc!r}")
+            for bad in _MALFORMED_TEXT:
+                with self.subTest(connector=mod_name, payload=repr(bad[0])[:20]):
+                    with patch.object(mod, "http_get_text", return_value=bad):
+                        try:
+                            out = src.retrieve("test query", limit=3)
+                        except RetrievalError:
+                            continue  # acceptable fail-soft
+                        self.assertIsInstance(
+                            out, list,
+                            f"{mod_name} returned non-list on malformed text",
                         )
 
 
