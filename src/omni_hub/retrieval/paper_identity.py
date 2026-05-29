@@ -26,6 +26,45 @@ from collections import defaultdict
 
 from .base import RetrievalRecord
 
+# Records may be RetrievalRecord objects (cascade) OR plain dicts (the
+# wiki-ingest path reads evidence.jsonl as dicts).  These accessors let the
+# whole module work on both without converting.
+
+
+def _cid(rec) -> str:
+    v = rec.get("canonical_id") if isinstance(rec, dict) else getattr(rec, "canonical_id", "")
+    return str(v or "")
+
+
+def _md(rec) -> dict:
+    m = rec.get("metadata") if isinstance(rec, dict) else getattr(rec, "metadata", None)
+    return m if isinstance(m, dict) else {}
+
+
+def _title(rec) -> str:
+    v = rec.get("title") if isinstance(rec, dict) else getattr(rec, "title", "")
+    return str(v or "")
+
+
+def _source(rec) -> str:
+    v = rec.get("source") if isinstance(rec, dict) else getattr(rec, "source", "")
+    return str(v or "")
+
+
+def _score(rec) -> float:
+    v = rec.get("score") if isinstance(rec, dict) else getattr(rec, "score", 0.0)
+    try:
+        return float(v or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _set_md(rec, md: dict) -> None:
+    if isinstance(rec, dict):
+        rec["metadata"] = md
+    else:
+        rec.metadata = md
+
 
 def _norm_arxiv(v: object) -> str:
     """``2401.01234v3`` / ``arXiv:2401.01234`` / a URL → ``arxiv:2401.01234``."""
@@ -58,9 +97,9 @@ def paper_identity_keys(rec: RetrievalRecord) -> set[str]:
     see :func:`normalized_title` for opt-in title assistance.
     """
     keys: set[str] = set()
-    md = rec.metadata if isinstance(rec.metadata, dict) else {}
+    md = _md(rec)
 
-    cid = str(rec.canonical_id or "").strip().lower()
+    cid = _cid(rec).strip().lower()
     if cid.startswith("arxiv:"):
         keys.add(_norm_arxiv(cid))
     elif cid.startswith("doi:"):
@@ -95,10 +134,10 @@ def _accept_rank(rec: RetrievalRecord) -> tuple:
     """Prefer the record representing the ACCEPTED/published version: has a
     DOI, then has a venue, then higher score — so the merged record's primary
     is the canonical published one, not the raw preprint."""
-    md = rec.metadata if isinstance(rec.metadata, dict) else {}
-    has_doi = 1 if (md.get("doi") or str(rec.canonical_id or "").startswith("doi:")) else 0
+    md = _md(rec)
+    has_doi = 1 if (md.get("doi") or _cid(rec).startswith("doi:")) else 0
     has_venue = 1 if (md.get("venue") or md.get("journal_ref") or md.get("venueid")) else 0
-    return (has_doi, has_venue, float(rec.score or 0.0))
+    return (has_doi, has_venue, _score(rec))
 
 
 def _merge_group(group: list[RetrievalRecord]) -> RetrievalRecord:
@@ -109,21 +148,22 @@ def _merge_group(group: list[RetrievalRecord]) -> RetrievalRecord:
     sources: list[str] = []
     for rec in group:
         all_ids |= paper_identity_keys(rec)
-        if rec.source and rec.source not in sources:
-            sources.append(rec.source)
-    md = dict(primary.metadata or {})
+        s = _source(rec)
+        if s and s not in sources:
+            sources.append(s)
+    md = dict(_md(primary))
     md["merged_ids"] = sorted(all_ids)
     md["merged_sources"] = sources
     # Backfill acceptance/venue/doi signals from whichever record carries them
     # (the preprint won't have a venue; the accepted record will).
     for rec in group:
-        rmd = rec.metadata if isinstance(rec.metadata, dict) else {}
+        rmd = _md(rec)
         for field in ("venue", "venueid", "doi", "comment", "journal_ref"):
             if not md.get(field) and rmd.get(field):
                 md[field] = rmd[field]
         if rmd.get("accepted") and not md.get("accepted"):
             md["accepted"] = rmd["accepted"]
-    primary.metadata = md
+    _set_md(primary, md)
     return primary
 
 
@@ -161,7 +201,7 @@ def merge_papers(
     for i, rec in enumerate(records):
         keys = paper_identity_keys(rec)
         if use_title_fallback:
-            t = normalized_title(rec.title)
+            t = normalized_title(_title(rec))
             if len(t) >= 12:
                 keys.add(f"title:{t}")
         for k in keys:

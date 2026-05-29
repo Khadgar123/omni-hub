@@ -926,6 +926,16 @@ def ingest_retrieval_evidence(
         if len(records) >= max_records:
             break
 
+    # 3b: fold cross-source paper duplicates (arXiv preprint <-> accepted DOI
+    # <-> OpenReview thread) BEFORE evidence + claims, so one paper ingests as
+    # ONE record/claim instead of N.  This is the dedup the operator flagged
+    # (preprint already in repo; accepted version arrives).  Gated to paper
+    # domains -- non-paper records carry no cross-referenced ids, so folding
+    # there is a near-no-op and we keep the blast radius small.
+    if resolved_domain in ("research", "ai_progress", "agent_systems"):
+        from .retrieval.paper_identity import merge_papers
+        records = merge_papers(records)
+
     evidence_files = _write_evidence_files(workspace_root, resolved_domain, run_id, records)
 
     target_path = _synthesis_target_path(resolved_title, run_id)

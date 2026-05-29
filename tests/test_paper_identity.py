@@ -128,5 +128,27 @@ class VenueCrawlTests(unittest.TestCase):
         self.assertEqual(md["doi"], "10.1/accepted1")
 
 
+class DictRecordTests(unittest.TestCase):
+    """The wiki-ingest path passes plain dicts (evidence.jsonl), not
+    RetrievalRecord — merge_papers must fold those too (the 3b ingest fold)."""
+
+    def test_merge_papers_on_dict_records(self) -> None:
+        arxiv = {"source": "arxiv", "canonical_id": "arxiv:2401.00001",
+                 "title": "P", "snippet": "a",
+                 "metadata": {"arxiv_base_id": "2401.00001"}}
+        s2 = {"source": "semantic_scholar", "canonical_id": "doi:10.1/x",
+              "title": "P", "snippet": "b", "score": 50.0,
+              "metadata": {"external_ids": {"ArXiv": "2401.00001", "DOI": "10.1/x"},
+                           "venue": "ICLR 2026"}}
+        other = {"source": "arxiv", "canonical_id": "arxiv:2402.99999",
+                 "title": "Q", "metadata": {"arxiv_base_id": "2402.99999"}}
+        merged = merge_papers([arxiv, s2, other])
+        self.assertEqual(len(merged), 2)
+        paper = max(merged, key=lambda r: len(r["metadata"].get("merged_sources", [])))
+        self.assertEqual(set(paper["metadata"]["merged_sources"]),
+                         {"arxiv", "semantic_scholar"})
+        self.assertEqual(paper["metadata"]["venue"], "ICLR 2026")
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
