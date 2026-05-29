@@ -63,7 +63,10 @@ def main() -> int:
     written_runs: list[str] = []
     for (run_id, domain), files in sorted(grouped.items()):
         files = sorted(files)
-        bridge_dir = retrieval_root / run_id
+        # P0.4: namespace the bridge dir by (run_id, domain) so an all-domain
+        # seed that shares a single run_id can't overwrite its own evidence.
+        bridge_run_id = f"{run_id}__{domain}"
+        bridge_dir = retrieval_root / bridge_run_id
         bridge_dir.mkdir(parents=True, exist_ok=True)
 
         # Compose evidence.jsonl from all individual files.
@@ -93,7 +96,7 @@ def main() -> int:
 
         # run_manifest.json
         manifest = {
-            "run_id": run_id,
+            "run_id": bridge_run_id,
             "query": f"seed:{run_id}",
             "domain": domain,
             "fusion": "seed",
@@ -116,10 +119,10 @@ def main() -> int:
         )
 
         sys.stderr.write(
-            f"  ✓ {run_id} ({domain}): {manifest['record_count']} records "
+            f"  ✓ {bridge_run_id}: {manifest['record_count']} records "
             f"across {len(sources_count)} sources\n"
         )
-        written_runs.append(run_id)
+        written_runs.append(bridge_run_id)
 
     sys.stderr.write(f"\n✅ wrote {len(written_runs)} bridge directories\n")
     sys.stderr.write("Next step:\n")

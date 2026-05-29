@@ -4,7 +4,7 @@ domain: research
 source_id: researchflow
 source_path: obsidian-vault/analysis/ICLR_2026/A_Noise_is_Worth_Diffusion_Guidance.md
 paper_link: https://openreview.net/forum?id=xEWooSOgaz
-review_state: approved_after_proposal
+review_state: approved
 ---
 
 # A Noise is Worth Diffusion Guidance

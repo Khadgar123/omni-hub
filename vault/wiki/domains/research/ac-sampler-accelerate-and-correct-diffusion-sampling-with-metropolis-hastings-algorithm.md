@@ -4,7 +4,7 @@ domain: research
 source_id: researchflow
 source_path: obsidian-vault/analysis/ICLR_2026/AC-Sampler_Accelerate_and_Correct_Diffusion_Sampling_with_Metropolis-Hastings_Algorithm.md
 paper_link: https://openreview.net/forum?id=kWl13kRJTQ
-review_state: approved_after_proposal
+review_state: approved
 ---
 
 # AC-Sampler: Accelerate and Correct Diffusion Sampling with Metropolis-Hastings Algorithm

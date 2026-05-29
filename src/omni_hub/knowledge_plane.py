@@ -459,11 +459,15 @@ def reindex_wiki(workspace: Path | str = ".") -> dict[str, int]:
 
 
 def _is_closed_page(frontmatter: dict[str, object], *, now: datetime) -> bool:
-    """Page is "closed" when review_state ∈ rejected/superseded OR
-    t_valid_to is in the past."""
+    """Page is "closed" (skipped by default search / context-pack) when
+    review_state ∈ rejected/superseded/proposed OR t_valid_to is in the past.
+
+    P0.2: ``proposed`` is closed-by-default so an un-applied draft never leaks
+    into downstream consumption.  ``apply_wiki_proposal`` rewrites an applied
+    page to ``approved``, so correctly-landed pages stay visible."""
 
     state = str(frontmatter.get("review_state", "")).strip().lower()
-    if state in {"rejected", "superseded"}:
+    if state in {"rejected", "superseded", "proposed"}:
         return True
     t_valid_to = frontmatter.get("t_valid_to")
     if t_valid_to is None:
@@ -708,6 +712,12 @@ def preview_supersede_claim(
     return diff
 
 
+def _set_frontmatter_review_state(body: str, state: str) -> str:
+    """Set the YAML frontmatter ``review_state`` to ``state`` (first match)."""
+
+    return re.sub(r"(?m)^review_state:.*$", f"review_state: {state}", body, count=1)
+
+
 def apply_wiki_proposal(
     workspace: Path | str = ".",
     proposal_id: str = "",
@@ -732,6 +742,11 @@ def apply_wiki_proposal(
 
     target.parent.mkdir(parents=True, exist_ok=True)
     body = str(proposal.payload["body"])
+    # P0.2: an applied page is APPROVED by definition.  The synthesis body was
+    # emitted with `review_state: proposed` at ingest time; rewrite it so the
+    # approved-only search / context-pack gate consumes it — and any
+    # un-applied `proposed` page stays hidden by default.
+    body = _set_frontmatter_review_state(body, "approved")
     target.write_text(body.rstrip() + "\n", encoding="utf-8")
     append_log(workspace_root, op="apply", summary=proposal.title, source=proposal.source_path)
     _upsert_index_entry(workspace_root, target.relative_to(workspace_root), proposal.title, proposal.summary)
@@ -1593,7 +1608,7 @@ def _render_research_wiki_page(
         f"source_id: {source_id}",
         f"source_path: {analysis_path}",
         f"paper_link: {entry.get('paper_link', '')}",
-        "review_state: approved_after_proposal",
+        "review_state: proposed",
         "---",
         "",
         f"# {title}",
@@ -1843,17 +1858,65 @@ def _render_raw_capture(
     return "\n".join(lines)
 
 
+# P0.3: a quality gate so the naive "first sentence of a snippet" extraction
+# can't write bare titles / journal names / company names ("Constellations",
+# "Annals of Oncology", "LyondellBasell Industries N.V.") into the claim
+# ledger.  A real claim is a full predication — long enough AND carrying a
+# verb/predicate.  Below the bar the record still lands as *evidence*; it just
+# does not become a *claim* (single-source low-signal → evidence-only).
+_CLAIM_MIN_CHARS = 40
+# Explicit finite verb forms (NOT ``\w*`` stems) so nominalisations like
+# "Optimization" / "improvement" / "reduction" — common in titles — do not
+# masquerade as predicates.  Precision over recall: a real claim whose verb
+# isn't listed simply stays evidence (the conservative, correct failure mode).
+_CLAIM_VERBISH = re.compile(
+    r"\b(is|are|was|were|be|been|being|am|"
+    r"has|have|had|can|could|should|shall|will|would|may|might|must|do|does|did|"
+    r"shows?|showed|improves?|improved|reduces?|reduced|increases?|increased|"
+    r"achieves?|achieved|enables?|enabled|provides?|provided|presents?|presented|"
+    r"introduces?|introduced|outperforms?|outperformed|requires?|required|"
+    r"leads?|led|causes?|caused|finds?|found|suggests?|suggested|allows?|allowed|"
+    r"trains?|trained|proposes?|proposed|demonstrates?|demonstrated|"
+    r"generates?|generated|estimates?|estimated|predicts?|predicted|"
+    r"solves?|solved|optimizes?|optimized|enhances?|enhanced|yields?|yielded|"
+    r"evolves?|evolved|edits?|edited|reads?|adapts?|adapted|extends?|extended|"
+    r"combines?|combined|evaluates?|evaluated|leverages?|leveraged|exploits?|"
+    r"exploited|mitigates?|mitigated|captures?|captured|treats?|treated)\b",
+    re.IGNORECASE,
+)
+# CJK predicate / copula markers (Chinese snippets carry no whitespace verbs).
+_CLAIM_VERBISH_CJK = re.compile(
+    r"(是|为|可以|能够|提出|实现|表明|显示|证明|提升|提高|降低|增加|减少|"
+    r"需要|使用|导致|发现|改善|优化|生成|预测|解决|应用|包含|具有|属于)"
+)
+
+
+def _looks_like_claim(statement: str) -> bool:
+    """True when ``statement`` reads like an assertable claim, not a bare
+    title / venue / entity name."""
+
+    s = statement.strip()
+    # CJK carries far more meaning per character, so a dense Chinese sentence
+    # clears the bar at a lower char count than an English one.
+    cjk = sum(1 for ch in s if "一" <= ch <= "鿿")
+    min_chars = 16 if cjk >= 8 else _CLAIM_MIN_CHARS
+    if len(s) < min_chars:
+        return False
+    return bool(_CLAIM_VERBISH.search(s) or _CLAIM_VERBISH_CJK.search(s))
+
+
 def _claims_from_retrieval_records(
     records: list[dict[str, object]],
     *,
     domain: str,
     query: str,
 ) -> list[dict[str, object]]:
-    """Generate one candidate claim per record.
+    """Generate one candidate claim per record that clears the quality gate.
 
     Conservative: confidence 0.5 (web evidence, single-source),
-    review_state=proposed, bitemporal fields populated.  Lint + human review
-    sharpen these later.
+    review_state=proposed, bitemporal fields populated.  Low-signal fragments
+    are dropped (they remain as evidence).  Lint + human review sharpen the
+    survivors later.
     """
 
     from .retrieval.source_policy import source_tier as _source_tier
@@ -1866,6 +1929,10 @@ def _claims_from_retrieval_records(
             continue
         statement = _first_sentence(snippet, max_chars=280)
         if not statement or statement.lower() in seen_statements:
+            continue
+        # P0.3 quality gate: bare titles / venue / entity fragments stay as
+        # evidence only — they do not become claims.
+        if not _looks_like_claim(statement):
             continue
         seen_statements.add(statement.lower())
         canonical = str(record.get("canonical_id") or record.get("url") or "")

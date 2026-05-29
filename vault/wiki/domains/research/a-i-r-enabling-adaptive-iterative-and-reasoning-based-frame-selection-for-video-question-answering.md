@@ -4,7 +4,7 @@ domain: research
 source_id: researchflow
 source_path: obsidian-vault/analysis/ICLR_2026/A.I.R._Enabling_Adaptive_Iterative_and_Reasoning-based_Frame_Selection_For_Video_Question_Answering.md
 paper_link: https://openreview.net/forum?id=SZVpOKw0YD
-review_state: approved_after_proposal
+review_state: approved
 ---
 
 # A.I.R.: Enabling Adaptive, Iterative, and Reasoning-based Frame Selection For Video Question Answering

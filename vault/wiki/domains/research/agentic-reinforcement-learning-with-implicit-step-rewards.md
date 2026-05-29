@@ -4,7 +4,7 @@ domain: research
 source_id: researchflow
 source_path: obsidian-vault/analysis/ICLR_2026/Agentic_Reinforcement_Learning_with_Implicit_Step_Rewards.md
 paper_link: https://openreview.net/forum?id=ooROvpmxMV
-review_state: approved_after_proposal
+review_state: approved
 ---
 
 # Agentic Reinforcement Learning with Implicit Step Rewards

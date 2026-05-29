@@ -7,7 +7,7 @@ t_valid_from: 2026-05-29T04:52:57.936814+00:00
 t_valid_to: null
 superseded_by: null
 confidence: medium
-review_state: proposed
+review_state: approved
 ingest_run_id: seed-wiki-ai_progress-20260529-005924
 ---
 

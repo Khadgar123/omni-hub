@@ -4,7 +4,7 @@ domain: research
 source_id: researchflow
 source_path: obsidian-vault/analysis/ICLR_2026/A2TG_Adaptive_Anisotropic_Textured_Gaussians_for_Efficient_3D_Scene_Representation.md
 paper_link: https://openreview.net/forum?id=EPN5MU4liR
-review_state: approved_after_proposal
+review_state: approved
 ---
 
 # A^2TG: Adaptive Anisotropic Textured Gaussians for Efficient 3D Scene Representation

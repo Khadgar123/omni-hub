@@ -164,3 +164,6 @@ Append-only operation log for ingest, query, lint, and apply events.
 
 ## [2026-05-29T05:34:54.356155+00:00] apply | A Noise is Worth Diffusion Guidance
 - source: obsidian-vault/analysis/ICLR_2026/A_Noise_is_Worth_Diffusion_Guidance.md
+
+## [2026-05-29T06:07:12.280320+00:00] migrate | P0.2 repair: normalised review_state -> approved on 23 applied pages
+- source: vault/wiki

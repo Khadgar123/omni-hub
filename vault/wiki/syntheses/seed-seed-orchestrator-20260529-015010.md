@@ -7,7 +7,7 @@ t_valid_from: 2026-05-29T04:52:55.817751+00:00
 t_valid_to: null
 superseded_by: null
 confidence: medium
-review_state: proposed
+review_state: approved
 ingest_run_id: seed-orchestrator-20260529-015010
 ---
 

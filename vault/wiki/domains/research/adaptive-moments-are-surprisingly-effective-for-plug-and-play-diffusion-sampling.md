@@ -4,7 +4,7 @@ domain: research
 source_id: researchflow
 source_path: obsidian-vault/analysis/ICLR_2026/Adaptive_Moments_are_Surprisingly_Effective_for_Plug-and-Play_Diffusion_Sampling.md
 paper_link: https://openreview.net/forum?id=qYDObsHldZ
-review_state: approved_after_proposal
+review_state: approved
 ---
 
 # Adaptive Moments are Surprisingly Effective for Plug-and-Play Diffusion Sampling

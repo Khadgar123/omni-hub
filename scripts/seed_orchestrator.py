@@ -144,8 +144,23 @@ def _bulk_source(
         queries.extend(str(i) for i in spec["indicators"])
     elif "series" in spec:
         queries.extend(str(s) for s in spec["series"])
+    elif "cik_list" in spec:
+        # EDGAR: search per company identifier (NOT the domain name).  The
+        # connector's full-text q= accepts the CIK; `forms`/`days`, if present,
+        # are type/recency hints the query-only connector can't apply yet.
+        queries.extend(str(c) for c in spec["cik_list"])
+    elif "congress" in spec:
+        queries.append(f"{spec['congress']}th congress")
     else:
-        queries.append(domain)            # fallback: search by domain name
+        # P0.1: FAIL FAST.  A bulk spec with no recognised query key is a
+        # manifest bug — silently searching the domain name ("enterprise",
+        # "finance") poisons the seed with off-topic noise.
+        raise ValueError(
+            f"bulk spec for source '{source_name}' (domain '{domain}') has no "
+            f"recognised query key (query/category/themes/countries/handles/"
+            f"indicators/series/cik_list/congress); got keys "
+            f"{sorted(k for k in spec if k != 'source')!r}"
+        )
 
     written = 0
     for q in queries:
@@ -200,6 +215,7 @@ def main() -> int:
     run_id = datetime.now().strftime("seed-orchestrator-%Y%m%d-%H%M%S")
     counter = {"idx": 0}
     grand_total = 0
+    spec_errors = 0
 
     for dom in targets:
         spec = domains_section.get(dom)
@@ -216,19 +232,27 @@ def main() -> int:
                     f"    ⏭ {bulk.get('source')} tier={tier} skipped (need --allow-paid)\n"
                 )
                 continue
-            domain_written += _bulk_source(
-                repo_root, dom, run_id, bulk, sources_registry, counter, args.dry_run,
-            )
+            try:
+                domain_written += _bulk_source(
+                    repo_root, dom, run_id, bulk, sources_registry, counter, args.dry_run,
+                )
+            except ValueError as exc:
+                # P0.1: a misconfigured bulk spec is surfaced loudly and the
+                # whole run exits non-zero — but other valid specs still run.
+                sys.stderr.write(f"    ✗ MANIFEST ERROR: {exc}\n")
+                spec_errors += 1
         sys.stderr.write(f"  → {dom}: {domain_written} records\n")
         grand_total += domain_written
 
+    status = "✅" if spec_errors == 0 else "⚠"
     sys.stderr.write(
-        f"\n✅ orchestrator done.  run_id={run_id}\n"
+        f"\n{status} orchestrator done.  run_id={run_id}\n"
         f"   total: {grand_total} records across {len(targets)} domain(s)\n"
+        f"   manifest errors: {spec_errors}\n"
         f"   next: omni-hub wiki-ingest --run-id {run_id} --domain <X> per domain\n"
     )
     print(run_id)
-    return 0
+    return 1 if spec_errors else 0
 
 
 if __name__ == "__main__":

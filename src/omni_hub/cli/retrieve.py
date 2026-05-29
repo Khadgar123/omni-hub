@@ -39,10 +39,10 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     retrieve.add_argument("--per-source-limit", type=int, default=5)
     retrieve.add_argument("--total-limit", type=int, default=20)
     retrieve.add_argument(
-        "--fusion", choices=["concat", "rrf"], default="concat",
+        "--fusion", choices=["concat", "rrf"], default="rrf",
         help=(
-            "Cross-source ranking. ``rrf`` = Reciprocal Rank Fusion; "
-            "``concat`` = cascade-order (legacy default)."
+            "Cross-source ranking. ``rrf`` = Reciprocal Rank Fusion (default, "
+            "matches the retrieve op); ``concat`` = cascade-order (opt-in legacy)."
         ),
     )
     retrieve.add_argument(

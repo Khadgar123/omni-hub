@@ -4,7 +4,7 @@ domain: research
 source_id: researchflow
 source_path: obsidian-vault/analysis/ICLR_2026/Unified_Diffusion_VLA_Vision-Language-Action_Model_via_Joint_Discrete_Denosing_Diffusion_Process.md
 paper_link: https://openreview.net/forum?id=UvQOcw2oCD
-review_state: approved_after_proposal
+review_state: approved
 ---
 
 # Unified Diffusion VLA: Vision-Language-Action Model via Joint Discrete Denosing Diffusion Process

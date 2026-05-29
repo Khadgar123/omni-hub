@@ -4,7 +4,7 @@ domain: research
 source_id: researchflow
 source_path: obsidian-vault/analysis/ICLR_2026/AdaReasoner_Dynamic_Tool_Orchestration_for_Iterative_Visual_Reasoning.md
 paper_link: https://openreview.net/forum?id=nUGPEmQ2ut
-review_state: approved_after_proposal
+review_state: approved
 ---
 
 # AdaReasoner: Dynamic Tool Orchestration for Iterative Visual Reasoning

@@ -4,7 +4,7 @@ domain: research
 source_id: researchflow
 source_path: obsidian-vault/analysis/ICLR_2026/In-the-Flow_Agentic_System_Optimization_for_Effective_Planning_and_Tool_Use.md
 paper_link: https://openreview.net/forum?id=Mf5AleTUVK
-review_state: approved_after_proposal
+review_state: approved
 ---
 
 # In-the-Flow Agentic System Optimization for Effective Planning and Tool Use

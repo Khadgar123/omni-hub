@@ -4,7 +4,7 @@ domain: research
 source_id: researchflow
 source_path: obsidian-vault/analysis/ICLR_2026/3DGEER_3D_Gaussian_Rendering_Made_Exact_and_Efficient_for_Generic_Cameras.md
 paper_link: https://openreview.net/forum?id=4voMNlRWI7
-review_state: approved_after_proposal
+review_state: approved
 ---
 
 # 3DGEER: 3D Gaussian Rendering Made Exact and Efficient for Generic Cameras

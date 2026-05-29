@@ -74,7 +74,7 @@ class EndToEndLifecycleTests(unittest.TestCase):
                 {
                     "title": "ACE: Evolving Context as a Wiki",
                     "url": "https://arxiv.org/abs/2510.04618",
-                    "snippet": "ACE evolves context across sessions...",
+                    "snippet": "ACE evolves a persistent context document that the agent reads and edits across sessions.",
                     "canonical_id": "arxiv:2510.04618",
                     "source": "arxiv",
                     "score": 1.0,
@@ -82,7 +82,7 @@ class EndToEndLifecycleTests(unittest.TestCase):
                 {
                     "title": "GEPA: Reflective Prompt Optimisation",
                     "url": "https://arxiv.org/abs/2507.19457",
-                    "snippet": "GEPA reflectively edits prompts...",
+                    "snippet": "GEPA reflectively edits prompts using evaluator feedback and improves coding-benchmark accuracy.",
                     "canonical_id": "arxiv:2507.19457",
                     "source": "arxiv",
                     "score": 0.9,
