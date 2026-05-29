@@ -207,3 +207,43 @@ Integration flow (per `agent-harness/quant/README.md`): omni-hub
 Backward-compatible additions (new optional columns with defaults, new tables)
 do **not** bump the version. Renaming/removing/retyping a column, or changing a
 timestamp unit, **does** — record the change here so the omni-hub side can adapt.
+
+---
+
+## 9. Regime read — `MarketState` (derived analysis; additive CLI seam)
+
+Not a stored record schema (so it is **independent of `SCHEMA_VERSION`**): a
+deterministic, point-in-time multi-timeframe regime read *derived* from the
+`bars_<freq>` above. Computed in `quant/{features,regime,market_state}.py`
+(pure-stdlib indicators + an ADX / EMA-slope / realized-vol committee + a CUSUM
+change-point). No LLM, no look-ahead. Numerics stay under `~/quant`; nothing
+here writes to the knowledge vault.
+
+CLI (the omni-hub shell-out seam — stdout is one JSON object):
+
+```bash
+python -m quant.market_state --symbol BTCUSDT [--asof YYYY-MM-DD] \
+    [--htf 1d] [--confirm 4h] [--root R]
+```
+
+`MarketState` fields:
+
+| field | type | meaning |
+|---|---|---|
+| `symbol` | string | |
+| `as_of` | int | HTF last-bar `bucket_ts` (epoch µs, UTC) |
+| `htf_tf` / `confirm_tf` | string | bias / confirm timeframes (default `1d` / `4h`) |
+| `composite_bias` | string | `long` / `short` / `flat` — the gate strategies obey |
+| `regime_label` | string | HTF label: `strong_down`/`down`/`range`/`up`/`strong_up` |
+| `direction` | string | HTF `up` / `down` / `flat` |
+| `vol_bucket` | string | `low` / `normal` / `high` |
+| `stand_down` | bool | change-point veto (either timeframe) |
+| `per_tf` | object | `{tf: label}` |
+| `htf` / `confirm` | object | full per-timeframe `RegimeResult` (`adx`, `slope_per_atr`, `insufficient`, …) |
+| `schema_version` | string | `ms-v1` |
+
+Fusion contract (strict top-down): the **HTF is the sole bias source**; the
+confirm timeframe may only **veto a bias to flat**, never flip it; a change-point
+or insufficient data on either timeframe forces `flat`. Thresholds (ADX 25/40,
+vol percentile, CUSUM) are conventional **untuned defaults** — hyper-parameters
+to fit under purged-CV later, not tuned numbers.
