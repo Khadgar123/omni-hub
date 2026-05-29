@@ -236,6 +236,8 @@ class Cascade:
         fusion: FusionMode = "rrf",
         timeout: float = 15.0,
         grader: Grader | None = None,
+        quality_fn: Callable[[str], float] | None = None,
+        quality_weight: float = 0.0,
     ) -> CascadeResult:
         """Run the cascade for ``domain`` (or an explicit ``sources`` list).
 
@@ -371,6 +373,28 @@ class Cascade:
                     continue
                 kept.append(rec)
             fused = kept
+
+        # v0.47 measured-quality rerank (opt-in) — the "降级不一定差" switch.
+        # quality_weight=0.0 (default) -> identity: RRF order is preserved, so
+        # existing behaviour and tests are unchanged.  When >0, blend each
+        # record's min-max-normalized RRF relevance with its SOURCE's measured
+        # quality (SourceQualityStore.quality_score) so a measured-good
+        # "fallback" can outrank a high-priority-but-stale "primary".  Unseen
+        # sources (quality 0) stay neutral (their own RRF position) to avoid a
+        # cold-start penalty.  Follows "measure first, then switch".
+        if quality_weight > 0.0 and quality_fn is not None and len(fused) > 1:
+            _scores = [r.score for r in fused]
+            _lo, _hi = min(_scores), max(_scores)
+            _span = (_hi - _lo) or 1.0
+            _w = min(max(quality_weight, 0.0), 1.0)
+
+            def _blended(rec: RetrievalRecord) -> float:
+                rrf_norm = (rec.score - _lo) / _span
+                q = quality_fn(rec.source)
+                qv = q if q > 0.0 else rrf_norm  # unseen -> neutral
+                return (1.0 - _w) * rrf_norm + _w * qv
+
+            fused = sorted(fused, key=_blended, reverse=True)
 
         if len(fused) > total_limit:
             fused = fused[:total_limit]

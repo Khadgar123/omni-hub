@@ -580,6 +580,15 @@ def make_retrieve_cascade(workspace: Path):
                 query = retrieval_plan.rewritten_query
             plan_meta = retrieval_plan.to_dict()
 
+        # v0.47 opt-in measured-quality rerank ("降级不一定差" switch).  Default
+        # quality_weight=0.0 -> identity (RRF order).  Set >0 (e.g. via ab-test)
+        # to blend in SourceQualityStore's success-rate×freshness so a
+        # measured-good fallback can outrank a stale high-priority source.
+        quality_weight = float(payload.get("quality_weight", 0.0))
+        quality_fn = None
+        if quality_weight > 0.0:
+            from .retrieval.source_quality import SourceQualityStore
+            quality_fn = SourceQualityStore(workspace_root).quality_score
         result = cascade.retrieve(
             query,
             domain=domain,
@@ -588,6 +597,8 @@ def make_retrieve_cascade(workspace: Path):
             sources=sources,
             fusion=fusion,                # type: ignore[arg-type]
             grader=grader,
+            quality_fn=quality_fn,
+            quality_weight=quality_weight,
         )
 
         # v0.46 measured-quality telemetry: record which sources actually
