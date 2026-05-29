@@ -26,22 +26,30 @@ from .base import DEFAULT_TIMEOUT_SEC, RetrievalError, RetrievalRecord, http_get
 _CRUNCHBASE_URL = "https://api.crunchbase.com/api/v4"
 _OPENCORPORATES_URL = "https://api.opencorporates.com/v0.4/companies/search"
 _OPENCORPORATES_SECRET_REF = "local:omni-hub/api/opencorporates/default"
+_CRUNCHBASE_SECRET_REF = "local:omni-hub/api/crunchbase/default"
 
 
-def _resolve_opencorporates_token() -> str:
-    env_token = os.environ.get("OPENCORPORATES_API_TOKEN", "").strip()
-    if env_token:
-        return env_token
+def _resolve_secret(env_var: str, secret_ref: str) -> str:
+    """Env var first, then ``.omni/secrets.json`` — shared by both
+    OpenCorporates and Crunchbase below."""
+
+    env_val = os.environ.get(env_var, "").strip()
+    if env_val:
+        return env_val
     try:
         from ..secrets import resolve_secret_ref, SecretStoreError
     except ImportError:
         return ""
     try:
-        return resolve_secret_ref(_OPENCORPORATES_SECRET_REF) or ""
+        return resolve_secret_ref(secret_ref) or ""
     except SecretStoreError:
         return ""
     except Exception:                                            # noqa: BLE001
         return ""
+
+
+def _resolve_opencorporates_token() -> str:
+    return _resolve_secret("OPENCORPORATES_API_TOKEN", _OPENCORPORATES_SECRET_REF)
 
 
 class OpenCorporatesSource:
@@ -159,13 +167,17 @@ class CrunchbaseSource:
         api_key: str | None = None,
         timeout: int = DEFAULT_TIMEOUT_SEC,
     ) -> None:
-        self.api_key = api_key or os.environ.get("CRUNCHBASE_API_KEY", "")
+        self.api_key = (
+            api_key
+            if api_key is not None
+            else _resolve_secret("CRUNCHBASE_API_KEY", _CRUNCHBASE_SECRET_REF)
+        )
         self.timeout = timeout
 
     def check(self) -> tuple[str, str]:
         if not self.api_key:
             return "off", "CRUNCHBASE_API_KEY not set"
-        return "ok", "CRUNCHBASE_API_KEY present"
+        return "ok", "Crunchbase key configured (env or secrets.json)"
 
     def retrieve(
         self,

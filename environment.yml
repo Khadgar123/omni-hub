@@ -5,4 +5,7 @@ dependencies:
   - python=3.12
   - pip
   - pip:
-      - hatchling
+      # editable install — registers the `omni-hub` console script and puts
+      # `omni_hub` on the import path, so no `PYTHONPATH=src` juggling is
+      # needed once the env is active. `-e .` pulls hatchling automatically.
+      - -e .

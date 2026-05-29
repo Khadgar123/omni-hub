@@ -1,4 +1,7 @@
-PYTHON ?= python3
+# Default to the project's conda env interpreter (python 3.12) so `make test`
+# etc. work without activating anything. Override with `make PYTHON=python3.x`.
+# Falls back to the conda-env path if it exists, else plain python3.
+PYTHON ?= $(shell test -x $(HOME)/opt/anaconda3/envs/omni-hub/bin/python && echo $(HOME)/opt/anaconda3/envs/omni-hub/bin/python || echo python3)
 PYTHON_ABS := $(shell command -v $(PYTHON) 2>/dev/null)
 
 .PHONY: setup test api-status api-update harness-setup harness-update harness-status harness-add-pending harness-ensemble compose-config compose-build-config schedule-install schedule-install-dry schedule-uninstall worker-python worker-claude worker-codex check-python

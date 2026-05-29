@@ -1,10 +1,24 @@
 """International relations — ACLED + World Bank + IMF.
 
 * **ACLED** (Armed Conflict Location & Event Data) — gold standard for
-  real-time political violence and protest events.  Free key for
-  non-commercial; commercial requires license.  Endpoint
-  ``api.acleddata.com/acled/read``.  Auth = ``email`` + ``key`` query
-  params (both env vars).
+  real-time political violence and protest events.  Free non-commercial
+  tier (institutional email gets full disaggregated data).  ACLED moved
+  off the old ``email``+``key`` query-param auth in 2024: the legacy host
+  ``api.acleddata.com`` is dead and keys were frozen 2025-09-15.  Current
+  scheme (verified live 2026-05-29):
+
+    1. OAuth2 password grant → Bearer token at ``acleddata.com/oauth/token``
+       (``client_id=acled``, ``scope=authenticated``; access token 24h,
+       refresh token 14d).
+    2. Read events at ``acleddata.com/api/acled/read`` with
+       ``Authorization: Bearer <token>``; filter per-column (``country=``,
+       ``event_date=A|B&event_date_where=BETWEEN``), ``limit`` default 5000,
+       ``page`` 1-based.  The unique id field is ``event_id_cnty`` (not
+       ``data_id``); all values come back as strings.
+
+  Credentials: ``ACLED_EMAIL`` + ``ACLED_PASSWORD`` env, or
+  ``.omni/secrets.json`` (``store_api_key('account/acled/email', ...)`` /
+  ``store_api_key('account/acled/password', ...)``).
 * **World Bank** — open dev indicators, no key.  Endpoint
   ``api.worldbank.org/v2/indicator``.  Query model: indicator ID + country.
   We surface this as a free-text search over ~1500 indicator names.
@@ -18,14 +32,44 @@ Same for World Bank: skip ``wbdata`` dep, single HTTP call.
 from __future__ import annotations
 
 import os
+import re
+import time
 
-from .base import DEFAULT_TIMEOUT_SEC, RetrievalError, RetrievalRecord, http_get_json
-from .health import env_var_probe
+from .base import (
+    DEFAULT_TIMEOUT_SEC,
+    RetrievalError,
+    RetrievalRecord,
+    http_get_json,
+    http_post_json,
+)
 
 
-ACLED_URL = "https://api.acleddata.com/acled/read"
+ACLED_TOKEN_URL = "https://acleddata.com/oauth/token"
+ACLED_READ_URL = "https://acleddata.com/api/acled/read"
+ACLED_CLIENT_ID = "acled"
+ACLED_EMAIL_REF = "local:omni-hub/account/acled/email"
+ACLED_PASSWORD_REF = "local:omni-hub/account/acled/password"
 WORLDBANK_INDICATORS = "https://api.worldbank.org/v2/indicator"
 IMF_DATAFLOW = "https://dataservices.imf.org/REST/SDMX_JSON.svc/Dataflow"
+
+
+def _resolve_secret(env_var: str, secret_ref: str) -> str:
+    """Env var first, then ``.omni/secrets.json`` — same dual-resolution
+    pattern as the other connectors."""
+
+    val = os.environ.get(env_var, "").strip()
+    if val:
+        return val
+    try:
+        from ..secrets import resolve_secret_ref, SecretStoreError
+    except ImportError:
+        return ""
+    try:
+        return resolve_secret_ref(secret_ref) or ""
+    except SecretStoreError:
+        return ""
+    except Exception:                                            # noqa: BLE001
+        return ""
 
 
 # ---------------------------------------------------------------------------
@@ -34,7 +78,16 @@ IMF_DATAFLOW = "https://dataservices.imf.org/REST/SDMX_JSON.svc/Dataflow"
 
 
 class ACLEDSource:
-    """Conflict events. Needs ``ACLED_EMAIL`` + ``ACLED_KEY`` env vars."""
+    """Conflict events via ACLED OAuth2 (2024+ scheme).
+
+    Credentials: ``ACLED_EMAIL`` + ``ACLED_PASSWORD`` env, or
+    ``.omni/secrets.json::omni-hub/account/acled/{email,password}``.
+    Register free at https://acleddata.com/user/register (institutional
+    email unlocks full disaggregated event data).
+
+    Query syntax: ``"<country>"`` or ``"<country>:<start>-<end>"`` years,
+    e.g. ``"Ukraine"`` or ``"Sudan:2023-2024"``.
+    """
 
     name = "acled"
     tier = 1
@@ -43,17 +96,59 @@ class ACLEDSource:
         self,
         *,
         email: str | None = None,
-        api_key: str | None = None,
+        password: str | None = None,
         timeout: int = DEFAULT_TIMEOUT_SEC,
     ) -> None:
-        self.email = email or os.environ.get("ACLED_EMAIL", "")
-        self.api_key = api_key or os.environ.get("ACLED_KEY", "")
+        self.email = (
+            email if email is not None
+            else _resolve_secret("ACLED_EMAIL", ACLED_EMAIL_REF)
+        )
+        self.password = (
+            password if password is not None
+            else _resolve_secret("ACLED_PASSWORD", ACLED_PASSWORD_REF)
+        )
         self.timeout = timeout
+        self._token: str = ""
+        self._token_expires_at: float = 0.0
 
     def check(self) -> tuple[str, str]:
-        if self.email and self.api_key:
-            return "ok", f"ACLED_EMAIL={self.email[:4]}… + ACLED_KEY set"
-        return "off", "ACLED_EMAIL and ACLED_KEY required (free non-commercial)"
+        if self.email and self.password:
+            return "ok", f"ACLED OAuth creds set (email={self.email[:3]}…)"
+        return "off", "ACLED_EMAIL + ACLED_PASSWORD required (free; register at acleddata.com)"
+
+    def _ensure_token(self) -> str:
+        # 60s safety margin before the 24h access-token expiry.
+        if self._token and time.time() < self._token_expires_at - 60:
+            return self._token
+        if not (self.email and self.password):
+            raise RetrievalError("ACLED_EMAIL + ACLED_PASSWORD required")
+        payload = http_post_json(
+            ACLED_TOKEN_URL,
+            params={
+                "username": self.email,
+                "password": self.password,
+                "grant_type": "password",
+                "client_id": ACLED_CLIENT_ID,
+                "scope": "authenticated",
+            },
+            content_type="application/x-www-form-urlencoded",
+            timeout=self.timeout,
+        )
+        token = str((payload or {}).get("access_token", "")) if isinstance(payload, dict) else ""
+        if not token:
+            raise RetrievalError(f"ACLED oauth response missing access_token: {str(payload)[:200]}")
+        self._token = token
+        self._token_expires_at = time.time() + int((payload or {}).get("expires_in", 86400))
+        return token
+
+    @staticmethod
+    def _parse_query(query: str) -> tuple[str, int | None, int | None]:
+        """Parse ``country[:start-end]`` → (country, start_year, end_year)."""
+
+        m = re.match(r"^(.+?):(\d{4})-(\d{4})$", query.strip())
+        if m:
+            return m.group(1).strip(), int(m.group(2)), int(m.group(3))
+        return query.strip(), None, None
 
     def retrieve(
         self,
@@ -64,46 +159,55 @@ class ACLEDSource:
     ) -> list[RetrievalRecord]:
         if not query.strip():
             return []
-        if not (self.email and self.api_key):
-            raise RetrievalError("ACLED_EMAIL + ACLED_KEY required")
+        token = self._ensure_token()
+        country, start_year, end_year = self._parse_query(query)
 
-        # ACLED uses LIKE filters via ``=*X*`` magic on text fields.
+        params: dict[str, str] = {
+            "country": country,
+            "limit": str(min(max(limit, 1), 5000)),
+            "page": "1",
+        }
+        if start_year and end_year:
+            params["event_date"] = f"{start_year}-01-01|{end_year}-12-31"
+            params["event_date_where"] = "BETWEEN"
+
         data = http_get_json(
-            ACLED_URL,
-            params={
-                "email": self.email,
-                "key": self.api_key,
-                "actor1": f"*{query}*",
-                "limit": str(min(limit, 50)),
-            },
+            ACLED_READ_URL,
+            params=params,
+            headers={"Authorization": f"Bearer {token}"},
             timeout=self.timeout,
         )
         events = data.get("data", []) if isinstance(data, dict) else []
         records: list[RetrievalRecord] = []
         for item in events[:limit]:
-            event_id = str(item.get("data_id", "") or item.get("event_id", ""))
+            event_id = str(item.get("event_id_cnty", "") or item.get("data_id", ""))
             event_date = str(item.get("event_date", ""))
             actor1 = str(item.get("actor1", ""))
             actor2 = str(item.get("actor2", ""))
-            country = str(item.get("country", ""))
+            country_name = str(item.get("country", ""))
             notes = str(item.get("notes", ""))
             event_type = str(item.get("event_type", ""))
-            fatalities = int(item.get("fatalities", 0) or 0)
+            fatalities = int(float(item.get("fatalities", 0) or 0))
             records.append(RetrievalRecord(
                 source=self.name,
-                title=f"{event_date} [{event_type}] {actor1} vs {actor2} ({country})",
-                url=str(item.get("source_scale", "")),       # ACLED stores source link here
+                title=f"{event_date} [{event_type}] {actor1} vs {actor2} ({country_name})",
+                url=str(item.get("source_scale", "") or item.get("source", "")),
                 snippet=notes[:500],
                 score=float(fatalities),
                 canonical_id=f"acled:{event_id}" if event_id else "",
                 metadata={
                     "event_date": event_date,
                     "event_type": event_type,
+                    "sub_event_type": item.get("sub_event_type", ""),
                     "actor1": actor1,
                     "actor2": actor2,
-                    "country": country,
+                    "country": country_name,
+                    "admin1": item.get("admin1", ""),
+                    "location": item.get("location", ""),
+                    "latitude": item.get("latitude", ""),
+                    "longitude": item.get("longitude", ""),
                     "fatalities": fatalities,
-                    "interaction": item.get("interaction", ""),
+                    "source": item.get("source", ""),
                 },
             ))
         return records

@@ -80,7 +80,7 @@ DEFAULT_DOMAIN_CASCADES: dict[str, list[str]] = {
         # general-purpose head once those return; crossref tail for DOI lookup.
         "europe_pmc", "pubmed", "openalex", "crossref", "wikidata", "wikipedia",
     ],
-    "photography":           ["pixabay", "unsplash", "pexels", "wikipedia"],
+    "photography":           ["pexels", "unsplash", "wikipedia"],   # pixabay dropped (key unobtainable); pexels+unsplash work
     "fashion":               ["wikipedia"],            # snapshot-only via vault
     "chat_relationships":    [],                       # purely reactive
     "finance": [
@@ -141,7 +141,7 @@ DEFAULT_DOMAIN_CASCADES: dict[str, list[str]] = {
     # Tier-2 social-media domains (paid/broker/pinned-fork) — opt-in via
     # `--domain` rather than appearing in `default`, so casual queries
     # don't burn budget or hit Chinese platforms unintentionally.
-    "social_en":             ["bluesky", "mastodon", "hackernews", "reddit", "x_twitter", "gdelt"],
+    "social_en":             ["bluesky", "mastodon", "hackernews", "x_twitter", "gdelt"],  # reddit dropped (data-access approval-gated)
     "social_zh":             ["xiaohongshu", "wechat_mp", "weibo", "bilibili"],
     # v0.19 new domain cascades — v0.20 fills in Bilibili (real, tier 0) +
     # Zhihu / Weibo (broker stubs, tier 2).  v0.22 adds Tushare / Crunchbase
@@ -164,10 +164,11 @@ DEFAULT_DOMAIN_CASCADES: dict[str, list[str]] = {
         "weibo", "brave_search", "gdelt", "zhihu", "wikidata", "wikipedia",
     ],
     "enterprise": [
-        "opencorporates",                             # global registry, no key
-        "crunchbase",                                 # v0.22 head (paid key, ts2)
-        "edgar", "linkedin",                          # v0.22 (broker, ts2)
-        "crossref", "brave_search", "zhihu", "wikidata", "wikipedia",
+        # v0.48: crunchbase (sales-gated, no self-serve), opencorporates
+        # (£2250/yr or 200/mo anon only), and linkedin (no public API)
+        # dropped — none obtainable for a single user.  Free substitutes:
+        # EDGAR (US filings) + Crossref + web + Zhihu + Wikidata.
+        "edgar", "crossref", "brave_search", "zhihu", "wikidata", "wikipedia",
     ],
 }
 

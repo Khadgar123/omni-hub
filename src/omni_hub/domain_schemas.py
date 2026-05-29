@@ -143,7 +143,7 @@ DOMAIN_SCHEMAS: dict[str, DomainSchema] = {
             "active ingest.  Wiki pages here are mostly portfolio notes, "
             "technique references, and gear comparisons."
         ),
-        authoritative_sources=["unsplash", "pexels", "wikipedia"],
+        authoritative_sources=["pexels", "unsplash", "wikipedia"],
         frontmatter_required=[
             ("attribution", "photographer credit + license (CC0, CC-BY, etc.)"),
         ],

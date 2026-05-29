@@ -181,6 +181,67 @@ def http_get_text(
         return raw.decode("utf-8", errors="replace"), response_headers
 
 
+def http_post_json(
+    url: str,
+    *,
+    params: dict[str, Any] | None = None,
+    json_body: Any | None = None,
+    headers: dict[str, str] | None = None,
+    content_type: str = "application/json",
+    timeout: int = DEFAULT_TIMEOUT_SEC,
+) -> Any:
+    """POST and parse a JSON response with urllib.
+
+    Two body modes, picked by ``content_type``:
+    * ``application/x-www-form-urlencoded`` → ``params`` are form-encoded
+      (used for OAuth2 token grants, e.g. ACLED).
+    * ``application/json`` (default) → ``json_body`` (falling back to
+      ``params``) is JSON-encoded.
+
+    Raises :class:`RetrievalError` on any failure.
+    """
+
+    if content_type == "application/x-www-form-urlencoded":
+        body = urllib.parse.urlencode(
+            {k: v for k, v in (params or {}).items() if v is not None},
+        ).encode("ascii")
+    else:
+        payload = json_body if json_body is not None else (params or {})
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+
+    req_headers = {
+        "User-Agent": DEFAULT_USER_AGENT,
+        "Accept": "application/json",
+        "Content-Type": content_type,
+    }
+    if headers:
+        req_headers.update(headers)
+
+    req = urllib.request.Request(url, data=body, headers=req_headers, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            data = resp.read()
+    except urllib.error.HTTPError as exc:
+        body_preview = ""
+        try:
+            body_preview = exc.read().decode("utf-8", errors="replace")[:300]
+        except Exception:  # pragma: no cover
+            pass
+        finally:
+            exc.close()  # release the socket/tempfile fp (no ResourceWarning)
+        raise RetrievalError(f"{url} returned HTTP {exc.code}: {body_preview}") from exc
+    except urllib.error.URLError as exc:
+        raise RetrievalError(f"{url} unreachable: {exc.reason}") from exc
+
+    text = data.decode("utf-8", errors="replace")
+    if not text.strip():
+        return {}
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise RetrievalError(f"{url} returned non-JSON: {exc}") from exc
+
+
 def normalize_records(
     records: Iterable[RetrievalRecord],
     *,

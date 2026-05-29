@@ -213,10 +213,17 @@ class V022CascadeTests(unittest.TestCase):
     def test_finance_includes_tushare(self) -> None:
         self.assertIn("tushare", DEFAULT_DOMAIN_CASCADES["finance"])
 
-    def test_enterprise_includes_crunchbase_and_linkedin(self) -> None:
+    def test_enterprise_uses_free_company_sources(self) -> None:
+        # v0.48: crunchbase (sales-gated), opencorporates (paid/£2250yr) and
+        # linkedin (no public API) dropped — none obtainable for a single user.
+        # Enterprise now leans on free substitutes.
         casc = DEFAULT_DOMAIN_CASCADES["enterprise"]
-        self.assertIn("crunchbase", casc)
-        self.assertIn("linkedin", casc)
+        self.assertIn("edgar", casc)
+        self.assertIn("crossref", casc)
+        self.assertIn("wikidata", casc)
+        self.assertNotIn("crunchbase", casc)
+        self.assertNotIn("linkedin", casc)
+        self.assertNotIn("opencorporates", casc)
 
 
 # ---------------------------------------------------------------------------

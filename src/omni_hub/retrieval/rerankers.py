@@ -20,6 +20,28 @@ from .base import DEFAULT_TIMEOUT_SEC, RetrievalError, RetrievalRecord, http_get
 COHERE_RERANK_URL = "https://api.cohere.com/v2/rerank"
 VOYAGE_RERANK_URL = "https://api.voyageai.com/v1/rerank"
 
+COHERE_SECRET_REF = "local:omni-hub/api/cohere/default"
+VOYAGE_SECRET_REF = "local:omni-hub/api/voyage/default"
+
+
+def _resolve_secret(env_var: str, secret_ref: str) -> str:
+    """Env var first, then ``.omni/secrets.json`` — same pattern as the
+    other connectors so every key is set the same way."""
+
+    val = os.environ.get(env_var, "").strip()
+    if val:
+        return val
+    try:
+        from ..secrets import resolve_secret_ref, SecretStoreError
+    except ImportError:
+        return ""
+    try:
+        return resolve_secret_ref(secret_ref) or ""
+    except SecretStoreError:
+        return ""
+    except Exception:                                            # noqa: BLE001
+        return ""
+
 
 class CohereRerankerV4:
     """Cohere Rerank 4 cross-encoder.  Requires ``COHERE_API_KEY``.
@@ -40,7 +62,11 @@ class CohereRerankerV4:
         model: str = "rerank-v3.5",
         timeout: float = DEFAULT_TIMEOUT_SEC,
     ) -> None:
-        self.api_key = api_key if api_key is not None else os.environ.get("COHERE_API_KEY", "")
+        self.api_key = (
+            api_key
+            if api_key is not None
+            else _resolve_secret("COHERE_API_KEY", COHERE_SECRET_REF)
+        )
         self.model = model
         self.timeout = timeout
 
@@ -118,7 +144,11 @@ class VoyageRerankerV2_5:
         model: str = "rerank-2.5",
         timeout: float = DEFAULT_TIMEOUT_SEC,
     ) -> None:
-        self.api_key = api_key if api_key is not None else os.environ.get("VOYAGE_API_KEY", "")
+        self.api_key = (
+            api_key
+            if api_key is not None
+            else _resolve_secret("VOYAGE_API_KEY", VOYAGE_SECRET_REF)
+        )
         self.model = model
         self.timeout = timeout
 

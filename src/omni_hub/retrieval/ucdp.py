@@ -123,9 +123,10 @@ class UCDPSource:
     """Uppsala Conflict Data — Georeferenced Event Dataset (GED).
 
     As of 2024 the public API requires a free token (academic /
-    non-commercial use).  Set ``UCDP_API_TOKEN`` env or
-    ``.omni/secrets.json::omni-hub/api/ucdp/default`` after registering
-    at https://ucdp.uu.se/api/.
+    non-commercial use) — verified live 2026-05-29: a no-token request
+    returns HTTP 401 ``API token required``.  Set ``UCDP_API_TOKEN`` env or
+    ``.omni/secrets.json::omni-hub/api/ucdp/default`` after registering at
+    https://ucdp.uu.se/api/.
     """
 
     name = "ucdp"

@@ -1735,8 +1735,13 @@ class TwitterApiIoTests(unittest.TestCase):
 class IntlTests(unittest.TestCase):
     def test_acled_parses_events(self) -> None:
         from omni_hub.retrieval.intl import ACLEDSource
+        # ACLED's 2024 OAuth2 scheme: retrieve() first mints a bearer token
+        # via an x-www-form-urlencoded password grant (http_post_json), then
+        # reads events (http_get_json).  Mock both so the test stays
+        # network-free and pins the new request shapes.
+        token_resp = {"access_token": "oauth-token", "expires_in": 86400}
         fake = {"data": [{
-            "data_id": "777",
+            "event_id_cnty": "777",
             "event_date": "2026-05-20",
             "event_type": "Protests",
             "actor1": "Protesters (Country)",
@@ -1747,11 +1752,17 @@ class IntlTests(unittest.TestCase):
             "source_scale": "https://news.example/article",
         }]}
         with patch(
+            "omni_hub.retrieval.intl.http_post_json", return_value=token_resp,
+        ) as token_mock, patch(
             "omni_hub.retrieval.intl.http_get_json", return_value=fake,
         ):
             records = ACLEDSource(
-                email="u@x.com", api_key="k",
+                email="u@x.com", password="pw",
             ).retrieve("Protesters")
+        self.assertEqual(
+            token_mock.call_args.kwargs["content_type"],
+            "application/x-www-form-urlencoded",
+        )
         self.assertEqual(records[0].canonical_id, "acled:777")
         self.assertEqual(records[0].score, 3.0)
 
@@ -2132,12 +2143,13 @@ class V10CascadeIntegrationTests(unittest.TestCase):
         self.assertIn("fred", DEFAULT_DOMAIN_CASCADES["finance"])
         self.assertIn("acled", DEFAULT_DOMAIN_CASCADES["international_relations"])
         self.assertIn("federal_register", DEFAULT_DOMAIN_CASCADES["us_policy"])
-        self.assertIn("unsplash", DEFAULT_DOMAIN_CASCADES["photography"])
-        # Tier-2 socials: bluesky + mastodon + hackernews + reddit primary;
-        # x_twitter paid (TwitterAPI.io); gdelt for news context.
+        self.assertIn("pexels", DEFAULT_DOMAIN_CASCADES["photography"])
+        # Tier-2 socials: bluesky + mastodon + hackernews primary; x_twitter
+        # paid (TwitterAPI.io); gdelt for news context.  reddit dropped — its
+        # data-access API is approval-gated (non-commercial research request).
         self.assertEqual(
             DEFAULT_DOMAIN_CASCADES["social_en"],
-            ["bluesky", "mastodon", "hackernews", "reddit", "x_twitter", "gdelt"],
+            ["bluesky", "mastodon", "hackernews", "x_twitter", "gdelt"],
         )
         # v0.20: social_zh expanded with weibo + bilibili in addition to
         # the original xhs + wechat_mp; assert the head order is stable.
