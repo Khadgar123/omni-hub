@@ -14,6 +14,8 @@ project — wrap the HTTP yourself, it's <120 LOC per source.
 from __future__ import annotations
 
 import json
+import random
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -118,6 +120,56 @@ def mark_served_via(records, served_via):
     return records
 
 
+_RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
+_MAX_RETRIES = 2
+_BACKOFF_BASE_SEC = 0.5
+_BACKOFF_CAP_SEC = 8.0
+
+
+def _retry_delay(exc: urllib.error.HTTPError, attempt: int) -> float:
+    """Seconds to wait before retrying a 429/5xx: honour ``Retry-After``
+    (capped) else exponential backoff with FULL JITTER (AWS-recommended)."""
+    try:
+        ra = exc.headers.get("Retry-After", "") if getattr(exc, "headers", None) else ""
+    except Exception:  # noqa: BLE001
+        ra = ""
+    if ra:
+        try:
+            return min(float(ra), _BACKOFF_CAP_SEC)
+        except (TypeError, ValueError):
+            pass
+    cap = min(_BACKOFF_CAP_SEC, _BACKOFF_BASE_SEC * (2 ** attempt))
+    return random.uniform(0.0, cap)
+
+
+def _urlopen_with_retry(request, timeout, *, reader, max_retries: int = _MAX_RETRIES,
+                        sleep=None):
+    """``urlopen`` + ``reader(resp)`` with bounded retry on 429/5xx only.
+
+    Rate-limit / transient-server errors are the one class worth retrying for
+    flaky public APIs (arXiv / Semantic Scholar / etc.).  Everything else --
+    non-retryable 4xx, and URLError (offline / timeout) -- propagates
+    immediately, so callers' fail-soft behaviour is unchanged.
+    """
+    _sleep = sleep or time.sleep
+    attempt = 0
+    while True:
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as resp:
+                return reader(resp)
+        except urllib.error.HTTPError as exc:
+            if exc.code in _RETRYABLE_STATUS and attempt < max_retries:
+                delay = _retry_delay(exc, attempt)
+                try:
+                    exc.close()
+                except Exception:  # noqa: BLE001
+                    pass
+                _sleep(delay)
+                attempt += 1
+                continue
+            raise
+
+
 def http_get_json(
     url: str,
     *,
@@ -149,8 +201,7 @@ def http_get_json(
 
     req = urllib.request.Request(url, headers=req_headers)
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            data = resp.read()
+        data = _urlopen_with_retry(req, timeout, reader=lambda r: r.read())
     except urllib.error.HTTPError as exc:
         body_preview = ""
         try:
@@ -190,9 +241,10 @@ def http_get_text(
         req_headers.update(headers)
     req = urllib.request.Request(url, headers=req_headers)
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            raw = resp.read()
-            response_headers = {k.lower(): v for k, v in resp.headers.items()}
+        raw, response_headers = _urlopen_with_retry(
+            req, timeout,
+            reader=lambda r: (r.read(), {k.lower(): v for k, v in r.headers.items()}),
+        )
     except urllib.error.HTTPError as exc:
         exc.close()  # release the socket/tempfile fp (no ResourceWarning)
         raise RetrievalError(f"{url} returned HTTP {exc.code}") from exc
@@ -247,8 +299,7 @@ def http_post_json(
 
     req = urllib.request.Request(url, data=body, headers=req_headers, method="POST")
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            data = resp.read()
+        data = _urlopen_with_retry(req, timeout, reader=lambda r: r.read())
     except urllib.error.HTTPError as exc:
         body_preview = ""
         try:

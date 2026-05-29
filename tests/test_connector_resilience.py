@@ -137,5 +137,67 @@ class ConnectorResilienceTests(unittest.TestCase):
                         )
 
 
+class _Resp:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def read(self):
+        return b'{"ok": true}'
+
+    @property
+    def headers(self):
+        return {}
+
+
+class HttpRetryTests(unittest.TestCase):
+    """base._urlopen_with_retry: retry 429/5xx (Retry-After/jitter), never
+    retry 4xx or URLError (so offline/4xx fail-soft is unchanged)."""
+
+    @staticmethod
+    def _http_error(code):
+        import email.message
+        import io
+        import urllib.error
+        return urllib.error.HTTPError(
+            "https://x/y", code, "err", email.message.Message(), io.BytesIO(b"err"),
+        )
+
+    def test_retries_on_503_then_succeeds(self) -> None:
+        from omni_hub.retrieval import base
+        n = {"c": 0}
+
+        def fake_urlopen(req, timeout=None):
+            n["c"] += 1
+            if n["c"] <= 2:
+                raise self._http_error(503)
+            return _Resp()
+
+        with patch("omni_hub.retrieval.base.urllib.request.urlopen",
+                   side_effect=fake_urlopen), \
+             patch("omni_hub.retrieval.base.time.sleep", lambda s: None):
+            out = base.http_get_json("https://x/y")
+        self.assertEqual(out, {"ok": True})
+        self.assertEqual(n["c"], 3)  # 2 retried 503s + 1 success
+
+    def test_no_retry_on_404(self) -> None:
+        from omni_hub.retrieval import base
+        from omni_hub.retrieval.base import RetrievalError
+        n = {"c": 0}
+
+        def fake_urlopen(req, timeout=None):
+            n["c"] += 1
+            raise self._http_error(404)
+
+        with patch("omni_hub.retrieval.base.urllib.request.urlopen",
+                   side_effect=fake_urlopen), \
+             patch("omni_hub.retrieval.base.time.sleep", lambda s: None):
+            with self.assertRaises(RetrievalError):
+                base.http_get_json("https://x/y")
+        self.assertEqual(n["c"], 1)  # 4xx: no retry
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
