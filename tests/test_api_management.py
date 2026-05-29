@@ -2,8 +2,14 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
+# Deterministic "service down" probe result — these tests verify reachability
+# AGGREGATION + service discovery, not whether a real gateway is listening on
+# localhost (urllib can return synthetic 200s in sandboxes, making it flaky).
+_PROBE_DOWN = {"url": "", "reachable": False, "status_code": None, "error": "down (mocked)"}
 
 from omni_hub.api_management import (
     api_management_dir,
@@ -44,7 +50,10 @@ class ApiManagementTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            status = api_management_status(root, timeout_seconds=0.01)
+            with patch(
+                "omni_hub.api_management._probe_http", return_value=_PROBE_DOWN,
+            ):
+                status = api_management_status(root, timeout_seconds=0.01)
 
             self.assertEqual(api_management_dir(root), api_dir.resolve())
             self.assertTrue(status["ready_for_local_run"])

@@ -6,6 +6,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -172,7 +173,16 @@ class CliTests(unittest.TestCase):
             buffer = StringIO()
             try:
                 os.chdir(tmpdir)
-                with redirect_stdout(buffer):
+                # Mock the localhost probe so the assertion on
+                # all_services_reachable is deterministic across environments
+                # (urllib can return synthetic 200s in sandboxes).
+                with redirect_stdout(buffer), patch(
+                    "omni_hub.api_management._probe_http",
+                    return_value={
+                        "url": "", "reachable": False,
+                        "status_code": None, "error": "down (mocked)",
+                    },
+                ):
                     exit_code = main(
                         ["api-management-status", "--timeout-seconds", "0.01"]
                     )
