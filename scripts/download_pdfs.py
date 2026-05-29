@@ -39,6 +39,56 @@ from urllib.parse import urlparse
 _HOST_MIN_INTERVAL = {"arxiv.org": 3.0, "export.arxiv.org": 3.0}
 _DEFAULT_MIN_INTERVAL = 1.0
 _AVG_PDF_BYTES = 2_000_000  # ~2 MB/paper, for dry-run size estimates
+_MIN_PDF_BYTES = 1024
+
+
+def _valid_pdf(data: bytes) -> bool:
+    """Non-truncated PDF: ``%PDF-`` magic + ``%%EOF`` trailer + plausible size.
+    Rejects the common corruptions — HTML error pages (rate-limit / 404),
+    truncated bodies, and tiny/empty files."""
+    return bool(
+        data and len(data) >= _MIN_PDF_BYTES
+        and data[:5].startswith(b"%PDF-")
+        and b"%%EOF" in data[-2048:]
+    )
+
+
+def _valid_pdf_file(path: Path) -> bool:
+    """Integrity check by head+tail seek (no full read) — fast on a 130 GB
+    corpus."""
+    try:
+        size = path.stat().st_size
+        if size < _MIN_PDF_BYTES:
+            return False
+        with path.open("rb") as f:
+            head = f.read(5)
+            f.seek(max(0, size - 2048))
+            tail = f.read()
+    except OSError:
+        return False
+    return head.startswith(b"%PDF-") and b"%%EOF" in tail
+
+
+def verify_corpus(out_dir: Path, *, delete: bool = False) -> dict:
+    """Deep integrity check of an existing PDF corpus.  With ``delete=True``,
+    remove corrupt files so the next download run re-fetches them (the
+    'check completeness' pass)."""
+    stats = {"checked": 0, "ok": 0, "corrupt": 0, "removed": 0}
+    if not out_dir.exists():
+        return stats
+    for pdf in sorted(out_dir.glob("*.pdf")):
+        stats["checked"] += 1
+        if _valid_pdf_file(pdf):
+            stats["ok"] += 1
+            continue
+        stats["corrupt"] += 1
+        if delete:
+            try:
+                pdf.unlink()
+                stats["removed"] += 1
+            except OSError:
+                pass
+    return stats
 
 
 def resolve_pdf_url(rec: dict) -> str:
@@ -113,7 +163,7 @@ def download_corpus(
     total_bytes = 0
     stats = {
         "resolved": 0, "no_url": 0, "skipped_existing": 0,
-        "downloaded": 0, "failed": 0, "bytes": 0, "would_download": 0,
+        "downloaded": 0, "failed": 0, "corrupt": 0, "bytes": 0, "would_download": 0,
     }
     manifest: list[dict] = []
 
@@ -155,6 +205,13 @@ def download_corpus(
             manifest.append({"canonical_id": cid, "url": url, "status": "failed",
                              "error": str(exc)[:120]})
             continue
+        if not _valid_pdf(data):
+            # truncated / HTML error page / empty -> don't keep a corrupt file;
+            # resume (or --verify) re-fetches it.
+            stats["corrupt"] += 1
+            manifest.append({"canonical_id": cid, "url": url, "status": "corrupt",
+                             "bytes": len(data)})
+            continue
         target.write_bytes(data)
         total_bytes += len(data)
         stats["downloaded"] += 1
@@ -194,16 +251,31 @@ def main() -> int:
     p.add_argument("--max-gb", type=float, default=0.0, help="disk budget (GB)")
     p.add_argument("--dry-run", action="store_true",
                    help="resolve URLs + estimate size, do not download")
+    p.add_argument("--verify", action="store_true",
+                   help="integrity-check the existing corpus (no download)")
+    p.add_argument("--verify-delete", action="store_true",
+                   help="with --verify, delete corrupt files so re-run re-fetches")
     p.add_argument("--json", action="store_true")
     args = p.parse_args()
 
     root = Path(__file__).resolve().parent.parent
+    out_dir = root / args.out
+
+    if args.verify:
+        vstats = verify_corpus(out_dir, delete=args.verify_delete)
+        if args.json:
+            print(json.dumps(vstats, ensure_ascii=False, indent=2))
+        else:
+            print(f"# verify: checked={vstats['checked']} ok={vstats['ok']} "
+                  f"corrupt={vstats['corrupt']} removed={vstats['removed']}")
+        return 0
+
     records = _load_index(root / args.index)
     if not records:
         return 2
     stats, _ = download_corpus(
         records,
-        root / args.out,
+        out_dir,
         limit=args.limit,
         max_bytes=int(args.max_gb * 1e9),
         dry_run=args.dry_run,

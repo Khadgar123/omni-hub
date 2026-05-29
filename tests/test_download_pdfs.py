@@ -24,6 +24,8 @@ def _load():
 
 M = _load()
 
+_VALID_PDF = b"%PDF-1.7\n" + b"x" * 1100 + b"\n%%EOF\n"
+
 
 class ResolveUrlTests(unittest.TestCase):
     def test_arxiv_from_metadata(self) -> None:
@@ -63,7 +65,7 @@ class DownloadTests(unittest.TestCase):
 
     def test_download_and_resume(self) -> None:
         calls = []
-        fake = lambda url: b"%PDF-1.7 fake"  # noqa: E731
+        fake = lambda url: _VALID_PDF  # noqa: E731
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "papers"
             stats, manifest = M.download_corpus(
@@ -103,6 +105,42 @@ class DownloadTests(unittest.TestCase):
             self.assertEqual(stats["failed"], 2)
             self.assertEqual(stats["downloaded"], 0)
             self.assertTrue(any(m["status"] == "failed" for m in manifest))
+
+
+class IntegrityTests(unittest.TestCase):
+    def test_valid_pdf_accepts_real_rejects_junk(self) -> None:
+        self.assertTrue(M._valid_pdf(_VALID_PDF))
+        self.assertFalse(M._valid_pdf(b""))
+        self.assertFalse(M._valid_pdf(b"<html>error</html>"))      # HTML error page
+        self.assertFalse(M._valid_pdf(b"%PDF-1.7 short no eof"))    # too small / no EOF
+        self.assertFalse(M._valid_pdf(b"x" * 4000))                # no %PDF magic
+
+    def test_corrupt_download_not_kept(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "papers"
+            recs = [{"canonical_id": "arxiv:2401.1",
+                     "metadata": {"arxiv_base_id": "2401.1"}}]
+            stats, _ = M.download_corpus(
+                recs, out, fetch=lambda u: b"<html>429 rate limited</html>",
+                sleep=lambda s: None, clock=lambda: 0.0,
+            )
+            self.assertEqual(stats["corrupt"], 1)
+            self.assertEqual(stats["downloaded"], 0)
+            self.assertEqual(len(list(out.glob("*.pdf"))), 0)  # corrupt not written
+
+    def test_verify_corpus_flags_and_deletes_corrupt(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            (out / "good.pdf").write_bytes(_VALID_PDF)
+            (out / "bad.pdf").write_bytes(b"<html>nope</html>")
+            v = M.verify_corpus(out, delete=False)
+            self.assertEqual(v["checked"], 2)
+            self.assertEqual(v["ok"], 1)
+            self.assertEqual(v["corrupt"], 1)
+            self.assertTrue((out / "bad.pdf").exists())
+            v2 = M.verify_corpus(out, delete=True)
+            self.assertEqual(v2["removed"], 1)
+            self.assertFalse((out / "bad.pdf").exists())
 
 
 if __name__ == "__main__":  # pragma: no cover
