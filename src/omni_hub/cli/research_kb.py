@@ -40,6 +40,22 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         help="List ResearchFlow skills available from the pinned module.",
     )
 
+    enrich = subparsers.add_parser(
+        "paper-enrich",
+        help=(
+            "API-first paper dossier (review gap #2): DBLP venue/acceptance + "
+            "HF Hub checkpoints/datasets + GitHub code-completeness. Pass any "
+            "of --arxiv-id / --doi / --title; --code-repos is comma-separated."
+        ),
+    )
+    enrich.add_argument("--arxiv-id", default="")
+    enrich.add_argument("--doi", default="")
+    enrich.add_argument("--title", default="")
+    enrich.add_argument(
+        "--code-repos", default="",
+        help="Comma-separated owner/name or github URLs to score for completeness",
+    )
+
 
 def _status(args, *, runner, workspace) -> int:
     return run_and_print(
@@ -97,9 +113,27 @@ def _skills(args, *, runner, workspace) -> int:
     )
 
 
+def _paper_enrich(args, *, runner, workspace) -> int:
+    return run_and_print(
+        runner,
+        OperationSpec(
+            name="paper_enrich",
+            action="enrich",
+            payload={
+                "arxiv_id": args.arxiv_id,
+                "doi": args.doi,
+                "title": args.title,
+                "code_repos": args.code_repos,
+            },
+            risk_level=RiskLevel.READ_ONLY,
+        ),
+    )
+
+
 COMMANDS = {
     "research-kb-status": _status,
     "research-kb-search": _search,
     "research-kb-read": _read,
     "researchflow-skills": _skills,
+    "paper-enrich": _paper_enrich,
 }
