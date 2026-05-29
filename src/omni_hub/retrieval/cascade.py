@@ -33,6 +33,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable, Literal, TYPE_CHECKING
 
 from .base import RetrievalError, RetrievalRecord, RetrievalSource
+from .base import SERVED_VIA_CACHE, SERVED_VIA_LIVE
 from .source_policy import source_tier
 
 if TYPE_CHECKING:
@@ -413,7 +414,8 @@ class Cascade:
         plan_rank = {name: i for i, name in enumerate(result.sources_tried)}
         for rec in result.records:
             rec.metadata.setdefault(
-                "served_via", "cache" if rec.source in cache_hit_names else "live"
+                "served_via",
+                SERVED_VIA_CACHE if rec.source in cache_hit_names else SERVED_VIA_LIVE,
             )
             rec.metadata["source_tier"] = source_tier(rec.source)
             rec.metadata["cascade_rank"] = plan_rank.get(rec.source, -1)

@@ -90,6 +90,34 @@ class RetrievalSource(Protocol):
 # ---------------------------------------------------------------------------
 
 
+# Provenance: how a record was served. DESCRIPTIVE, kept separate from
+# MEASURED quality (source_quality.SourceQualityStore) — a 'fallback' or
+# 'cache' record is NOT assumed worse than a 'live'/'primary' one; that is
+# the reviewer's '降级源≠劣等' invariant. Values:
+#   live     - fetched fresh from the source's primary endpoint
+#   fallback - source's primary path failed; a secondary path produced this
+#   cache    - served from the local TTL cache, no network call
+SERVED_VIA_LIVE = "live"
+SERVED_VIA_FALLBACK = "fallback"
+SERVED_VIA_CACHE = "cache"
+
+
+def mark_served_via(records, served_via):
+    """Stamp ``metadata['served_via']`` on each record (in place) and return them.
+
+    Connectors with a genuine internal fallback path call this with
+    ``SERVED_VIA_FALLBACK`` when their primary path failed, so downstream
+    evidence + claims record *how* the data was obtained. The cascade stamps
+    'live'/'cache' itself; an explicit value set here is preserved (the
+    cascade uses ``setdefault``).
+    """
+    for rec in records:
+        if getattr(rec, "metadata", None) is None:
+            rec.metadata = {}
+        rec.metadata["served_via"] = served_via
+    return records
+
+
 def http_get_json(
     url: str,
     *,
