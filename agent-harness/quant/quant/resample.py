@@ -23,12 +23,23 @@ from quant.market_store import (
 
 
 def resample(symbol, target_interval, *, root=market_store.DEFAULT_ROOT,
-             source_interval="1s", start=None, end=None):
+             source_interval="1s", start=None, end=None, prefer_materialized=True):
     """Aggregate ``bars_<source_interval>`` -> ``target_interval`` bars.
 
     Returns ``list[dict]`` (bucket_ts µs / open / high / low / close / volume /
     vwap / trades), sorted ascending. Empty list if no source data.
+
+    If ``prefer_materialized`` and a ``bars_<target_interval>`` gold-cache table
+    already has data for the symbol, it is read directly (instant) instead of
+    re-aggregating the 1s base. ``materialize`` passes ``False`` to force a real
+    aggregation when (re)building the cache.
     """
+    if prefer_materialized and target_interval != source_interval:
+        cached = market_store.bars(symbol, target_interval,
+                                   start if start is not None else "1970-01-01",
+                                   end if end is not None else "2100-01-01", root=root)
+        if cached:
+            return cached
     tgt_us = freq_to_seconds(target_interval) * MICROS
     table = f"bars_{source_interval}"
     start_us = parse_ts(start) if start is not None else None

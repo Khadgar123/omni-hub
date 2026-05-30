@@ -48,3 +48,19 @@ def test_classify_series_shape_and_trend():
     assert track[-1]["direction"] == "up"
     assert track[-1]["label"] in {"up", "strong_up"}
     assert set(track[-1]) >= {"as_of", "label", "direction", "stand_down", "insufficient"}
+
+
+def test_resample_prefers_materialized_cache(tmp_path):
+    root = tmp_path / "market"
+    # 1s base: 120 flat bars at close 100
+    s1 = [{"bucket_ts": _BASE + i * _S, "open": 100.0, "high": 101.0, "low": 99.0,
+           "close": 100.0, "volume": 1.0, "vwap": 100.0, "trades": 1} for i in range(120)]
+    market_store.write_bars(s1, symbol="BTCUSDT", freq="1s", root=root)
+    # a DISTINCT materialized 1m bar (marker close 42) — the gold cache
+    market_store.write_bars([{"bucket_ts": _BASE, "open": 1.0, "high": 1.0, "low": 1.0,
+                              "close": 42.0, "volume": 9.0, "vwap": 1.0, "trades": 1}],
+                            symbol="BTCUSDT", freq="1m", root=root)
+    cached = resample.resample("BTCUSDT", "1m", root=root)            # default prefers cache
+    assert len(cached) == 1 and cached[0]["close"] == 42.0           # returned the materialized table
+    agg = resample.resample("BTCUSDT", "1m", root=root, prefer_materialized=False)  # force 1s aggregation
+    assert agg and agg[0]["close"] == 100.0                          # aggregated from 1s, not the marker
