@@ -25,9 +25,11 @@ from nautilus_trader.model.enums import OrderSide, TimeInForce
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.trading.strategy import Strategy
 
+import json
+
 from quant import regime as regime_mod
 from quant.strategy.base import gated_evaluate
-from quant.strategy.registry import by_id
+from quant.strategy.registry import build as build_strategy
 
 _BIAS = {"up": "long", "strong_up": "long", "down": "short", "strong_down": "short"}
 
@@ -39,15 +41,17 @@ class AdapterConfig(StrategyConfig, frozen=True):
     symbol: str
     trade_size: Decimal
     warmup: PositiveInt = 300
+    params_json: str = "{}"
 
 
 class NautilusStrategyAdapter(Strategy):
-    """Drives a quant.strategy ``Strategy`` (by id) + regime gate inside nautilus."""
+    """Drives a quant.strategy ``Strategy`` (by id, with swept params) + regime
+    gate inside nautilus."""
 
     def __init__(self, config: AdapterConfig) -> None:
         super().__init__(config)
         self.instrument = None
-        self.strat = by_id(config.strategy_id)
+        self.strat = build_strategy(config.strategy_id, **json.loads(config.params_json))
         self.window: deque[dict] = deque(maxlen=config.warmup)
 
     def on_start(self) -> None:
@@ -98,7 +102,7 @@ class NautilusStrategyAdapter(Strategy):
 
 
 def backtest_strategy(strategy_id, symbol="BTCUSDT", *, root=None, start=None, end=None,
-                      tf="1h", trade_size="0.02", warmup=300, equity0=100_000):
+                      tf="1h", trade_size="0.02", warmup=300, equity0=100_000, params=None):
     """Run our strategy (via the adapter) in nautilus on our data; return a
     normalized result with nautilus stats + OUR PSR on the returns."""
     from nautilus_trader.adapters.binance import BINANCE_VENUE
@@ -132,7 +136,8 @@ def backtest_strategy(strategy_id, symbol="BTCUSDT", *, root=None, start=None, e
     engine.add_data(bars)
     engine.add_strategy(NautilusStrategyAdapter(config=AdapterConfig(
         instrument_id=inst.id, bar_type=bar_type, strategy_id=strategy_id,
-        symbol=symbol, trade_size=Decimal(trade_size), warmup=warmup)))
+        symbol=symbol, trade_size=Decimal(trade_size), warmup=warmup,
+        params_json=json.dumps(params or {}))))
     engine.run()
 
     an = engine.portfolio.analyzer

@@ -25,3 +25,14 @@ def by_id(strategy_id: str) -> Strategy:
         if s.id == strategy_id:
             return s
     raise KeyError(f"unknown strategy_id {strategy_id!r}; known: {[s.id for s in default_strategies()]}")
+
+
+_CLASS_BY_ID = {s.id: type(s) for s in default_strategies()}
+
+
+def build(strategy_id: str, **params) -> Strategy:
+    """Instantiate a strategy by id with overridden params (for sweeps)."""
+    cls = _CLASS_BY_ID.get(strategy_id)
+    if cls is None:
+        raise KeyError(f"unknown strategy_id {strategy_id!r}; known: {sorted(_CLASS_BY_ID)}")
+    return cls(**params)
