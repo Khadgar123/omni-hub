@@ -184,6 +184,15 @@ def parse_ts(value, *, end_of_day: bool = False) -> int:
         return int(dt.timestamp() * MICROS)
     if isinstance(value, str):
         s = value.strip()
+        if len(s) == 4 and s.isdigit():  # YYYY -> year bounds
+            y = int(s)
+            return parse_ts(_date(y, 12, 31), end_of_day=True) if end_of_day else parse_ts(_date(y, 1, 1))
+        if len(s) == 7 and s[4] == "-" and s[:4].isdigit() and s[5:].isdigit():  # YYYY-MM -> month bounds
+            y, mo = int(s[:4]), int(s[5:])
+            if end_of_day:  # last microsecond of the month = first of next month - 1µs
+                ny, nm = (y + 1, 1) if mo == 12 else (y, mo + 1)
+                return parse_ts(datetime(ny, nm, 1, tzinfo=timezone.utc)) - 1
+            return parse_ts(_date(y, mo, 1))
         if len(s) == 10 and s[4] == "-" and s[7] == "-":  # YYYY-MM-DD
             y, m, d = (int(p) for p in s.split("-"))
             return parse_ts(_date(y, m, d), end_of_day=end_of_day)

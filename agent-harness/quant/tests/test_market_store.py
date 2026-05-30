@@ -40,6 +40,20 @@ def test_parse_ts_magnitude_and_dates():
     assert ms.parse_ts("2026-01-02T00:00:00Z") == start
 
 
+def test_parse_ts_year_and_month_bounds():
+    # YYYY -> Jan 1 .. Dec 31 23:59:59.999999 (the harness CLI documents --from 2024-07)
+    assert ms.micros_to_utc_date(ms.parse_ts("2026")) == "2026-01-01"
+    assert ms.micros_to_utc_date(ms.parse_ts("2026", end_of_day=True)) == "2026-12-31"
+    # YYYY-MM -> first .. last day of that month, honoring month length / leap year
+    assert ms.micros_to_utc_date(ms.parse_ts("2026-06")) == "2026-06-01"
+    assert ms.micros_to_utc_date(ms.parse_ts("2026-06", end_of_day=True)) == "2026-06-30"
+    assert ms.micros_to_utc_date(ms.parse_ts("2026-02", end_of_day=True)) == "2026-02-28"
+    assert ms.micros_to_utc_date(ms.parse_ts("2024-02", end_of_day=True)) == "2024-02-29"  # leap
+    assert ms.micros_to_utc_date(ms.parse_ts("2026-12", end_of_day=True)) == "2026-12-31"  # year wrap
+    # end-of-month is the last microsecond, mirroring the YYYY-MM-DD contract
+    assert ms.parse_ts("2026-06", end_of_day=True) - ms.parse_ts("2026-06") == 30 * 86_400 * ms.MICROS - 1
+
+
 def test_bars_from_trades_buckets_vwap_dedup():
     trades = [
         {"exchange_ts": 0, "price": 10.0, "size": 1.0, "trade_id": "a"},
