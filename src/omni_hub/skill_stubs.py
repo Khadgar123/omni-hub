@@ -898,6 +898,23 @@ FUNCTIONAL_SKILLS: list[FunctionalSkill] = [
         entrypoint="operation:meta_cross_skill_scan",
         composes=["judge-evaluate"],
     ),
+    FunctionalSkill(
+        skill_id="quant-finding",
+        display_name="Quant Finding Propose",
+        hero="Fold a quant backtest finding (strategy hypothesis / backtest "
+             "metrics / risk disclosure) into the finance-domain ClaimLedger "
+             "via Proposal(kind=wiki_update).  Never ingests raw OHLCV -- only "
+             "human-reviewable conclusions.  The quant->knowledge seam (the "
+             "quant data/backtest plane stays in agent-harness/quant).",
+        triggers=[
+            "record this backtest conclusion into the wiki",
+            "把这个量化策略结论 / 回测沉淀进 claims",
+            "log a quant finding for review",
+        ],
+        entrypoint="operation:quant_finding_propose",
+        composes=["context-pack", "claims-show"],
+        risk_level="L1",
+    ),
 ]
 
 

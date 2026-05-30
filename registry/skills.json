@@ -18,8 +18,8 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/ab-test/SKILL.md",
-    "created_at": "2026-05-28T11:37:48.173948+00:00",
-    "updated_at": "2026-05-28T11:37:48.181227+00:00"
+    "created_at": "2026-05-30T15:05:17.426304+00:00",
+    "updated_at": "2026-05-30T15:05:17.433501+00:00"
   },
   {
     "skill_id": "agent-systems-wiki",
@@ -44,8 +44,8 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/agent-systems-wiki/SKILL.md",
-    "created_at": "2026-05-28T11:37:48.174142+00:00",
-    "updated_at": "2026-05-28T11:37:48.181238+00:00"
+    "created_at": "2026-05-30T15:05:17.426506+00:00",
+    "updated_at": "2026-05-30T15:05:17.433515+00:00"
   },
   {
     "skill_id": "ai-progress-wiki",
@@ -71,8 +71,8 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/ai-progress-wiki/SKILL.md",
-    "created_at": "2026-05-28T11:37:48.174260+00:00",
-    "updated_at": "2026-05-28T11:37:48.181248+00:00"
+    "created_at": "2026-05-30T15:05:17.426641+00:00",
+    "updated_at": "2026-05-30T15:05:17.433528+00:00"
   },
   {
     "skill_id": "api-management-status",
@@ -89,8 +89,8 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/api-management-status/SKILL.md",
-    "created_at": "2026-05-28T11:37:48.174494+00:00",
-    "updated_at": "2026-05-28T11:37:48.181256+00:00"
+    "created_at": "2026-05-30T15:05:17.426752+00:00",
+    "updated_at": "2026-05-30T15:05:17.433540+00:00"
   },
   {
     "skill_id": "app-report-build",
@@ -111,8 +111,8 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/app-report-build/SKILL.md",
-    "created_at": "2026-05-28T11:37:48.174586+00:00",
-    "updated_at": "2026-05-28T11:37:48.181268+00:00"
+    "created_at": "2026-05-30T15:05:17.426876+00:00",
+    "updated_at": "2026-05-30T15:05:17.433551+00:00"
   },
   {
     "skill_id": "calendar-add",
@@ -133,8 +133,8 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/calendar-add/SKILL.md",
-    "created_at": "2026-05-28T11:37:48.174680+00:00",
-    "updated_at": "2026-05-28T11:37:48.181277+00:00"
+    "created_at": "2026-05-30T15:05:17.426987+00:00",
+    "updated_at": "2026-05-30T15:05:17.433563+00:00"
   },
   {
     "skill_id": "chat-relationships-wiki",
@@ -155,8 +155,8 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/chat-relationships-wiki/SKILL.md",
-    "created_at": "2026-05-28T11:37:48.174780+00:00",
-    "updated_at": "2026-05-28T11:37:48.181286+00:00"
+    "created_at": "2026-05-30T15:05:17.427116+00:00",
+    "updated_at": "2026-05-30T15:05:17.433574+00:00"
   },
   {
     "skill_id": "chat-route",
@@ -177,8 +177,8 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/chat-route/SKILL.md",
-    "created_at": "2026-05-28T11:37:48.174870+00:00",
-    "updated_at": "2026-05-28T11:37:48.181297+00:00"
+    "created_at": "2026-05-30T15:05:17.427224+00:00",
+    "updated_at": "2026-05-30T15:05:17.433586+00:00"
   },
   {
     "skill_id": "claims-show",
@@ -199,8 +199,8 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/claims-show/SKILL.md",
-    "created_at": "2026-05-28T11:37:48.174958+00:00",
-    "updated_at": "2026-05-28T11:37:48.181309+00:00"
+    "created_at": "2026-05-30T15:05:17.427333+00:00",
+    "updated_at": "2026-05-30T15:05:17.433596+00:00"
   },
   {
     "skill_id": "cn-policy-wiki",
@@ -227,8 +227,8 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/cn-policy-wiki/SKILL.md",
-    "created_at": "2026-05-28T11:37:48.175056+00:00",
-    "updated_at": "2026-05-28T11:37:48.181318+00:00"
+    "created_at": "2026-05-30T15:05:17.427461+00:00",
+    "updated_at": "2026-05-30T15:05:17.433608+00:00"
   },
   {
     "skill_id": "context-pack",
@@ -249,8 +249,8 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/context-pack/SKILL.md",
-    "created_at": "2026-05-28T11:37:48.175146+00:00",
-    "updated_at": "2026-05-28T11:37:48.181329+00:00"
+    "created_at": "2026-05-30T15:05:17.427568+00:00",
+    "updated_at": "2026-05-30T15:05:17.433618+00:00"
   },
   {
     "skill_id": "cooking-wiki",
@@ -275,8 +275,8 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/cooking-wiki/SKILL.md",
-    "created_at": "2026-05-28T11:37:48.175250+00:00",
-    "updated_at": "2026-05-28T11:37:48.181337+00:00"
+    "created_at": "2026-05-30T15:05:17.427695+00:00",
+    "updated_at": "2026-05-30T15:05:17.433629+00:00"
   },
   {
     "skill_id": "engineering-wiki",
@@ -301,8 +301,8 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/engineering-wiki/SKILL.md",
-    "created_at": "2026-05-28T11:37:48.175393+00:00",
-    "updated_at": "2026-05-28T11:37:48.181350+00:00"
+    "created_at": "2026-05-30T15:05:17.427824+00:00",
+    "updated_at": "2026-05-30T15:05:17.433640+00:00"
   },
   {
     "skill_id": "enterprise-wiki",
@@ -329,8 +329,43 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/enterprise-wiki/SKILL.md",
-    "created_at": "2026-05-28T11:37:48.175547+00:00",
-    "updated_at": "2026-05-28T11:37:48.181362+00:00"
+    "created_at": "2026-05-30T15:05:17.427945+00:00",
+    "updated_at": "2026-05-30T15:05:17.433652+00:00"
+  },
+  {
+    "skill_id": "entity-timeline-build",
+    "name": "Entity Timeline Build",
+    "kind": "connector",
+    "description": "Build a unified chronological timeline for any entity in the watchlist\n(person / company / institution / topic) by aggregating signals across\nRSS / HN / Bluesky / Mastodon / Reddit / GDELT / EDGAR / Tavily /\nOpenAlex / YouTube transcript / Truth Social.\n\nTriggers — invoke this skill when the user says any of:\n- \"build me a timeline for Karpathy\"\n- \"Anthropic 这一年的关键事件时间线\"\n- \"summarise the last 90 days for NVIDIA\"\n- \"what happened with Trump and AI executive orders in 2025\"\n\nThis is a **foundation primitive** (no domain knowledge baked in).\nIt composes the existing ``follow_entity`` machinery + clusters\nrecords by date to emit a single time-ordered story.  All raw\nrecords still pass through ``Proposal[T]`` for human review before\nany persistent claim is recorded.",
+    "version": "0.1.0",
+    "status": "active",
+    "entrypoint": "script:scripts/entity_timeline_build.py",
+    "risk_level": "L0",
+    "required_permissions": [],
+    "connectors": [
+      "rss",
+      "hackernews",
+      "bluesky",
+      "mastodon",
+      "reddit",
+      "gdelt",
+      "openalex",
+      "tavily",
+      "edgar",
+      "youtube_transcript",
+      "truth_social"
+    ],
+    "tags": [
+      "foundation",
+      "knowledge_access",
+      "entity_watchlist",
+      "timeline"
+    ],
+    "inputs": {},
+    "outputs": {},
+    "source_path": ".agents/skills/entity-timeline-build/SKILL.md",
+    "created_at": "2026-05-30T15:05:17.428065+00:00",
+    "updated_at": "2026-05-30T15:05:17.433663+00:00"
   },
   {
     "skill_id": "fashion-wiki",
@@ -353,8 +388,8 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/fashion-wiki/SKILL.md",
-    "created_at": "2026-05-28T11:37:48.175658+00:00",
-    "updated_at": "2026-05-28T11:37:48.181371+00:00"
+    "created_at": "2026-05-30T15:05:17.428185+00:00",
+    "updated_at": "2026-05-30T15:05:17.433674+00:00"
   },
   {
     "skill_id": "finance-screen",
@@ -375,8 +410,8 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/finance-screen/SKILL.md",
-    "created_at": "2026-05-28T11:37:48.175756+00:00",
-    "updated_at": "2026-05-28T11:37:48.181382+00:00"
+    "created_at": "2026-05-30T15:05:17.428294+00:00",
+    "updated_at": "2026-05-30T15:05:17.433685+00:00"
   },
   {
     "skill_id": "finance-wiki",
@@ -402,8 +437,8 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/finance-wiki/SKILL.md",
-    "created_at": "2026-05-28T11:37:48.175861+00:00",
-    "updated_at": "2026-05-28T11:37:48.181391+00:00"
+    "created_at": "2026-05-30T15:05:17.428411+00:00",
+    "updated_at": "2026-05-30T15:05:17.433696+00:00"
   },
   {
     "skill_id": "fitness-wellness-wiki",
@@ -429,8 +464,8 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/fitness-wellness-wiki/SKILL.md",
-    "created_at": "2026-05-28T11:37:48.175974+00:00",
-    "updated_at": "2026-05-28T11:37:48.181402+00:00"
+    "created_at": "2026-05-30T15:05:17.428531+00:00",
+    "updated_at": "2026-05-30T15:05:17.433707+00:00"
   },
   {
     "skill_id": "harness-compile-skill",
@@ -451,8 +486,8 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/harness-compile-skill/SKILL.md",
-    "created_at": "2026-05-28T11:37:48.176062+00:00",
-    "updated_at": "2026-05-28T11:37:48.181411+00:00"
+    "created_at": "2026-05-30T15:05:17.428635+00:00",
+    "updated_at": "2026-05-30T15:05:17.433717+00:00"
   },
   {
     "skill_id": "inbox-route",
@@ -473,8 +508,8 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/inbox-route/SKILL.md",
-    "created_at": "2026-05-28T11:37:48.176154+00:00",
-    "updated_at": "2026-05-28T11:37:48.181424+00:00"
+    "created_at": "2026-05-30T15:05:17.428792+00:00",
+    "updated_at": "2026-05-30T15:05:17.433728+00:00"
   },
   {
     "skill_id": "international-relations-wiki",
@@ -501,8 +536,8 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/international-relations-wiki/SKILL.md",
-    "created_at": "2026-05-28T11:37:48.176250+00:00",
-    "updated_at": "2026-05-28T11:37:48.181437+00:00"
+    "created_at": "2026-05-30T15:05:17.428912+00:00",
+    "updated_at": "2026-05-30T15:05:17.433739+00:00"
   },
   {
     "skill_id": "judge-evaluate",
@@ -523,8 +558,35 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/judge-evaluate/SKILL.md",
-    "created_at": "2026-05-28T11:37:48.176333+00:00",
-    "updated_at": "2026-05-28T11:37:48.181446+00:00"
+    "created_at": "2026-05-30T15:05:17.429018+00:00",
+    "updated_at": "2026-05-30T15:05:17.433750+00:00"
+  },
+  {
+    "skill_id": "longform-capture",
+    "name": "Long-form Capture",
+    "kind": "connector",
+    "description": "Capture a long-form piece (blog post / interview transcript / podcast /\nbook section / docs page) into the knowledge base via the standard\nretrieve → evidence → wiki-ingest chain.\n\nTriggers — invoke this skill when the user says any of:\n- \"capture this blog post into the wiki\"\n- \"import this podcast transcript\"\n- \"把这个 YouTube 演讲全文存进去\"\n- \"longform: <URL>\"\n\nThis is a **foundation primitive** for the long-form layer of the\nknowledge mesh.  Wraps ``Trafilatura`` (static HTML), ``YouTube\ntranscript`` (captions), and ``RSS`` (single-item) into one\nuser-facing capture path.",
+    "version": "0.1.0",
+    "status": "active",
+    "entrypoint": "script:scripts/longform_capture.py",
+    "risk_level": "L0",
+    "required_permissions": [],
+    "connectors": [
+      "trafilatura",
+      "youtube_transcript",
+      "rss",
+      "jina_reader"
+    ],
+    "tags": [
+      "foundation",
+      "knowledge_ingestion",
+      "longform"
+    ],
+    "inputs": {},
+    "outputs": {},
+    "source_path": ".agents/skills/longform-capture/SKILL.md",
+    "created_at": "2026-05-30T15:05:17.429128+00:00",
+    "updated_at": "2026-05-30T15:05:17.433761+00:00"
   },
   {
     "skill_id": "marketing-wiki",
@@ -551,8 +613,8 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/marketing-wiki/SKILL.md",
-    "created_at": "2026-05-28T11:37:48.176428+00:00",
-    "updated_at": "2026-05-28T11:37:48.181457+00:00"
+    "created_at": "2026-05-30T15:05:17.429246+00:00",
+    "updated_at": "2026-05-30T15:05:17.433772+00:00"
   },
   {
     "skill_id": "memory-digest",
@@ -579,7 +641,7 @@
     },
     "source_path": "src/omni_hub/memory.py",
     "created_at": "2026-05-03T00:00:00+00:00",
-    "updated_at": "2026-05-28T11:37:48.181467+00:00"
+    "updated_at": "2026-05-30T15:05:17.433784+00:00"
   },
   {
     "skill_id": "memory-search",
@@ -605,7 +667,7 @@
     },
     "source_path": "src/omni_hub/memory.py",
     "created_at": "2026-05-03T00:00:00+00:00",
-    "updated_at": "2026-05-28T11:37:48.181480+00:00"
+    "updated_at": "2026-05-30T15:05:17.433796+00:00"
   },
   {
     "skill_id": "memory-search-foundation",
@@ -626,8 +688,8 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/memory-search-foundation/SKILL.md",
-    "created_at": "2026-05-28T11:37:48.176510+00:00",
-    "updated_at": "2026-05-28T11:37:48.181492+00:00"
+    "created_at": "2026-05-30T15:05:17.429352+00:00",
+    "updated_at": "2026-05-30T15:05:17.433806+00:00"
   },
   {
     "skill_id": "meta-cross-skill-scan",
@@ -648,8 +710,8 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/meta-cross-skill-scan/SKILL.md",
-    "created_at": "2026-05-28T11:37:48.176591+00:00",
-    "updated_at": "2026-05-28T11:37:48.181501+00:00"
+    "created_at": "2026-05-30T15:05:17.429457+00:00",
+    "updated_at": "2026-05-30T15:05:17.433817+00:00"
   },
   {
     "skill_id": "meta-wiki",
@@ -670,8 +732,8 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/meta-wiki/SKILL.md",
-    "created_at": "2026-05-28T11:37:48.176682+00:00",
-    "updated_at": "2026-05-28T11:37:48.181510+00:00"
+    "created_at": "2026-05-30T15:05:17.429570+00:00",
+    "updated_at": "2026-05-30T15:05:17.433828+00:00"
   },
   {
     "skill_id": "order-propose",
@@ -692,22 +754,22 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/order-propose/SKILL.md",
-    "created_at": "2026-05-28T11:37:48.176766+00:00",
-    "updated_at": "2026-05-28T11:37:48.181523+00:00"
+    "created_at": "2026-05-30T15:05:17.429674+00:00",
+    "updated_at": "2026-05-30T15:05:17.433839+00:00"
   },
   {
     "skill_id": "photography-wiki",
     "name": "Photography — Wiki Domain Skill",
     "kind": "domain_wiki",
-    "description": "Visual decisions — light / lens / composition / edit.\n\nTriggers — invoke this skill when the user asks any of:\n- \"街拍 35mm 还是 50mm\"\n- \"光圈优先 vs 快门优先\"\n- \"Lightroom 风格分析\"\n- \"how to expose for shadows in raw\"\n\nSource corpus: vault/wiki/domains/photography/.  Authoritative\ncascade: `unsplash`, `pexels`, `wikipedia`.  Stale threshold: 365 days.\n\nDo NOT trigger for: queries that match a different domain's keywords\n(the task_router in src/omni_hub/app/task_router.py picks the right\none).  Do NOT use this for writing — all writes go through\nProposal[T] (see \"Write Policy\" below).",
+    "description": "Visual decisions — light / lens / composition / edit.\n\nTriggers — invoke this skill when the user asks any of:\n- \"街拍 35mm 还是 50mm\"\n- \"光圈优先 vs 快门优先\"\n- \"Lightroom 风格分析\"\n- \"how to expose for shadows in raw\"\n\nSource corpus: vault/wiki/domains/photography/.  Authoritative\ncascade: `pexels`, `unsplash`, `wikipedia`.  Stale threshold: 365 days.\n\nDo NOT trigger for: queries that match a different domain's keywords\n(the task_router in src/omni_hub/app/task_router.py picks the right\none).  Do NOT use this for writing — all writes go through\nProposal[T] (see \"Write Policy\" below).",
     "version": "0.1.0",
     "status": "active",
     "entrypoint": "operation:context_pack_build",
     "risk_level": "L0",
     "required_permissions": [],
     "connectors": [
-      "unsplash",
       "pexels",
+      "unsplash",
       "wikipedia"
     ],
     "tags": [
@@ -718,8 +780,8 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/photography-wiki/SKILL.md",
-    "created_at": "2026-05-28T11:37:48.176860+00:00",
-    "updated_at": "2026-05-28T11:37:48.181531+00:00"
+    "created_at": "2026-05-30T15:05:17.429793+00:00",
+    "updated_at": "2026-05-30T15:05:17.433851+00:00"
   },
   {
     "skill_id": "pptx-build",
@@ -740,8 +802,8 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/pptx-build/SKILL.md",
-    "created_at": "2026-05-28T11:37:48.176945+00:00",
-    "updated_at": "2026-05-28T11:37:48.181540+00:00"
+    "created_at": "2026-05-30T15:05:17.429898+00:00",
+    "updated_at": "2026-05-30T15:05:17.433862+00:00"
   },
   {
     "skill_id": "project-plan",
@@ -762,8 +824,8 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/project-plan/SKILL.md",
-    "created_at": "2026-05-28T11:37:48.177031+00:00",
-    "updated_at": "2026-05-28T11:37:48.181548+00:00"
+    "created_at": "2026-05-30T15:05:17.430004+00:00",
+    "updated_at": "2026-05-30T15:05:17.433873+00:00"
   },
   {
     "skill_id": "propose-approve",
@@ -784,8 +846,8 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/propose-approve/SKILL.md",
-    "created_at": "2026-05-28T11:37:48.177117+00:00",
-    "updated_at": "2026-05-28T11:37:48.181557+00:00"
+    "created_at": "2026-05-30T15:05:17.430114+00:00",
+    "updated_at": "2026-05-30T15:05:17.433883+00:00"
   },
   {
     "skill_id": "propose-reject",
@@ -806,8 +868,30 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/propose-reject/SKILL.md",
-    "created_at": "2026-05-28T11:37:48.177200+00:00",
-    "updated_at": "2026-05-28T11:37:48.181568+00:00"
+    "created_at": "2026-05-30T15:05:17.430217+00:00",
+    "updated_at": "2026-05-30T15:05:17.433894+00:00"
+  },
+  {
+    "skill_id": "quant-finding",
+    "name": "Quant Finding Propose",
+    "kind": "connector",
+    "description": "Fold a quant backtest finding (strategy hypothesis / backtest metrics / risk disclosure) into the finance-domain ClaimLedger via Proposal(kind=wiki_update).  Never ingests raw OHLCV -- only human-reviewable conclusions.  The quant->knowledge seam (the quant data/backtest plane stays in agent-harness/quant).\n\nTriggers — invoke this skill when the user says any of:\n- \"record this backtest conclusion into the wiki\"\n- \"把这个量化策略结论 / 回测沉淀进 claims\"\n- \"log a quant finding for review\"\n\nThis is a **functional orchestrator** (Application Plane).  It composes\nthe foundation primitives (`context-pack`, `claims-show`) into a user-visible product\nflow.  Domain knowledge stays in the routed ``*-wiki`` skills; this\nlayer is the cross-domain glue.",
+    "version": "0.1.0",
+    "status": "active",
+    "entrypoint": "operation:quant_finding_propose",
+    "risk_level": "L1",
+    "required_permissions": [],
+    "connectors": [],
+    "tags": [
+      "functional",
+      "orchestrator",
+      "active"
+    ],
+    "inputs": {},
+    "outputs": {},
+    "source_path": ".agents/skills/quant-finding/SKILL.md",
+    "created_at": "2026-05-30T15:05:17.430324+00:00",
+    "updated_at": "2026-05-30T15:05:17.433905+00:00"
   },
   {
     "skill_id": "research-wiki",
@@ -833,8 +917,8 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/research-wiki/SKILL.md",
-    "created_at": "2026-05-28T11:37:48.177296+00:00",
-    "updated_at": "2026-05-28T11:37:48.181580+00:00"
+    "created_at": "2026-05-30T15:05:17.430478+00:00",
+    "updated_at": "2026-05-30T15:05:17.433916+00:00"
   },
   {
     "skill_id": "retrieve",
@@ -851,8 +935,8 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/retrieve/SKILL.md",
-    "created_at": "2026-05-28T11:37:48.177668+00:00",
-    "updated_at": "2026-05-28T11:37:48.181588+00:00"
+    "created_at": "2026-05-30T15:05:17.430588+00:00",
+    "updated_at": "2026-05-30T15:05:17.433927+00:00"
   },
   {
     "skill_id": "retrieve-cascade",
@@ -869,8 +953,8 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/retrieve-cascade/SKILL.md",
-    "created_at": "2026-05-28T11:37:48.177941+00:00",
-    "updated_at": "2026-05-28T11:37:48.181596+00:00"
+    "created_at": "2026-05-30T15:05:17.430686+00:00",
+    "updated_at": "2026-05-30T15:05:17.433937+00:00"
   },
   {
     "skill_id": "retrieve-domain-source-map",
@@ -887,8 +971,8 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/retrieve-domain-source-map/SKILL.md",
-    "created_at": "2026-05-28T11:37:48.178158+00:00",
-    "updated_at": "2026-05-28T11:37:48.181611+00:00"
+    "created_at": "2026-05-30T15:05:17.430783+00:00",
+    "updated_at": "2026-05-30T15:05:17.433948+00:00"
   },
   {
     "skill_id": "retrieve-evidence-pin",
@@ -905,8 +989,8 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/retrieve-evidence-pin/SKILL.md",
-    "created_at": "2026-05-28T11:37:48.178365+00:00",
-    "updated_at": "2026-05-28T11:37:48.181619+00:00"
+    "created_at": "2026-05-30T15:05:17.430880+00:00",
+    "updated_at": "2026-05-30T15:05:17.433958+00:00"
   },
   {
     "skill_id": "retrieve-grade-and-fuse",
@@ -923,8 +1007,8 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/retrieve-grade-and-fuse/SKILL.md",
-    "created_at": "2026-05-28T11:37:48.178616+00:00",
-    "updated_at": "2026-05-28T11:37:48.181630+00:00"
+    "created_at": "2026-05-30T15:05:17.430981+00:00",
+    "updated_at": "2026-05-30T15:05:17.433969+00:00"
   },
   {
     "skill_id": "schedule-plan",
@@ -945,8 +1029,8 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/schedule-plan/SKILL.md",
-    "created_at": "2026-05-28T11:37:48.178722+00:00",
-    "updated_at": "2026-05-28T11:37:48.181639+00:00"
+    "created_at": "2026-05-30T15:05:17.431084+00:00",
+    "updated_at": "2026-05-30T15:05:17.433980+00:00"
   },
   {
     "skill_id": "skill-registry",
@@ -973,7 +1057,7 @@
     },
     "source_path": "src/omni_hub/skills.py",
     "created_at": "2026-05-03T00:00:00+00:00",
-    "updated_at": "2026-05-28T11:37:48.181648+00:00"
+    "updated_at": "2026-05-30T15:05:17.433992+00:00"
   },
   {
     "skill_id": "social-en-wiki",
@@ -997,8 +1081,8 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/social-en-wiki/SKILL.md",
-    "created_at": "2026-05-28T11:37:48.178842+00:00",
-    "updated_at": "2026-05-28T11:37:48.181657+00:00"
+    "created_at": "2026-05-30T15:05:17.431197+00:00",
+    "updated_at": "2026-05-30T15:05:17.434002+00:00"
   },
   {
     "skill_id": "social-zh-wiki",
@@ -1022,8 +1106,30 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/social-zh-wiki/SKILL.md",
-    "created_at": "2026-05-28T11:37:48.178945+00:00",
-    "updated_at": "2026-05-28T11:37:48.181665+00:00"
+    "created_at": "2026-05-30T15:05:17.431310+00:00",
+    "updated_at": "2026-05-30T15:05:17.434015+00:00"
+  },
+  {
+    "skill_id": "source-policy-grade",
+    "name": "Source Policy Grade",
+    "kind": "connector",
+    "description": "Score every retrieval source on 5 axes — authority / freshness / cost\ntier / batchable / legal-risk — and emit a Markdown report users can\nread before they trust a source's output.  Used by the seed\norchestrator to decide which sources to prefer for batch ingestion\nand which to defer.\n\nTriggers — invoke this skill when the user says any of:\n- \"grade my sources\"\n- \"哪些 source 学术权威性高\"\n- \"score the retrieval cascade\"\n- \"audit source quality\"\n\nPure metadata operation — no HTTP calls, no LLM cost.  Reads\n``src/omni_hub/retrieval/source_policy.py`` + each connector's\n``check()`` + manifest comments to compose the report.",
+    "version": "0.1.0",
+    "status": "active",
+    "entrypoint": "script:scripts/source_policy_grade.py",
+    "risk_level": "L0",
+    "required_permissions": [],
+    "connectors": [],
+    "tags": [
+      "foundation",
+      "governance",
+      "source_quality"
+    ],
+    "inputs": {},
+    "outputs": {},
+    "source_path": ".agents/skills/source-policy-grade/SKILL.md",
+    "created_at": "2026-05-30T15:05:17.431417+00:00",
+    "updated_at": "2026-05-30T15:05:17.434050+00:00"
   },
   {
     "skill_id": "task-add",
@@ -1044,8 +1150,8 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/task-add/SKILL.md",
-    "created_at": "2026-05-28T11:37:48.179041+00:00",
-    "updated_at": "2026-05-28T11:37:48.181674+00:00"
+    "created_at": "2026-05-30T15:05:17.431521+00:00",
+    "updated_at": "2026-05-30T15:05:17.434060+00:00"
   },
   {
     "skill_id": "travel-wiki",
@@ -1070,8 +1176,8 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/travel-wiki/SKILL.md",
-    "created_at": "2026-05-28T11:37:48.179150+00:00",
-    "updated_at": "2026-05-28T11:37:48.181685+00:00"
+    "created_at": "2026-05-30T15:05:17.431635+00:00",
+    "updated_at": "2026-05-30T15:05:17.434071+00:00"
   },
   {
     "skill_id": "url-capture",
@@ -1092,8 +1198,8 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/url-capture/SKILL.md",
-    "created_at": "2026-05-28T11:37:48.179236+00:00",
-    "updated_at": "2026-05-28T11:37:48.181694+00:00"
+    "created_at": "2026-05-30T15:05:17.431738+00:00",
+    "updated_at": "2026-05-30T15:05:17.434082+00:00"
   },
   {
     "skill_id": "us-policy-wiki",
@@ -1121,8 +1227,8 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/us-policy-wiki/SKILL.md",
-    "created_at": "2026-05-28T11:37:48.179342+00:00",
-    "updated_at": "2026-05-28T11:37:48.181703+00:00"
+    "created_at": "2026-05-30T15:05:17.431857+00:00",
+    "updated_at": "2026-05-30T15:05:17.434093+00:00"
   },
   {
     "skill_id": "vault-proposal",
@@ -1151,7 +1257,7 @@
     },
     "source_path": "src/omni_hub/proposals.py",
     "created_at": "2026-05-03T00:00:00+00:00",
-    "updated_at": "2026-05-28T11:37:48.181712+00:00"
+    "updated_at": "2026-05-30T15:05:17.434106+00:00"
   },
   {
     "skill_id": "wiki-apply",
@@ -1172,8 +1278,8 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/wiki-apply/SKILL.md",
-    "created_at": "2026-05-28T11:37:48.179425+00:00",
-    "updated_at": "2026-05-28T11:37:48.181724+00:00"
+    "created_at": "2026-05-30T15:05:17.431966+00:00",
+    "updated_at": "2026-05-30T15:05:17.434116+00:00"
   },
   {
     "skill_id": "wiki-dream",
@@ -1194,8 +1300,8 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/wiki-dream/SKILL.md",
-    "created_at": "2026-05-28T11:37:48.179515+00:00",
-    "updated_at": "2026-05-28T11:37:48.181732+00:00"
+    "created_at": "2026-05-30T15:05:17.432078+00:00",
+    "updated_at": "2026-05-30T15:05:17.434127+00:00"
   },
   {
     "skill_id": "wiki-ingest",
@@ -1216,8 +1322,8 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/wiki-ingest/SKILL.md",
-    "created_at": "2026-05-28T11:37:48.179603+00:00",
-    "updated_at": "2026-05-28T11:37:48.181744+00:00"
+    "created_at": "2026-05-30T15:05:17.432184+00:00",
+    "updated_at": "2026-05-30T15:05:17.434138+00:00"
   },
   {
     "skill_id": "wiki-lint",
@@ -1238,8 +1344,8 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/wiki-lint/SKILL.md",
-    "created_at": "2026-05-28T11:37:48.179683+00:00",
-    "updated_at": "2026-05-28T11:37:48.181753+00:00"
+    "created_at": "2026-05-30T15:05:17.432288+00:00",
+    "updated_at": "2026-05-30T15:05:17.434148+00:00"
   },
   {
     "skill_id": "wiki-propose-research",
@@ -1260,8 +1366,8 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/wiki-propose-research/SKILL.md",
-    "created_at": "2026-05-28T11:37:48.179773+00:00",
-    "updated_at": "2026-05-28T11:37:48.181761+00:00"
+    "created_at": "2026-05-30T15:05:17.432390+00:00",
+    "updated_at": "2026-05-30T15:05:17.434159+00:00"
   },
   {
     "skill_id": "wiki-search",
@@ -1282,8 +1388,8 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/wiki-search/SKILL.md",
-    "created_at": "2026-05-28T11:37:48.179858+00:00",
-    "updated_at": "2026-05-28T11:37:48.181770+00:00"
+    "created_at": "2026-05-30T15:05:17.432491+00:00",
+    "updated_at": "2026-05-30T15:05:17.434170+00:00"
   },
   {
     "skill_id": "wiki-supersede",
@@ -1304,7 +1410,7 @@
     "inputs": {},
     "outputs": {},
     "source_path": ".agents/skills/wiki-supersede/SKILL.md",
-    "created_at": "2026-05-28T11:37:48.179938+00:00",
-    "updated_at": "2026-05-28T11:37:48.181780+00:00"
+    "created_at": "2026-05-30T15:05:17.432591+00:00",
+    "updated_at": "2026-05-30T15:05:17.434180+00:00"
   }
 ]
