@@ -44,3 +44,23 @@ def test_report_thins_large_series():
     res = engine.run_backtest(TrendDonchian(), bars, cost=ZERO_COST)
     html = report.backtest_report_html(res, bars, max_candles=100)
     assert "Plotly.newPlot" in html  # still renders with downsampled candles
+
+
+def test_report_badcase_panel_and_zoom():
+    bars = _uptrend()
+    res = engine.run_backtest(TrendDonchian(), bars, cost=ZERO_COST)
+    html = report.backtest_report_html(res, bars, title="bc")
+    assert "bad cases" in html                              # the panel header
+    assert "function zoom" in html and "Plotly.relayout" in html   # click-a-row-to-zoom
+    assert "sortBy('pnl')" in html                          # worst-first default sort
+    assert "const TR = " in html                            # trades inlined for the table
+    assert "__" not in html.split("<script>")[0]            # no unsubstituted placeholders left
+
+
+def test_report_handles_zero_trades():
+    # a flat series that never triggers the breakout -> no trades, still renders
+    flat = [{"bucket_ts": _BASE + i * _H, "open": 100.0, "high": 100.5,
+             "low": 99.5, "close": 100.0, "volume": 1.0} for i in range(60)]
+    res = engine.run_backtest(TrendDonchian(), flat, cost=ZERO_COST)
+    html = report.backtest_report_html(res, flat)
+    assert "no trades" in html and "const TR = []" in html
