@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.omni-hub.quant</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>{{PYTHON}}</string>
+        <string>{{WORKSPACE}}/scripts/quant_daily.py</string>
+    </array>
+
+    <!-- The quant CLI (quant-market-store) must be on PATH (quant venv). The
+         job is fail-soft when it is not.  Set QUANT_CLI / DAILY_QUANT_SYMBOLS
+         here to override. -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>DAILY_QUANT_SYMBOLS</key>
+        <string>BTCUSDT,ETHUSDT</string>
+    </dict>
+
+    <key>WorkingDirectory</key>
+    <string>{{WORKSPACE}}</string>
+
+    <!-- Daily 09:00 — after the overnight bar close is materialized. -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key><integer>9</integer>
+        <key>Minute</key><integer>0</integer>
+    </dict>
+
+    <key>WakeSystem</key>
+    <true/>
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>{{WORKSPACE}}/.omni/launchd/quant.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>{{WORKSPACE}}/.omni/launchd/quant.err.log</string>
+</dict>
+</plist>

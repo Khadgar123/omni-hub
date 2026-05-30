@@ -32,6 +32,7 @@ PLIST_NAMES = [
     "omni-hub.worker",
     "omni-hub.s2-heartbeat",
     "omni-hub.daily-follow",
+    "omni-hub.quant",
 ]
 REQUIRED_PYTHON = (3, 12)
 
