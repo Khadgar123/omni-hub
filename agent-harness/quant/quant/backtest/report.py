@@ -105,7 +105,7 @@ sortBy('pnl');
 
 
 def backtest_report_html(result, bars, *, regime_track=None, metrics_dict=None,
-                         title=None, max_candles=8000):
+                         title=None, max_candles=8000, live_from_us=None):
     bars_d = _thin(list(bars), max_candles)
     times = [_iso(b["bucket_ts"]) for b in bars_d]
     candle = {"type": "candlestick", "x": times,
@@ -137,12 +137,21 @@ def backtest_report_html(result, bars, *, regime_track=None, metrics_dict=None,
                            "fillcolor": _REGIME_COLOR.get(lab, "#9e9e9e"), "opacity": 0.10,
                            "line": {"width": 0}, "layer": "below"})
 
+    annotations = []
+    if live_from_us is not None:  # mark where forward (paper / out-of-sample) begins
+        x = _iso(live_from_us)
+        shapes.append({"type": "line", "xref": "x", "yref": "paper", "x0": x, "x1": x,
+                       "y0": 0.0, "y1": 1.0, "line": {"color": "#ff6d00", "width": 2, "dash": "dash"}})
+        annotations.append({"x": x, "xref": "x", "yref": "paper", "y": 1.0, "xanchor": "left",
+                            "showarrow": False, "text": " ◀ live_from (forward)",
+                            "font": {"color": "#ff6d00", "size": 11}})
+
     ttl = title or f"{result.strategy_id} · {result.symbol}"
     layout = {"title": ttl, "height": 760, "template": "plotly_white", "showlegend": True,
               "xaxis": {"rangeslider": {"visible": False}, "domain": [0, 1]},
               "yaxis": {"domain": [0.32, 1.0], "title": "price"},
               "yaxis2": {"domain": [0.0, 0.24], "title": "equity"},
-              "shapes": shapes, "margin": {"t": 50, "l": 60, "r": 20, "b": 30}}
+              "shapes": shapes, "annotations": annotations, "margin": {"t": 50, "l": 60, "r": 20, "b": 30}}
 
     m = metrics_dict or metrics_mod.summarize(result.equity_curve, trades, equity0=result.equity0)
     metric_rows = "".join(f"<tr><td>{k}</td><td>{v}</td></tr>" for k, v in m.items())

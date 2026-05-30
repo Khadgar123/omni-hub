@@ -52,7 +52,7 @@ def _build_states(strat_bars, htf_track, confirm_track, symbol):
 
 
 def run(strategy_id, symbol, *, root=None, start=None, end=None, htf="1d",
-        confirm="4h", equity0=10000.0, cost=None, source="1s", report_path=None):
+        confirm="4h", equity0=10000.0, cost=None, source="1s", report_path=None, live_from=None):
     from quant import market_store
     root = root if root is not None else market_store.DEFAULT_ROOT
     strat = by_id(strategy_id)
@@ -76,8 +76,9 @@ def run(strategy_id, symbol, *, root=None, start=None, end=None, htf="1d",
         from quant.backtest import report as report_mod
         track = [{"as_of": int(b["bucket_ts"]), "label": s.regime_label}
                  for b, s in zip(strat_bars, states)]
+        lf = market_store.parse_ts(live_from) if live_from is not None else None
         report_mod.write_report(res, strat_bars, report_path, regime_track=track,
-                                metrics_dict=m, title=f"{strategy_id} · {symbol}")
+                                metrics_dict=m, title=f"{strategy_id} · {symbol}", live_from_us=lf)
         m["report"] = str(report_path)
     return res, m
 
