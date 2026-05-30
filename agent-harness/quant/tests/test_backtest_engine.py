@@ -68,3 +68,11 @@ def test_metrics_summarize_shape():
     assert math.isfinite(m["sharpe"])
     assert m["psr"] is None or 0.0 <= m["psr"] <= 1.0
     assert m["periods_per_year"] == pytest.approx(365 * 24, rel=0.01)  # 1h bars
+
+
+def test_metrics_buy_hold_benchmark():
+    curve = [(0, 10000.0), (1, 10100.0), (2, 10050.0)]   # strategy +0.5%
+    m = metrics.summarize(curve, [], equity0=10000.0, prices=[100.0, 110.0])  # HODL +10%
+    assert m["buy_hold_return"] == pytest.approx(0.10)
+    assert m["beat_hold"] is False
+    assert m["excess_return"] == pytest.approx(m["total_return"] - 0.10)

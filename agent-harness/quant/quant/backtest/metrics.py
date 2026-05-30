@@ -83,7 +83,7 @@ def _ppy_from_curve(curve):
     return _SECONDS_PER_YEAR / sec if sec > 0 else None
 
 
-def summarize(curve, trades, *, equity0, periods_per_year=None):
+def summarize(curve, trades, *, equity0, periods_per_year=None, prices=None):
     rets = returns_from_curve(curve)
     ppy = periods_per_year or _ppy_from_curve(curve) or 365.0
     final = curve[-1][1] if curve else equity0
@@ -98,7 +98,7 @@ def summarize(curve, trades, *, equity0, periods_per_year=None):
     gross_win = sum(t.pnl for t in wins)
     gross_loss = abs(sum(t.pnl for t in losses))
     pf = (gross_win / gross_loss) if gross_loss > 0 else (float("inf") if gross_win > 0 else 0.0)
-    return {
+    out = {
         "n_trades": len(trades),
         "total_return": total_ret,
         "cagr": cagr,
@@ -110,3 +110,10 @@ def summarize(curve, trades, *, equity0, periods_per_year=None):
         "final_equity": final,
         "periods_per_year": ppy,
     }
+    # buy & hold benchmark — every backtest must answer "did it beat HODL?"
+    if prices and len(prices) >= 2 and prices[0] > 0:
+        bh = prices[-1] / prices[0] - 1.0
+        out["buy_hold_return"] = bh
+        out["excess_return"] = total_ret - bh
+        out["beat_hold"] = total_ret > bh
+    return out

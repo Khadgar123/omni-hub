@@ -66,7 +66,8 @@ def run(strategy_id, symbol, *, root=None, start=None, end=None, htf="1d",
     states = _build_states(strat_bars, htf_track, confirm_track, symbol)
     res = engine.run_backtest(strat, strat_bars, state_for=lambda i: states[i],
                               equity0=equity0, cost=cost or CostModel(), symbol=symbol)
-    m = metrics.summarize(res.equity_curve, res.trades, equity0=equity0)
+    m = metrics.summarize(res.equity_curve, res.trades, equity0=equity0,
+                          prices=[float(b["close"]) for b in strat_bars])
     m["strategy"] = strategy_id
     m["symbol"] = symbol
     m["timeframe"] = strat.timeframe
