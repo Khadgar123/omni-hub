@@ -890,6 +890,29 @@ def make_wiki_propose_research(workspace: Path):
     return wiki_propose_research
 
 
+def make_quant_finding_propose(workspace: Path):
+    workspace_root = workspace.resolve()
+
+    def quant_finding_propose(spec: OperationSpec) -> dict[str, object]:
+        """Quant finding (dict or JSON path) -> candidate claims -> Proposal[T].
+        The sanctioned quant->knowledge seam (strategy/backtest/risk conclusions
+        into the finance wiki; never raw OHLCV).  See quant_assets."""
+        from .quant_assets import propose_quant_finding
+
+        payload = spec.payload
+        f = payload.get("finding")
+        return propose_quant_finding(
+            workspace_root,
+            finding=f if isinstance(f, dict) else None,
+            finding_json=str(payload.get("finding_json", "")),
+            domain=str(payload.get("domain", "finance")),
+            title=str(payload.get("title", "")),
+            trace_id=str(payload.get("trace_id", "")),
+        )
+
+    return quant_finding_propose
+
+
 def make_wiki_ingest_researchflow(workspace: Path):
     workspace_root = workspace.resolve()
 
@@ -2036,6 +2059,7 @@ def build_default_registry(workspace: Path | str = ".") -> OperationRegistry:
     registry.register("wiki_status", make_wiki_status(workspace_path))
     registry.register("wiki_search", make_wiki_search(workspace_path))
     registry.register("wiki_propose_research", make_wiki_propose_research(workspace_path))
+    registry.register("quant_finding_propose", make_quant_finding_propose(workspace_path))
     registry.register("wiki_ingest_researchflow", make_wiki_ingest_researchflow(workspace_path))
     registry.register("wiki_apply_proposal", make_wiki_apply_proposal(workspace_path))
     registry.register("wiki_ingest", make_wiki_ingest(workspace_path))

@@ -65,6 +65,17 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     order.add_argument("--estimated-price", type=float, default=None)
     order.add_argument("--rationale", default="")
 
+    qfind = subparsers.add_parser(
+        "quant-finding-propose",
+        help="Quant finding JSON (strategy/hypothesis/backtest/risk) -> "
+             "candidate claims -> Proposal[T] into the finance wiki. "
+             "Never ingests raw OHLCV.",
+    )
+    qfind.add_argument("--finding-json", required=True,
+                       help="path to a quant finding JSON file")
+    qfind.add_argument("--domain", default="finance")
+    qfind.add_argument("--title", default="")
+
 
 def _finance_screen(args, *, runner, workspace) -> int:
     return run_and_print(
@@ -140,10 +151,26 @@ def _order_propose(args, *, runner, workspace) -> int:
     )
 
 
+def _quant_finding_propose(args, *, runner, workspace) -> int:
+    return run_and_print(
+        runner,
+        OperationSpec(
+            name="quant_finding_propose", action="propose",
+            payload={
+                "finding_json": args.finding_json,
+                "domain": args.domain,
+                "title": args.title,
+            },
+            risk_level=RiskLevel.LOCAL_WRITE,
+        ),
+    )
+
+
 COMMANDS = {
     "finance-screen": _finance_screen,
     "finance-watch-create": _finance_watch_create,
     "finance-watch-list": _finance_watch_list,
     "finance-portfolio-stats": _finance_portfolio,
     "order-propose": _order_propose,
+    "quant-finding-propose": _quant_finding_propose,
 }
