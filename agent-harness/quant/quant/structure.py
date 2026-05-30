@@ -196,3 +196,40 @@ def divergence(bars: Sequence[dict], *, left: int = 2, right: int = 2,
                     "metric_ratio": mr, "new_extreme": new_extreme,
                     "is_divergence": bool(new_extreme and mr <= ratio)})
     return out
+
+
+def exhaustion(bars: Sequence[dict], *, core: int = 4, qual: int = 6, length: int = 12) -> list[dict]:
+    """Climax / exhaustion bars (Leledc-style) — the 一致→加速→衰竭 footprint.
+
+    A run of > ``qual`` same-direction bars (close vs close ``core`` bars ago = the
+    "consistency/acceleration"), where the bar makes a NEW ``length``-bar extreme,
+    but CLOSES AGAINST the move (the rejection). ``kind`` 'top' = buyer exhaustion,
+    'bottom' = seller exhaustion. Causal (uses only past+current bar).
+
+    A LEADING-EDGE signal, necessary-not-sufficient: most lower-TF exhaustions stay
+    local — confirm up the level hierarchy (区间套 / mtf.nested_divergence) and gate
+    by position-extremeness before trading. Run-length alone predicts short-horizon
+    reversal but longer-horizon continuation, so never use it as a standalone trigger.
+    Returns ``{idx, ts, kind, run}``."""
+    h, low_, c = highs(bars), lows(bars), closes(bars)
+    o = [float(b["open"]) for b in bars]
+    out: list[dict] = []
+    bindex = sindex = 0
+    for i in range(len(bars)):
+        if i >= core:
+            if c[i] > c[i - core]:
+                bindex += 1
+                sindex = 0
+            elif c[i] < c[i - core]:
+                sindex += 1
+                bindex = 0
+        if i < length:
+            continue
+        ts = int(bars[i].get("bucket_ts", 0))
+        if bindex > qual and c[i] < o[i] and h[i] >= max(h[i - length:i + 1]):
+            out.append({"idx": i, "ts": ts, "kind": "top", "run": bindex})
+            bindex = 0
+        elif sindex > qual and c[i] > o[i] and low_[i] <= min(low_[i - length:i + 1]):
+            out.append({"idx": i, "ts": ts, "kind": "bottom", "run": sindex})
+            sindex = 0
+    return out

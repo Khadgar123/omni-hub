@@ -108,3 +108,31 @@ def test_no_divergence_when_second_leg_stronger():
     rows = DIV_ROWS[:7] + [(118, 150), (116, 120)]   # higher high AND bigger amplitude
     ev = structure.divergence(_div_bars(rows), left=1, right=1, macd_algo="amp")
     assert ev and ev[-1]["new_extreme"] is True and ev[-1]["is_divergence"] is False
+
+
+# --- climax / exhaustion (Leledc-style 一致→加速→衰竭) -----------------------
+
+def _ohlc_bars(ohlc):
+    return [{"open": o, "high": h, "low": low, "close": c, "volume": 1.0,
+             "bucket_ts": i * 60_000_000} for i, (o, h, low, c) in enumerate(ohlc)]
+
+
+def test_exhaustion_top_after_up_run():
+    rows = [(c - 0.3, c + 0.5, c - 0.5, c) for c in (100.0 + i for i in range(14))]  # rising green run
+    rows.append((114.0, 116.0, 112.0, 113.0))   # climax bar: NEW high but closes RED
+    ev = structure.exhaustion(_ohlc_bars(rows), core=4, qual=6, length=12)
+    tops = [e for e in ev if e["kind"] == "top"]
+    assert tops and tops[0]["idx"] == 14 and tops[0]["run"] > 6
+
+
+def test_exhaustion_bottom_after_down_run():
+    rows = [(c + 0.3, c + 0.5, c - 0.5, c) for c in (120.0 - i for i in range(14))]  # falling red run
+    rows.append((106.0, 108.0, 104.0, 107.0))   # climax bar: NEW low but closes GREEN
+    ev = structure.exhaustion(_ohlc_bars(rows), core=4, qual=6, length=12)
+    bottoms = [e for e in ev if e["kind"] == "bottom"]
+    assert bottoms and bottoms[0]["idx"] == 14
+
+
+def test_exhaustion_quiet_chop_is_empty():
+    rows = [(100, 100.5, 99.5, 100)] * 30        # flat: no run, no new extreme
+    assert structure.exhaustion(_ohlc_bars(rows), core=4, qual=6, length=12) == []

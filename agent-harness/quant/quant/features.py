@@ -515,6 +515,41 @@ def efficiency_ratio(values: Sequence[float], n: int = 10) -> Series:
     return out
 
 
+# --------------------------------------------------------------------------
+# position / extremeness ("位置" as a continuous score, not a chart line)
+#
+# Direction's core factor is POSITION, but chart S/R is fuzzy and fails at
+# breakouts. These turn "extreme high/low" into a continuous, asset-agnostic
+# extremeness score from price alone (an on-chain cost-basis layer — MVRV/realized
+# price — and a derivatives-crowding layer can be blended in once those feeds are
+# wired). Extremeness ALONE is necessary-not-sufficient: fade only when it pairs
+# with momentum exhaustion in a range regime; in a trend regime price stays extreme.
+# --------------------------------------------------------------------------
+
+def mayer_multiple(values: Sequence[float], n: int = 200) -> Series:
+    """Price / SMA(n) — the Mayer Multiple (n=200 standard). A continuous
+    valuation/extremeness ratio: historically >~2.4 = froth, <~0.8 = oversold."""
+    ma = sma(values, n)
+    out: Series = [None] * len(values)
+    for i in range(len(values)):
+        if ma[i]:
+            out[i] = values[i] / ma[i]
+    return out
+
+
+def percentile_rank(values: Sequence[float], lookback: int = 252) -> Series:
+    """Where the current value sits within its trailing ``lookback`` window, in
+    [0,1] — the non-parametric 'how extreme is my position' score. None until
+    ≥5 points in the window."""
+    out: Series = [None] * len(values)
+    for i in range(len(values)):
+        win = values[max(0, i - lookback + 1): i + 1]
+        if len(win) < 5:
+            continue
+        out[i] = sum(1 for v in win if v <= values[i]) / len(win)
+    return out
+
+
 def last_valid(series: Sequence[float | None]) -> float | None:
     """Most recent non-None value (the point-in-time reading)."""
     for v in reversed(series):

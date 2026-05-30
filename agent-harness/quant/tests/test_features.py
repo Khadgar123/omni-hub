@@ -251,3 +251,19 @@ def test_efficiency_ratio_trend_vs_chop():
     assert features.efficiency_ratio([float(i) for i in range(30)], 10)[-1] == pytest.approx(1.0)
     chop = [100 + 5 * ((-1) ** i) for i in range(30)]
     assert features.efficiency_ratio(chop, 10)[-1] < 0.2
+
+
+# --- position / extremeness -------------------------------------------------
+
+def test_mayer_multiple_ratio_and_warmup():
+    vals = [100.0] * 199 + [120.0]                  # last price 20% above the flat base
+    m = features.mayer_multiple(vals, 200)
+    sma200 = (199 * 100 + 120) / 200                # 100.1
+    assert m[199] == pytest.approx(120 / sma200)    # price / SMA200 ≈ 1.198
+    assert m[198] is None                           # SMA(200) not ready until i=199
+
+
+def test_percentile_rank_position_and_warmup():
+    vals = [10, 20, 30, 40, 50, 25]                 # last (25) sits low in [10..50]
+    assert features.percentile_rank(vals, 6)[-1] == pytest.approx(0.5)   # {10,20,25}/6
+    assert features.percentile_rank([1.0, 2.0, 3.0, 4.0], 50)[-1] is None  # <5 points
