@@ -18,7 +18,9 @@ test-quant:
 test-finance:
 	$(PYTHON) -m pytest \
 	  "$(REPO_ROOT)/tests/test_binance_market_data.py" \
-	  "$(REPO_ROOT)/tests/test_binance_spot_live.py"
+	  "$(REPO_ROOT)/tests/test_binance_spot_live.py" \
+	  "$(REPO_ROOT)/tests/test_binance_vision.py" \
+	  "$(REPO_ROOT)/tests/test_binance_fapi.py"
 
 # Regenerate the committed sample artifact (sample/trades.ndjson).
 sample:
