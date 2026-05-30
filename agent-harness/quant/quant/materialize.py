@@ -16,7 +16,8 @@ from pathlib import Path
 from quant import market_store
 from quant import resample as rs
 
-DEFAULT_INTERVALS = ("1m", "5m", "15m", "1h", "4h", "1d")
+# the full analysis ladder: trading is 1s (the stored truth), analysis tops at 1d
+DEFAULT_INTERVALS = ("1m", "5m", "15m", "30m", "1h", "2h", "4h", "1d")
 
 
 def _clear(root, tf, symbol):
