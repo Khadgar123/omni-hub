@@ -14,11 +14,13 @@ validation research ranked ABOVE CSCV for low-parameter rule systems.)
 
 from __future__ import annotations
 
+import json
 import statistics
+import subprocess
+import sys
 
 from quant.backtest import metrics as M
 from quant.backtest.sweep import DEFAULT_GRIDS, config_grid
-from quant.nautilus_run import backtest_strategy
 
 
 def _sr(rets):
@@ -28,13 +30,38 @@ def _sr(rets):
     return statistics.fmean(rets) / sd if sd > 0 else 0.0
 
 
+def _run_config(strategy_id, symbol, root, start, end, tf, cfg):
+    """Run ONE config in a fresh SUBPROCESS — nautilus's Rust logger is a process
+    global, so only one BacktestEngine may exist per process. Parse the worker's
+    one-line ``RESULT:<json>`` output."""
+    cmd = [sys.executable, "-m", "quant.nautilus_run", "--strategy", strategy_id,
+           "--symbol", symbol, "--tf", tf, "--params", json.dumps(cfg), "--with-returns"]
+    if root:
+        cmd += ["--root", str(root)]
+    if start:
+        cmd += ["--from", start]
+    if end:
+        cmd += ["--to", end]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=1200)
+    except subprocess.TimeoutExpired:
+        return {"returns": [], "error": "timeout"}
+    for line in r.stdout.splitlines():
+        if line.startswith("RESULT:"):
+            try:
+                return json.loads(line[len("RESULT:"):])
+            except Exception:
+                break
+    return {"returns": [], "error": (r.stderr or r.stdout or "no RESULT")[-200:]}
+
+
 def sweep(strategy_id, symbol="BTCUSDT", *, root=None, start=None, end=None, tf="1h",
           grid=None, oos_frac=0.3, psr_min=0.6, min_trades=4):
     grid = grid if grid is not None else DEFAULT_GRIDS.get(strategy_id, {})
     configs = config_grid(grid) if grid else [{}]
     rows = []
     for cfg in configs:
-        res = backtest_strategy(strategy_id, symbol, root=root, start=start, end=end, tf=tf, params=cfg)
+        res = _run_config(strategy_id, symbol, root, start, end, tf, cfg)
         rets = res.get("returns", []) or []
         s = max(1, int(len(rets) * (1 - oos_frac))) if len(rets) >= 2 else len(rets)
         rows.append({

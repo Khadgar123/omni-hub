@@ -172,11 +172,20 @@ def main(argv=None):
     p.add_argument("--from", dest="start", default=None)
     p.add_argument("--to", dest="end", default=None)
     p.add_argument("--tf", default="1h")
+    p.add_argument("--params", default=None, help="JSON param overrides")
+    p.add_argument("--with-returns", action="store_true",
+                   help="emit a one-line 'RESULT:<json>' incl. returns (sweep-worker mode)")
     a = p.parse_args(argv)
+    params = json.loads(a.params) if a.params else None
     out = backtest_strategy(a.strategy, a.symbol,
                             root=Path(a.root).expanduser() if a.root else None,
-                            start=a.start, end=a.end, tf=a.tf)
-    out.pop("returns", None)  # don't dump the full series to stdout
+                            start=a.start, end=a.end, tf=a.tf, params=params)
+    # nautilus's Rust logger is a process global -> sweeps run ONE engine per
+    # subprocess; --with-returns is that worker mode (one parseable line).
+    if a.with_returns:
+        sys.stdout.write("RESULT:" + json.dumps(out, ensure_ascii=False, default=str) + "\n")
+        return 0
+    out.pop("returns", None)
     json.dump(out, sys.stdout, ensure_ascii=False, indent=2, default=str)
     sys.stdout.write("\n")
     return 0
