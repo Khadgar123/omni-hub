@@ -91,8 +91,11 @@ def summarize(curve, trades, *, equity0, periods_per_year=None, prices=None):
     cagr = 0.0
     if len(curve) >= 2 and curve[-1][0] > curve[0][0] and final > 0 and equity0 > 0:
         yrs = (curve[-1][0] - curve[0][0]) / 1e6 / _SECONDS_PER_YEAR
-        if yrs > 0:
-            cagr = (final / equity0) ** (1.0 / yrs) - 1.0
+        if yrs >= 1.0 / 365.0:  # need >= ~1 day to annualize (tiny spans overflow the power)
+            try:
+                cagr = (final / equity0) ** (1.0 / yrs) - 1.0
+            except OverflowError:
+                cagr = float("inf") if final > equity0 else -1.0
     wins = [t for t in trades if t.pnl > 0]
     losses = [t for t in trades if t.pnl < 0]
     gross_win = sum(t.pnl for t in wins)
