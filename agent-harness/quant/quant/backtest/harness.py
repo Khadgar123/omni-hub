@@ -52,7 +52,7 @@ def _build_states(strat_bars, htf_track, confirm_track, symbol):
 
 
 def run(strategy_id, symbol, *, root=None, start=None, end=None, htf="1d",
-        confirm="4h", equity0=10000.0, cost=None, source="1s"):
+        confirm="4h", equity0=10000.0, cost=None, source="1s", report_path=None):
     from quant import market_store
     root = root if root is not None else market_store.DEFAULT_ROOT
     strat = by_id(strategy_id)
@@ -71,6 +71,13 @@ def run(strategy_id, symbol, *, root=None, start=None, end=None, htf="1d",
     m["symbol"] = symbol
     m["timeframe"] = strat.timeframe
     m["bars"] = len(strat_bars)
+    if report_path is not None:
+        from quant.backtest import report as report_mod
+        track = [{"as_of": int(b["bucket_ts"]), "label": s.regime_label}
+                 for b, s in zip(strat_bars, states)]
+        report_mod.write_report(res, strat_bars, report_path, regime_track=track,
+                                metrics_dict=m, title=f"{strategy_id} · {symbol}")
+        m["report"] = str(report_path)
     return res, m
 
 
@@ -85,11 +92,14 @@ def main(argv=None):
     p.add_argument("--confirm", default="4h")
     p.add_argument("--equity0", type=float, default=10000.0)
     p.add_argument("--source", default="1s")
+    p.add_argument("--report", default=None, help="write a self-contained HTML report to this path")
     args = p.parse_args(argv)
     from pathlib import Path
     root = Path(args.root).expanduser() if args.root else None
+    report_path = Path(args.report).expanduser() if args.report else None
     _, m = run(args.strategy, args.symbol, root=root, start=args.start, end=args.end,
-               htf=args.htf, confirm=args.confirm, equity0=args.equity0, source=args.source)
+               htf=args.htf, confirm=args.confirm, equity0=args.equity0, source=args.source,
+               report_path=report_path)
     print(json.dumps(m, ensure_ascii=False, indent=2, default=str))
     return 0
 
