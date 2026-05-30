@@ -257,6 +257,175 @@ def realized_vol(values: Sequence[float], n: int = 20) -> Series:
     return out
 
 
+# --------------------------------------------------------------------------
+# candle geometry as CONTINUOUS ratios (Qlib Alpha158 "KBar" family)
+#
+# The principled replacement for *named* candlestick patterns. A candle's shape
+# is a downsampling artifact of the chosen timeframe (Mandelbrot self-affinity;
+# 缠论 包含处理 deliberately merges the body away) — so "hammer / engulfing"
+# labels are not fundamental. But the GEOMETRY (body size, shadow lengths, close
+# location) still carries information; the right encoding is threshold-free
+# continuous ratios, not discrete pattern names. A "long upper-shadow rejection"
+# is just ``up_shadow ≈ 1``; a "bull/bear body" is the sign+size of ``body``.
+# --------------------------------------------------------------------------
+
+def candle_geometry(bars: Sequence[dict]) -> dict[str, Series]:
+    """Per-bar continuous shape ratios (defined for every bar, no warmup).
+
+    ``/range`` ratios fall back to 0.0 on a zero-range bar (no shape to read).
+
+      body      (KMID)  = (close-open)/open        signed body == intraday return
+      rng       (KLEN)  = (high-low)/open          amplitude
+      body_pct  (KMID2) = (close-open)/range        body share of range   [-1,1]
+      up_shadow (KUP2)  = (high-max(open,close))/range  upper-wick share   [0,1]
+      dn_shadow (KLOW2) = (min(open,close)-low)/range    lower-wick share  [0,1]
+      close_loc (KSFT2) = (2*close-high-low)/range       close within bar  [-1,1]
+    """
+    keys = ("body", "rng", "body_pct", "up_shadow", "dn_shadow", "close_loc")
+    out: dict[str, Series] = {k: [None] * len(bars) for k in keys}
+    for i, b in enumerate(bars):
+        o, h, low, c = float(b["open"]), float(b["high"]), float(b["low"]), float(b["close"])
+        rng = h - low
+        out["body"][i] = (c - o) / o if o else 0.0
+        out["rng"][i] = rng / o if o else 0.0
+        if rng > 0:
+            out["body_pct"][i] = (c - o) / rng
+            out["up_shadow"][i] = (h - max(o, c)) / rng
+            out["dn_shadow"][i] = (min(o, c) - low) / rng
+            out["close_loc"][i] = (2 * c - h - low) / rng
+        else:
+            out["body_pct"][i] = out["up_shadow"][i] = 0.0
+            out["dn_shadow"][i] = out["close_loc"][i] = 0.0
+    return out
+
+
+# --------------------------------------------------------------------------
+# range-position (mean-reversion) + distance-from-mean (statistical "extreme")
+# --------------------------------------------------------------------------
+
+def stoch_k(bars: Sequence[dict], n: int = 14) -> Series:
+    """Stochastic %K (Qlib RSV): where ``close`` sits in the trailing ``n``-bar
+    [low, high] band, in [0,100]. The overbought/oversold + range-position
+    primitive. Flat band -> 50 (neutral)."""
+    if n <= 0:
+        raise ValueError("n must be positive")
+    h, low_, c = highs(bars), lows(bars), closes(bars)
+    out: Series = [None] * len(bars)
+    for i in range(n - 1, len(bars)):
+        hi = max(h[i - n + 1 : i + 1])
+        lo = min(low_[i - n + 1 : i + 1])
+        rng = hi - lo
+        out[i] = 100.0 * (c[i] - lo) / rng if rng > 0 else 50.0
+    return out
+
+
+def zscore(values: Sequence[float], n: int = 20) -> Series:
+    """Distance from the rolling mean in stdevs: ``(v - mean_n) / std_n``.
+
+    The unit-free, timeframe-comparable measure of "how stretched is price" —
+    the rigorous replacement for eyeballing a long candle far from its MA. A
+    Bollinger touch is just ``|z| ≈ k``. Flat window -> 0.0."""
+    if n <= 1:
+        raise ValueError("n must be > 1")
+    out: Series = [None] * len(values)
+    for i in range(n - 1, len(values)):
+        w = values[i - n + 1 : i + 1]
+        m = sum(w) / n
+        sd = math.sqrt(sum((v - m) ** 2 for v in w) / n)  # population (TA convention)
+        out[i] = (values[i] - m) / sd if sd > 0 else 0.0
+    return out
+
+
+# --------------------------------------------------------------------------
+# MACD (+ histogram == the 缠论 背驰 / momentum-acceleration substrate)
+# --------------------------------------------------------------------------
+
+def _ema_skipna(series: Sequence[float | None], n: int) -> Series:
+    """EMA over a series with a leading ``None`` warmup (e.g. another
+    indicator's output): seed with the SMA of the first ``n`` valid values and
+    re-pad the front so the result stays aligned. Assumes the valid region is a
+    contiguous tail (true for our indicator outputs)."""
+    out: Series = [None] * len(series)
+    idx = [i for i, v in enumerate(series) if v is not None]
+    if len(idx) < n:
+        return out
+    e = ema([series[i] for i in idx], n)  # type: ignore[list-item]
+    for off, i in enumerate(idx):
+        out[i] = e[off]
+    return out
+
+
+def macd(values: Sequence[float], fast: int = 12, slow: int = 26, signal: int = 9) -> dict[str, Series]:
+    """MACD line / signal / histogram.
+
+    ``macd = EMA_fast - EMA_slow``; ``signal = EMA(macd, signal)``;
+    ``hist = macd - signal``. The histogram is the momentum-acceleration proxy;
+    comparing the histogram AREA of successive same-direction legs is the
+    quantified 缠论 背驰 (divergence) test."""
+    ef, es = ema(values, fast), ema(values, slow)
+    line: Series = [(a - b) if (a is not None and b is not None) else None
+                    for a, b in zip(ef, es)]
+    sig = _ema_skipna(line, signal)
+    hist: Series = [(l - s) if (l is not None and s is not None) else None
+                    for l, s in zip(line, sig)]
+    return {"macd": line, "signal": sig, "hist": hist}
+
+
+# --------------------------------------------------------------------------
+# volume / flow + regime (Hurst) primitives
+# --------------------------------------------------------------------------
+
+def obv(bars: Sequence[dict]) -> Series:
+    """On-balance volume: running signed-volume total (the volume/flow base
+    feature). ``out[0]=0``; adds volume on up-closes, subtracts on down-closes."""
+    out: Series = [None] * len(bars)
+    if not bars:
+        return out
+    run = 0.0
+    out[0] = 0.0
+    for i in range(1, len(bars)):
+        c, pc = float(bars[i]["close"]), float(bars[i - 1]["close"])
+        v = float(bars[i].get("volume", 0.0))
+        if c > pc:
+            run += v
+        elif c < pc:
+            run -= v
+        out[i] = run
+    return out
+
+
+def hurst_exponent(values: Sequence[float], *, min_lag: int = 2, max_lag: int = 20) -> float | None:
+    """Hurst exponent via the lagged-difference (variance-scaling) method.
+
+    ``H < 0.5`` anti-persistent (mean-reverting), ``≈0.5`` random walk,
+    ``> 0.5`` persistent (trending). Chan's regime classifier: choose
+    mean-reversion vs momentum by which side of 0.5 the series sits. Slope of
+    ``log(std of τ-lag diffs)`` vs ``log(τ)``. Returns None if too short / degenerate."""
+    n = len(values)
+    if max_lag <= min_lag or n < max_lag + 2:
+        return None
+    xs: list[float] = []
+    ys: list[float] = []
+    for lag in range(min_lag, max_lag + 1):
+        diffs = [values[i] - values[i - lag] for i in range(lag, n)]
+        if len(diffs) < 2:
+            continue
+        m = sum(diffs) / len(diffs)
+        var = sum((d - m) ** 2 for d in diffs) / len(diffs)
+        if var <= 0:
+            continue
+        xs.append(math.log(lag))
+        ys.append(0.5 * math.log(var))  # log(std) = 0.5*log(var)
+    if len(xs) < 2:
+        return None
+    k = len(xs)
+    mx, my = sum(xs) / k, sum(ys) / k
+    den = sum((x - mx) ** 2 for x in xs)
+    if den == 0:
+        return None
+    return sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / den
+
+
 def last_valid(series: Sequence[float | None]) -> float | None:
     """Most recent non-None value (the point-in-time reading)."""
     for v in reversed(series):
