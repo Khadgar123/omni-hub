@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from typing import Sequence
 
-from quant.features import closes, highs, lows
+from quant.features import closes, highs, lows, macd
 
 
 def swings(bars: Sequence[dict], left: int = 2, right: int = 2) -> list[dict]:
@@ -99,3 +99,100 @@ def market_structure(bars: Sequence[dict], *, left: int = 2, right: int = 2) -> 
             trend = -1
             last_low = None
     return events
+
+
+# --------------------------------------------------------------------------
+# legs + force metrics + 背驰 (divergence) — quantify "力度" / exhaustion
+#
+# A leg is a directional move between two alternating swing pivots (a ZigZag
+# skeleton). Pullback DEPTH/FORCE (反弹和调整的幅度和力度) and 背驰 (向上上不去
+# 就要下) are both read off per-leg force metrics: amplitude, speed, volume, and
+# the MACD area/peak. 背驰 is the chan.py kernel — a new price extreme made on a
+# WEAKER leg (metric ≤ ratio × the prior same-direction leg's metric).
+# --------------------------------------------------------------------------
+
+def _zigzag(sw: list[dict]) -> list[dict]:
+    """Collapse raw swings into a strictly alternating high/low sequence,
+    keeping the more-extreme pivot when two of the same kind are adjacent."""
+    seq: list[dict] = []
+    for s in sw:
+        if seq and seq[-1]["kind"] == s["kind"]:
+            more_extreme = (s["price"] > seq[-1]["price"] if s["kind"] == "high"
+                            else s["price"] < seq[-1]["price"])
+            if more_extreme:
+                seq[-1] = s
+        else:
+            seq.append(s)
+    return seq
+
+
+def legs(bars: Sequence[dict], *, left: int = 2, right: int = 2) -> list[dict]:
+    """Directional legs between alternating swing pivots, each annotated with
+    force metrics. Per leg: ``dir``, ``amp``/``amp_pct`` (幅度), ``bars``,
+    ``slope`` (速度 = amp/bars), ``ret`` (signed), ``vol`` (volume sum), and the
+    same-direction MACD ``macd_area`` / ``macd_peak`` (动力学). The substrate for
+    pullback-strength and 背驰 analysis."""
+    piv = _zigzag(swings(bars, left, right))
+    if len(piv) < 2:
+        return []
+    cl = closes(bars)
+    hist = macd(cl)["hist"]
+    vols = [float(b.get("volume", 0.0)) for b in bars]
+    out: list[dict] = []
+    for a, b in zip(piv, piv[1:]):
+        i0, i1 = a["idx"], b["idx"]
+        up = b["kind"] == "high"               # low -> high == up leg
+        p0, p1 = float(a["price"]), float(b["price"])
+        nbars = max(i1 - i0, 1)
+        seg = [h for h in hist[i0:i1 + 1] if h is not None]
+        area = sum(abs(h) for h in seg if (h > 0) == up)
+        peak = max((abs(h) for h in seg if (h > 0) == up), default=0.0)
+        out.append({
+            "i0": i0, "i1": i1, "ts0": a["ts"], "ts1": b["ts"],
+            "dir": "up" if up else "down", "p0": p0, "p1": p1,
+            "amp": abs(p1 - p0), "amp_pct": abs(p1 - p0) / p0 if p0 else 0.0,
+            "bars": nbars, "slope": abs(p1 - p0) / nbars,
+            "ret": (p1 - p0) / p0 if p0 else 0.0,
+            "vol": sum(vols[i0:i1 + 1]), "macd_area": area, "macd_peak": peak,
+        })
+    return out
+
+
+def _leg_metric(leg: dict, algo: str) -> float:
+    """Force metric of a leg (the chan.py ``macd_algo`` choices)."""
+    if algo == "amp":
+        return leg["amp_pct"]                  # amplitude / price (czsc default proxy)
+    if algo == "slope":
+        return leg["slope"] / leg["p0"] if leg["p0"] else leg["slope"]
+    if algo == "area":
+        return leg["macd_area"]                # integrated same-sign histogram
+    if algo == "peak":
+        return leg["macd_peak"]                # max |histogram|
+    raise ValueError(f"unknown macd_algo {algo!r}")
+
+
+def divergence(bars: Sequence[dict], *, left: int = 2, right: int = 2,
+               macd_algo: str = "amp", ratio: float = 0.9) -> list[dict]:
+    """背驰: compare each leg to the prior SAME-direction leg (j vs j-2). A new
+    price extreme made with a WEAKER force metric = momentum diverging from price
+    = exhaustion. The chan.py kernel ``out_metric ≤ divergence_rate · in_metric``
+    (default ``ratio=0.9``).
+
+    Returns one dict per comparable pair: ``{idx, ts, dir, metric_ratio,
+    new_extreme, is_divergence}``. Use ``metric_ratio`` as a CONTINUOUS feature
+    (smaller = stronger divergence), gated by structural context — never a raw
+    standalone boolean (naive divergence fails OOS; it needs a prior 中枢 / S/R)."""
+    lg = legs(bars, left=left, right=right)
+    out: list[dict] = []
+    for j in range(2, len(lg)):
+        cur, prev = lg[j], lg[j - 2]
+        if cur["dir"] != prev["dir"]:
+            continue
+        up = cur["dir"] == "up"
+        new_extreme = cur["p1"] > prev["p1"] if up else cur["p1"] < prev["p1"]
+        m_prev, m_cur = _leg_metric(prev, macd_algo), _leg_metric(cur, macd_algo)
+        mr = m_cur / m_prev if m_prev > 0 else float("inf")
+        out.append({"idx": cur["i1"], "ts": cur["ts1"], "dir": cur["dir"],
+                    "metric_ratio": mr, "new_extreme": new_extreme,
+                    "is_divergence": bool(new_extreme and mr <= ratio)})
+    return out

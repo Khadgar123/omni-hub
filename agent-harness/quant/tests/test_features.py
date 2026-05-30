@@ -209,3 +209,45 @@ def test_hurst_orders_meanrevert_below_trend():
 
 def test_hurst_short_series_is_none():
     assert features.hurst_exponent([1.0, 2.0, 3.0], max_lag=20) is None
+
+
+# --- compression / range-regime features -----------------------------------
+
+def test_bandwidth_pct_low_when_vol_compresses():
+    # amplitude shrinks over time -> Bollinger width shrinks -> last rank is low
+    vals = [100 + (10.0 - 9.9 * i / 199) * ((-1) ** i) for i in range(200)]
+    bp = features.bandwidth_pct(vals, n=20, lookback=100)
+    assert bp[-1] is not None and bp[-1] < 0.3
+    bp2 = features.bandwidth_pct(vals[::-1], n=20, lookback=100)  # vol grows -> high rank
+    assert bp2[-1] > 0.7
+
+
+def test_squeeze_on_widerange_flatcloses_true_trend_false():
+    # wide high-low but flat closes -> std(close)≈0 << ATR -> BB inside KC -> ON
+    flat = [{"open": 100, "high": 105, "low": 95, "close": 100, "volume": 1.0} for _ in range(40)]
+    assert features.squeeze_on(flat, n=20)[-1] is True
+    # tight high-low but strongly trending closes -> std(close) >> ATR -> OFF
+    trend = [{"open": 100 + 0.5 * i, "high": 100 + 0.5 * i + 0.1,
+              "low": 100 + 0.5 * i - 0.1, "close": 100 + 0.5 * i, "volume": 1.0}
+             for i in range(40)]
+    assert features.squeeze_on(trend, n=20)[-1] is False
+
+
+def test_atr_ratio_below_one_after_vol_drop():
+    bars = _bars([(100, 110, 90, 100)] * 100 + [(100, 101, 99, 100)] * 40)
+    r = features.atr_ratio(bars, n=14, slow=100)
+    assert r[-1] is not None and r[-1] < 1.0
+
+
+def test_choppiness_high_in_range_low_in_trend():
+    rng = _bars([(100 + (i % 2) * 10, 100 + (i % 2) * 10 + 1,
+                  100 + (i % 2) * 10 - 1, 100 + (i % 2) * 10) for i in range(40)])
+    trend = _bars([(100 + i, 100 + i + 1, 100 + i - 1, 100 + i) for i in range(40)])
+    assert features.choppiness(rng, 14)[-1] > 60
+    assert features.choppiness(trend, 14)[-1] < 40
+
+
+def test_efficiency_ratio_trend_vs_chop():
+    assert features.efficiency_ratio([float(i) for i in range(30)], 10)[-1] == pytest.approx(1.0)
+    chop = [100 + 5 * ((-1) ** i) for i in range(30)]
+    assert features.efficiency_ratio(chop, 10)[-1] < 0.2

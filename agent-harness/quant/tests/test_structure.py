@@ -69,3 +69,42 @@ def test_market_structure_is_causal_no_lookahead():
 def test_swings_window_must_be_positive():
     with pytest.raises(ValueError):
         structure.swings(_bars(ROWS), 0, 1)
+
+
+# --- legs + force metrics + 背驰 (divergence) -------------------------------
+
+# impulse up (100->120), pullback (->110), weaker impulse to a HIGHER high
+# (->125) but smaller amplitude -> 背驰 by the amplitude metric.
+DIV_ROWS = [
+    (106, 108), (100, 104), (102, 110), (105, 120),
+    (112, 116), (110, 114), (115, 122), (118, 125), (116, 120),
+]
+
+
+def _div_bars(rows):
+    return [{"open": (low + h) / 2, "high": h, "low": low, "close": (low + h) / 2,
+             "volume": 1.0, "bucket_ts": i * 60_000_000}
+            for i, (low, h) in enumerate(rows)]
+
+
+def test_legs_force_metrics():
+    lg = structure.legs(_div_bars(DIV_ROWS), left=1, right=1)
+    assert [x["dir"] for x in lg] == ["up", "down", "up"]
+    up0, _, up2 = lg
+    assert up0["amp"] == pytest.approx(20.0)   # 100 -> 120
+    assert up2["amp"] == pytest.approx(15.0)   # 110 -> 125
+    assert up0["slope"] > 0 and "macd_area" in up0 and "vol" in up0
+
+
+def test_divergence_detects_weaker_new_high():
+    ev = structure.divergence(_div_bars(DIV_ROWS), left=1, right=1, macd_algo="amp")
+    assert len(ev) == 1
+    d = ev[0]
+    assert d["dir"] == "up" and d["new_extreme"] is True and d["is_divergence"] is True
+    assert d["metric_ratio"] == pytest.approx((15 / 110) / (20 / 100), rel=1e-6)  # ≈0.682
+
+
+def test_no_divergence_when_second_leg_stronger():
+    rows = DIV_ROWS[:7] + [(118, 150), (116, 120)]   # higher high AND bigger amplitude
+    ev = structure.divergence(_div_bars(rows), left=1, right=1, macd_algo="amp")
+    assert ev and ev[-1]["new_extreme"] is True and ev[-1]["is_divergence"] is False

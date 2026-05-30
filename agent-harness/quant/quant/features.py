@@ -426,6 +426,95 @@ def hurst_exponent(values: Sequence[float], *, min_lag: int = 2, max_lag: int = 
     return sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / den
 
 
+# --------------------------------------------------------------------------
+# compression / range-regime features ("横盘是趋势的酝酿" — coiled energy)
+#
+# Volatility compression reliably predicts THAT a move is coming and how big
+# (vol mean-reverts / clusters) — the single most robust effect available; it
+# does NOT predict direction. Pair these with a range detector (choppiness /
+# efficiency_ratio / hurst) before treating a quiet tape as "incubating a trend"
+# rather than "mid-trend drift".
+# --------------------------------------------------------------------------
+
+def bandwidth_pct(values: Sequence[float], n: int = 20, k: float = 2.0,
+                  lookback: int = 126) -> Series:
+    """Percentile rank (0..1) of Bollinger BandWidth within its own trailing
+    ``lookback``. Low rank == compressed/coiled (bottom-20% = a squeeze).
+    None until ≥5 valid widths in the window."""
+    width = bollinger(values, n, k)["width"]
+    out: Series = [None] * len(values)
+    for i in range(len(values)):
+        if width[i] is None:
+            continue
+        win = [w for w in width[max(0, i - lookback + 1): i + 1] if w is not None]
+        if len(win) < 5:
+            continue
+        out[i] = sum(1 for w in win if w <= width[i]) / len(win)
+    return out
+
+
+def squeeze_on(bars: Sequence[dict], n: int = 20, bb_k: float = 2.0,
+               kc_mult: float = 1.5) -> list[bool | None]:
+    """TTM-style squeeze: True when the Bollinger Bands sit ENTIRELY inside the
+    Keltner Channels (volatility compressed → stored energy). KC = EMA(close,n)
+    ± kc_mult·ATR(n). None during warmup."""
+    cl = closes(bars)
+    bb = bollinger(cl, n, bb_k)
+    mid = ema(cl, n)
+    a = atr(bars, n)
+    out: list[bool | None] = [None] * len(bars)
+    for i in range(len(bars)):
+        if None in (bb["upper"][i], bb["lower"][i], mid[i], a[i]):
+            continue
+        kc_u, kc_l = mid[i] + kc_mult * a[i], mid[i] - kc_mult * a[i]
+        out[i] = bool(bb["lower"][i] > kc_l and bb["upper"][i] < kc_u)
+    return out
+
+
+def atr_ratio(bars: Sequence[dict], n: int = 14, slow: int = 100) -> Series:
+    """ATR(n) / SMA(ATR(n), slow): < 1 == current volatility below its own
+    baseline (compressed); > 1 == expanded. None until the slow mean exists."""
+    a = atr(bars, n)
+    valid = [(i, v) for i, v in enumerate(a) if v is not None]
+    vals = [v for _, v in valid]
+    sm = sma(vals, slow)
+    out: Series = [None] * len(bars)
+    for off, (i, _) in enumerate(valid):
+        if sm[off] and sm[off] > 0:
+            out[i] = vals[off] / sm[off]
+    return out
+
+
+def choppiness(bars: Sequence[dict], n: int = 14) -> Series:
+    """Choppiness Index in [0,100]: ``100·log10(Σ TR_n / (maxHigh_n − minLow_n)) /
+    log10(n)``. ≥ 61.8 == ranging/choppy, ≤ 38.2 == trending. None during warmup."""
+    if n < 2:
+        raise ValueError("n must be >= 2")
+    tr = true_range(bars)
+    h, low_ = highs(bars), lows(bars)
+    logn = math.log10(n)
+    out: Series = [None] * len(bars)
+    for i in range(n, len(bars)):          # i>=n => tr slice starts at >=1 (non-None)
+        tr_sum = sum(tr[i - n + 1: i + 1])  # type: ignore[arg-type]
+        rng = max(h[i - n + 1: i + 1]) - min(low_[i - n + 1: i + 1])
+        if rng > 0 and tr_sum > 0:
+            out[i] = 100.0 * math.log10(tr_sum / rng) / logn
+    return out
+
+
+def efficiency_ratio(values: Sequence[float], n: int = 10) -> Series:
+    """Kaufman Efficiency Ratio in [0,1]: ``|v[i]−v[i−n]| / Σ|Δv|`` over ``n``.
+    High (≈1) == clean directional move (trending); low (< ~0.3) == choppy."""
+    if n <= 0:
+        raise ValueError("n must be positive")
+    out: Series = [None] * len(values)
+    for i in range(n, len(values)):
+        net = abs(values[i] - values[i - n])
+        vol = sum(abs(values[k] - values[k - 1]) for k in range(i - n + 1, i + 1))
+        out[i] = net / vol if vol > 0 else 0.0
+    return out
+
+
 def last_valid(series: Sequence[float | None]) -> float | None:
     """Most recent non-None value (the point-in-time reading)."""
     for v in reversed(series):
