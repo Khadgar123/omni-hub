@@ -4,6 +4,8 @@ from types import SimpleNamespace
 
 from quant.strategy.base import gated_evaluate
 from quant.strategy.divergence_reversal import DivergenceReversal
+from quant.strategy.ma_cross import MACross
+from quant.strategy.squeeze_breakout import SqueezeBreakout
 from quant.strategy.tsmom import TSMomentum
 from quant.strategy.zscore_revert import ZScoreRevert
 
@@ -69,3 +71,23 @@ def test_divergence_reversal_fires_long():
 def test_divergence_blocked_by_stand_down():
     bars = _bars(_divergence_closes(), band=0.3)
     assert gated_evaluate(DivergenceReversal(), bars, _st("down", "short", stand_down=True), 0.0) is None
+
+
+# --- ma cross ---------------------------------------------------------------
+
+def test_ma_cross_long_in_uptrend():
+    bars = _bars([100.0 * (1.004 ** i) for i in range(220)])
+    intent = gated_evaluate(MACross(), bars, _st("up", "long"), 0.0)
+    assert intent is not None and intent.direction == "long"
+
+
+# --- squeeze breakout (中枢突破) -------------------------------------------
+
+def test_squeeze_breakout_fires_on_break_after_squeeze():
+    # 90 wide-oscillation bars (high BB width) -> 40 tight bars (squeeze) -> breakout
+    closes = [100.0 + (2.5 if i % 2 else -2.5) for i in range(90)]
+    closes += [100.0 + (0.15 if i % 2 else -0.15) for i in range(40)]
+    closes += [106.0]
+    intent = gated_evaluate(SqueezeBreakout(), _bars(closes, band=0.3), _st("range", "flat"), 0.0)
+    assert intent is not None and intent.direction == "long"
+    assert intent.stop_price < intent.entry_ref

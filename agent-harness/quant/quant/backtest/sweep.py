@@ -25,7 +25,12 @@ from quant.backtest.costs import CostModel
 # strategy_id -> default parameter grid to sweep
 DEFAULT_GRIDS = {
     "trend_donchian_v1": {"entry_lookback": [10, 15, 20, 30], "atr_mult": [1.5, 2.0, 3.0]},
+    "tsmom_v1": {"lookback": [120, 240, 480, 720], "atr_mult": [2.0, 3.0]},
+    "ma_cross_v1": {"fast": [20, 50], "slow": [100, 200], "atr_mult": [2.0, 3.0]},
     "range_bb_revert_v1": {"bb_k": [1.5, 2.0, 2.5], "rsi_floor": [25.0, 30.0, 35.0]},
+    "zscore_revert_v1": {"lookback": [24, 48, 96], "z_entry": [-1.5, -2.0, -2.5]},
+    "divergence_reversal_v1": {"window": [40, 60, 90], "atr_mult": [1.5, 2.0, 3.0], "exit_rsi": [50.0, 55.0, 60.0]},
+    "squeeze_breakout_v1": {"squeeze_pctl": [0.2, 0.25, 0.35], "breakout_lookback": [15, 20, 30], "atr_mult": [2.0, 2.5, 3.0]},
 }
 
 # gate thresholds (strict)

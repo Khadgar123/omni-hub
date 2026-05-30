@@ -4,16 +4,20 @@ from __future__ import annotations
 
 from quant.strategy.base import Strategy
 from quant.strategy.divergence_reversal import DivergenceReversal
+from quant.strategy.ma_cross import MACross
 from quant.strategy.range_bb_revert import RangeBBRevert
+from quant.strategy.squeeze_breakout import SqueezeBreakout
 from quant.strategy.trend_donchian import TrendDonchian
 from quant.strategy.tsmom import TSMomentum
 from quant.strategy.zscore_revert import ZScoreRevert
 
 
 def default_strategies() -> list[Strategy]:
-    """The strategy library: trend (Donchian, TS-momentum), range (Bollinger+RSI,
-    z-score), and momentum-exhaustion reversal (缠论 背驰, quantified)."""
-    return [TrendDonchian(), TSMomentum(), RangeBBRevert(), ZScoreRevert(), DivergenceReversal()]
+    """The strategy library across families: trend (Donchian breakout, TS-momentum,
+    EMA cross), range mean-reversion (Bollinger+RSI, z-score), momentum-exhaustion
+    reversal (缠论 背驰), and volatility-squeeze breakout (中枢突破)."""
+    return [TrendDonchian(), TSMomentum(), MACross(), RangeBBRevert(), ZScoreRevert(),
+            DivergenceReversal(), SqueezeBreakout()]
 
 
 def by_id(strategy_id: str) -> Strategy:
