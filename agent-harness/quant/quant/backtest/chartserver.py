@@ -97,47 +97,61 @@ const chart = LightweightCharts.createChart(document.getElementById('chart'), {
 const candle = chart.addCandlestickSeries({upColor:'#26a69a',downColor:'#ef5350',borderVisible:false,wickUpColor:'#26a69a',wickDownColor:'#ef5350'});
 const vol = chart.addHistogramSeries({priceFormat:{type:'volume'}, priceScaleId:''});
 vol.priceScale().applyOptions({scaleMargins:{top:0.84, bottom:0}});
-let curTf=null, cData=[], vData=[], loading=false, tmap={};
-async function api(tf, from, to){ const r=await fetch(`/api/bars?symbol=${META.symbol}&tf=${tf}&from=${Math.floor(from)}&to=${Math.ceil(to)}`); return r.json(); }
+let curTf=null, cData=[], vData=[], loading=false, focus=null, suppress=false;
+const RLO=META.range[0], RHI=META.range[1];
+const LOAD_HALF=420, VIS_HALF=140, CHUNK=500;   // bars: load WIDE context, show a comfortable window
+function api(tf, from, to){ return fetch(`/api/bars?symbol=${META.symbol}&tf=${tf}&from=${Math.floor(from)}&to=${Math.ceil(to)}`).then(r=>r.json()); }
 function fmt(t){ return ` · <b>#${t.i}</b> ${t.e0iso} → ${t.e1iso} · pnl ${t.pnl.toFixed(2)} (${(t.ret*100).toFixed(2)}%) · exit:${t.reason} · <i>${t.rationale}</i>`; }
-function refresh(){
+function clamp(t){ return Math.max(RLO, Math.min(RHI, t)); }
+function applyData(){
   candle.setData(cData); vol.setData(vData);
-  const s=META.tfsec[curTf]; tmap={}; const lo=cData.length?cData[0].time:0, hi=cData.length?cData[cData.length-1].time:0;
+  if(!cData.length) return;
+  const lo=cData[0].time, hi=cData[cData.length-1].time, s=META.tfsec[curTf];
   const mk=[]; META.trades.forEach(t=>{ const e0=Math.floor(t.e0/s)*s, e1=Math.floor(t.e1/s)*s;
-    if(e0>=lo&&e0<=hi){ mk.push({time:e0,position:'belowBar',color:'#00c853',shape:'arrowUp',text:'B'}); tmap[e0]=t; }
-    if(e1>=lo&&e1<=hi){ mk.push({time:e1,position:'aboveBar',color:(t.reason==='stop'?'#d50000':'#1565c0'),shape:'arrowDown',text:'S'}); } });
+    if(e0>=lo&&e0<=hi) mk.push({time:e0,position:'belowBar',color:'#00c853',shape:'arrowUp',text:'B'});
+    if(e1>=lo&&e1<=hi) mk.push({time:e1,position:'aboveBar',color:(t.reason==='stop'?'#d50000':'#1565c0'),shape:'arrowDown',text:'S'}); });
   mk.sort((a,b)=>a.time-b.time); candle.setMarkers(mk);
-  if(cData.length) document.getElementById('span').textContent = curTf+': '+fmtDate(lo)+' → '+fmtDate(hi);
+  document.getElementById('span').textContent = curTf+': '+fmtDate(lo)+' → '+fmtDate(hi);
 }
-async function setTf(tf){
-  const vr = curTf ? chart.timeScale().getVisibleRange() : null;
-  curTf=tf; const s=META.tfsec[tf];
-  let from, to;
-  if(vr && vr.from!=null){ from=vr.from; to=vr.to; } else { to=META.range[1]; from=to-1500*s; }
-  const d=await api(tf, Math.max(from, META.range[0]-s), to);
-  cData=d.candle; vData=d.vol; refresh();
-  if(vr && vr.from!=null && cData.length){ chart.timeScale().setVisibleRange({from:Math.max(vr.from,cData[0].time), to:Math.min(vr.to,cData[cData.length-1].time)}); }
-  else chart.timeScale().fitContent();
-  document.querySelectorAll('#bar button').forEach(b=>b.style.fontWeight=(b.dataset.tf===tf?'700':'400'));
+function mergeInto(d){
+  const cm=new Map(cData.map(b=>[b.time,b])); (d.candle||[]).forEach(b=>cm.set(b.time,b));
+  cData=Array.from(cm.values()).sort((a,b)=>a.time-b.time);
+  const vm=new Map(vData.map(b=>[b.time,b])); (d.vol||[]).forEach(b=>vm.set(b.time,b));
+  vData=Array.from(vm.values()).sort((a,b)=>a.time-b.time);
+  if(cData.length>20000){ cData=cData.slice(-20000); vData=vData.slice(-20000); }   // bound memory
 }
-chart.timeScale().subscribeVisibleLogicalRangeChange(async lr=>{
-  if(!lr || loading || !cData.length) return;
-  if(lr.from < 8){                                  // near the left edge -> load older history
-    const s=META.tfsec[curTf], oldest=cData[0].time; if(oldest <= META.range[0]) return;
-    loading=true;
-    const d=await api(curTf, oldest-1500*s, oldest-s);
-    if(d.candle && d.candle.length){ cData=d.candle.concat(cData); vData=d.vol.concat(vData); refresh(); }
-    loading=false;
-  }
-});
-chart.subscribeCrosshairMove(p=>{ if(p && p.time && tmap[p.time]) document.getElementById('info').innerHTML = fmt(tmap[p.time]); });
-async function jump(i){                              // fetch the trade's window at the current TF (works for ANY date, incl 1m of old trades)
-  const t=META.trades[i], s=META.tfsec[curTf], pad=Math.max(s*25,(t.e1-t.e0)*3);
-  const d=await api(curTf, t.e0-pad, t.e1+pad);
-  cData=d.candle; vData=d.vol; refresh();
-  if(cData.length) chart.timeScale().setVisibleRange({from:cData[0].time, to:cData[cData.length-1].time});
+async function loadCentered(tf, center){          // fresh wide window centered on a time (the auto-load base)
+  const s=META.tfsec[tf];
+  const d=await api(tf, clamp(center-LOAD_HALF*s), clamp(center+LOAD_HALF*s));
+  cData=d.candle||[]; vData=d.vol||[]; applyData();
+}
+async function setTf(tf){                          // keep the SAME time center across timeframes (consistent before/after)
+  if(curTf){ const vr=chart.timeScale().getVisibleRange(); if(vr&&vr.from!=null) focus=(vr.from+vr.to)/2; }
+  curTf=tf; document.querySelectorAll('#bar button').forEach(b=>b.style.fontWeight=(b.dataset.tf===tf?'700':'400'));
+  const s=META.tfsec[tf]; const c = (focus!=null ? focus : RHI - VIS_HALF*s);
+  await loadCentered(tf, c);
+  suppress=true; chart.timeScale().setVisibleRange({from:clamp(c-VIS_HALF*s), to:clamp(c+VIS_HALF*s)}); suppress=false;
+}
+async function jump(i){                            // a JUMP within the auto-load base: re-center on the trade with context
+  const t=META.trades[i]; focus=(t.e0+t.e1)/2;
+  await loadCentered(curTf, focus);
+  const s=META.tfsec[curTf], pad=Math.max(t.e1-t.e0, VIS_HALF*s);   // trade visible WITH context, never too short
+  suppress=true; chart.timeScale().setVisibleRange({from:clamp(t.e0-pad), to:clamp(t.e1+pad)}); suppress=false;
   document.getElementById('info').innerHTML = fmt(t);
 }
+chart.timeScale().subscribeVisibleLogicalRangeChange(async lr=>{   // continuous auto-load on pan (both directions)
+  if(!lr || loading || suppress || !cData.length) return;
+  const s=META.tfsec[curTf];
+  if(lr.from < 6 && cData[0].time > RLO){
+    loading=true; const oldest=cData[0].time;
+    mergeInto(await api(curTf, clamp(oldest-CHUNK*s), oldest-s)); applyData(); loading=false;
+  } else if(lr.to > cData.length-6 && cData[cData.length-1].time < RHI){
+    loading=true; const newest=cData[cData.length-1].time;
+    mergeInto(await api(curTf, newest+s, clamp(newest+CHUNK*s))); applyData(); loading=false;
+  }
+});
+chart.subscribeCrosshairMove(p=>{ if(!p||!p.time) return; const s=META.tfsec[curTf], f=Math.floor(p.time/s)*s;
+  const t=META.trades.find(x=>Math.floor(x.e0/s)*s===f || Math.floor(x.e1/s)*s===f); if(t) document.getElementById('info').innerHTML=fmt(t); });
 document.getElementById('tbody').innerHTML = META.trades.map(t=>
   `<tr class="${t.pnl<0?'L':'W'}" onclick="jump(${t.i})"><td>${t.i}</td><td>${t.e0iso}</td><td>${t.e1iso}</td><td>${t.bars}</td><td>${(t.ret*100).toFixed(2)}</td><td>${t.pnl.toFixed(2)}</td><td>${t.reason}</td><td>${t.rationale}</td></tr>`).join('');
 setTf('__DEFTF__');
