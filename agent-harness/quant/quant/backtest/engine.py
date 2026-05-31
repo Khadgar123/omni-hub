@@ -70,12 +70,14 @@ def run_backtest(strategy, bars, *, equity0=10000.0, cost=None, state_for=None,
     entry_ts = 0
     entry_i = 0
     stop = 0.0
+    trail = 0.0       # >0 => trailing-stop distance below the running peak
+    peak = 0.0        # highest high seen since entry, THROUGH THE PRIOR BAR (causal)
     pending = None
     trades: list[Trade] = []
     curve: list[tuple[int, float]] = []
 
     def _close(exit_fill, ts, i, reason):
-        nonlocal cash, position, stop
+        nonlocal cash, position, stop, trail
         fee = cost.fee(position * exit_fill)
         cash += position * exit_fill - fee
         pnl = position * (exit_fill - entry_fill) - entry_fee - fee
@@ -84,9 +86,10 @@ def run_backtest(strategy, bars, *, equity0=10000.0, cost=None, state_for=None,
                             entry_fee + fee, pnl, ret, i - entry_i, reason))
         position = 0.0
         stop = 0.0
+        trail = 0.0
 
     for i, bar in enumerate(bars):
-        op = float(bar["open"]); lo = float(bar["low"]); cl = float(bar["close"])
+        op = float(bar["open"]); hi = float(bar["high"]); lo = float(bar["low"]); cl = float(bar["close"])
         ts = int(bar.get("bucket_ts", 0))
 
         # 1) execute the pending intent at THIS bar's OPEN (shift(1) parity)
@@ -99,22 +102,31 @@ def run_backtest(strategy, bars, *, equity0=10000.0, cost=None, state_for=None,
                     entry_fee = cost.fee(qty * entry_fill)
                     cash -= qty * entry_fill + entry_fee
                     position = qty; entry_ts = ts; entry_i = i; stop = pending.stop_price
+                    trail = getattr(pending, "trail_distance", 0.0) or 0.0
+                    peak = entry_fill
             elif pending.direction == FLAT and position > 0:
                 _close(cost.fill_price(op, "sell"), ts, i, "signal")
             pending = None
 
-        # 2) intrabar stop (conservative): long stopped if the bar trades through it
+        # 2) ratchet the trailing stop UP from the peak through the prior bar (no
+        #    look-ahead: this bar's high is folded into `peak` only at step 5).
+        if position > 0 and trail > 0:
+            stop = max(stop, peak - trail)
+
+        # 3) intrabar stop (conservative): long stopped if the bar trades through it
         if position > 0 and stop > 0 and lo <= stop:
             _close(cost.fill_price(stop, "sell"), ts, i, "stop")
 
-        # 3) compute intent from a bounded trailing window; queue for next bar's open
+        # 4) compute intent from a bounded trailing window; queue for next bar's open
         w = bars[max(0, i - window + 1): i + 1]
         intent = gated_evaluate(strategy, w, state_for(i), position)
         if intent is not None:
             pending = intent
 
-        # 4) mark-to-market at close
+        # 5) mark-to-market at close; fold this bar's high into the running peak
         curve.append((ts, cash + position * cl))
+        if position > 0 and hi > peak:
+            peak = hi
 
     # flush: close any open position at the last close
     if position > 0 and bars:

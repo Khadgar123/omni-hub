@@ -40,6 +40,8 @@ class StrategyIntent:
     regime_at_signal: str
     rationale: str
     features: dict = field(default_factory=dict)
+    trail_distance: float = 0.0   # >0 (LONG entry) => engine trails the stop up by
+                                  # this price distance below the running peak (Chandelier)
 
     def to_dict(self) -> dict:
         return asdict(self)

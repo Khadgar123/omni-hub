@@ -37,7 +37,8 @@ class StructureReversal:
     div_ratio: float = 0.9        # 背驰 threshold (out/in metric)
     near_atr: float = 1.0         # "at support": within this many ATR
     min_rr: float = 1.5           # reward:risk by levels gate
-    stop_atr: float = 1.0         # stop below support by this many ATR
+    stop_atr: float = 1.0         # initial stop below support by this many ATR
+    trail_atr: float = 3.0        # Chandelier trailing-stop distance (ATR) — banks the move
     fresh_bars: int = 3           # divergence must be within the last N legs-ends
     require_range: bool = True
     chop_min: float = 55.0
@@ -64,20 +65,12 @@ class StructureReversal:
         # must allow that confirmation lag plus a small tolerance.
         fresh = bool(last and (len(bars) - 1 - last["idx"]) <= self.swing_lr + self.fresh_bars)
 
-        # ---- exit: approached the target (next resistance / overbought), or the
-        #      bounce itself exhausts (up-leg 背驰). Stop is handled intrabar by the
-        #      engine. Stateless target: resistance is always > c, so "reached" =
-        #      the gap has closed to within near_atr·ATR. ----
+        # ---- exit: let the engine's trailing stop (set at entry) bank the move —
+        #      this is the redo: the previous premature "near resistance / overbought"
+        #      targets capped winners and drove exit_efficiency to -1.45. The only
+        #      discretionary exit kept is the bounce itself exhausting (up-leg 背驰). ----
         if position_qty > 0:
-            res = nl["resistance"]
-            if res is not None and (res - c) <= self.near_atr * atr:
-                return StrategyIntent(self.id, state.symbol, self.timeframe, ts, FLAT, 1.0, c, 0.0,
-                                      state.regime_label, f"target: at resistance {res:.0f}", {})
-            k = F.last_valid(F.stoch_k(bars, 14))
-            if res is None and k is not None and k >= 80.0:
-                return StrategyIntent(self.id, state.symbol, self.timeframe, ts, FLAT, 1.0, c, 0.0,
-                                      state.regime_label, f"target: overbought %K={k:.0f} (no res above)", {})
-            if fresh and last["dir"] == "up" and last["is_divergence"]:
+            if fresh and last is not None and last["dir"] == "up" and last["is_divergence"]:
                 return StrategyIntent(self.id, state.symbol, self.timeframe, ts, FLAT, 1.0, c, 0.0,
                                       state.regime_label, "exit: bounce 背驰 (up-leg)", {})
             return None
@@ -101,4 +94,5 @@ class StructureReversal:
             self.id, state.symbol, self.timeframe, ts, LONG, conv, c, stop,
             state.regime_label,
             f"down-leg 背驰 @support {sup:.0f}, rr={rr:.1f}, ratio={last['metric_ratio']:.2f}",
-            {"metric_ratio": last["metric_ratio"], "rr": rr, "support": sup})
+            {"metric_ratio": last["metric_ratio"], "rr": rr, "support": sup},
+            self.trail_atr * atr)        # engine trails the stop by trail_atr·ATR below the peak
