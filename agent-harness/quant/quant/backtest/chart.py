@@ -51,14 +51,18 @@ def _vols(bars):
     return out
 
 
-def _markers(trades, tf_sec):
+def _markers(trades, tf_sec, lo=None, hi=None):
+    def _in(t):
+        return lo is None or lo <= t <= hi
     out = []
-    for k, t in enumerate(trades):
+    for t in trades:
         e0 = (_sec(t.entry_ts) // tf_sec) * tf_sec
         e1 = (_sec(t.exit_ts) // tf_sec) * tf_sec
-        out.append({"time": e0, "position": "belowBar", "color": "#00c853", "shape": "arrowUp", "text": "B"})
-        col = "#d50000" if t.exit_reason == "stop" else "#1565c0"
-        out.append({"time": e1, "position": "aboveBar", "color": col, "shape": "arrowDown", "text": "S"})
+        if _in(e0):
+            out.append({"time": e0, "position": "belowBar", "color": "#00c853", "shape": "arrowUp", "text": "B"})
+        if _in(e1):
+            col = "#d50000" if t.exit_reason == "stop" else "#1565c0"
+            out.append({"time": e1, "position": "aboveBar", "color": col, "shape": "arrowDown", "text": "S"})
     out.sort(key=lambda m: m["time"])
     return out
 
@@ -118,7 +122,7 @@ setTf('__DEFTF__');
 </script></body></html>"""
 
 
-def build_chart_html(result, bars_by_tf, *, title=None, default_tf=None):
+def build_chart_html(result, bars_by_tf, *, title=None, default_tf=None, max_bars=15000):
     tfs = [tf for tf in bars_by_tf if bars_by_tf[tf]]
     if not tfs:
         raise ValueError("no bars in any timeframe")
@@ -127,10 +131,13 @@ def build_chart_html(result, bars_by_tf, *, title=None, default_tf=None):
     data = {"candle": {}, "vol": {}, "markers": {}, "tfsec": {}}
     for tf in tfs:
         bars = bars_by_tf[tf]
+        if max_bars and len(bars) > max_bars:   # keep the file usable (1m over years = millions)
+            bars = bars[-max_bars:]
         sec = _tf_seconds(tf)
+        lo, hi = _sec(bars[0]["bucket_ts"]), _sec(bars[-1]["bucket_ts"])
         data["candle"][tf] = _candles(bars)
         data["vol"][tf] = _vols(bars)
-        data["markers"][tf] = _markers(trades, sec)
+        data["markers"][tf] = _markers(trades, sec, lo, hi)   # only markers within the window
         data["tfsec"][tf] = sec
     btns = " ".join(f'<button data-tf="{tf}" onclick="setTf(\'{tf}\')">{tf}</button>' for tf in tfs)
     ttl = title or f"{getattr(result, 'strategy_id', '?')} · {getattr(result, 'symbol', '?')}"
@@ -156,30 +163,44 @@ def main(argv=None):
     from quant import resample
     from quant.backtest import harness
 
+    from quant import market_store
     p = argparse.ArgumentParser(prog="quant.backtest.chart", description="interactive TradingView-style chart")
     p.add_argument("--strategy", required=True)
     p.add_argument("--symbol", default="BTCUSDT")
     p.add_argument("--from", dest="start", default=None)
     p.add_argument("--to", dest="end", default=None)
-    p.add_argument("--tfs", default="15m,1h,4h,1d", help="comma-separated timeframes to embed")
+    p.add_argument("--tfs", default="1m,15m,30m,1h,2h,4h,1d", help="comma-separated timeframes to embed")
     p.add_argument("--htf", default="1d")
     p.add_argument("--confirm", default="4h")
     p.add_argument("--root", default=None)
-    p.add_argument("--out", required=True)
+    p.add_argument("--max-bars", dest="max_bars", type=int, default=15000,
+                   help="cap embedded bars per timeframe (keeps 1m over years from bloating)")
+    p.add_argument("--out", default="~/quant/reports/interactive.html")
     a = p.parse_args(argv)
-    from quant import market_store
     root = Path(a.root).expanduser() if a.root else market_store.DEFAULT_ROOT
     res, m = harness.run(a.strategy, a.symbol, root=root, start=a.start, end=a.end,
                          htf=a.htf, confirm=a.confirm)
     if res is None:
         print(json.dumps(m)); return 1
     tfs = [t.strip() for t in a.tfs.split(",") if t.strip()]
-    bars_by_tf = {tf: resample.resample(a.symbol, tf, root=root, source_interval="1s",
-                                        start=a.start, end=a.end) for tf in tfs}
-    strat_tf = m.get("timeframe", "1h")
-    out = write_chart(res, bars_by_tf, Path(a.out).expanduser(),
-                      title=f"{a.strategy} · {a.symbol}", default_tf=strat_tf)
-    print("interactive chart:", out)
+    # bound each TF's resample to ~max_bars*tf so fine TFs (1m) don't pull millions of rows
+    start_us = market_store.parse_ts(a.start) if a.start else None
+    end_us = market_store.parse_ts(a.end, end_of_day=True) if a.end else None
+    if end_us is None:
+        d1 = resample.resample(a.symbol, "1d", root=root, source_interval="1s", start=a.start, end=a.end)
+        end_us = int(d1[-1]["bucket_ts"]) if d1 else None
+    bars_by_tf = {}
+    for tf in tfs:
+        sec = market_store.freq_to_seconds(tf)
+        tf_start = start_us
+        if end_us is not None:
+            cand = end_us - int(a.max_bars * sec * 1_000_000 * 1.1)
+            tf_start = cand if (start_us is None or cand > start_us) else start_us
+        bars_by_tf[tf] = resample.resample(a.symbol, tf, root=root, source_interval="1s",
+                                           start=tf_start, end=a.end)
+    out = write_chart(res, bars_by_tf, Path(a.out).expanduser(), max_bars=a.max_bars,
+                      title=f"{a.strategy} · {a.symbol}", default_tf=m.get("timeframe", "1h"))
+    print("interactive chart:", out, "| trades:", len(res.trades), "| tfs:", ",".join(tfs))
     return 0
 
 
