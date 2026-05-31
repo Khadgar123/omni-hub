@@ -110,18 +110,34 @@ const candle = chart.addCandlestickSeries({upColor:'#26a69a',downColor:'#ef5350'
 const vol = chart.addHistogramSeries({priceFormat:{type:'volume'}, priceScaleId:''});
 vol.priceScale().applyOptions({scaleMargins:{top:0.84, bottom:0}});
 let curTf=null, tmap={};
+const TF_ORDER = Object.keys(DATA.tfsec).sort((a,b)=>DATA.tfsec[a]-DATA.tfsec[b]);  // fine -> coarse
 function fmt(t){ return ` · <b>#${t.i}</b> ${t.e0iso} → ${t.e1iso} · pnl ${t.pnl.toFixed(2)} (${(t.ret*100).toFixed(2)}%) · exit:${t.reason} · <i>${t.rationale}</i>`; }
-function setTf(tf){
+function tfCovers(tf,t){ const r=DATA.range[tf]; return r && t>=r[0] && t<=r[1]; }
+function applyRange(from,to){ const r=DATA.range[curTf]; if(!r) return;
+  from=Math.max(from,r[0]); to=Math.min(to,r[1]);
+  if(to>from){ chart.timeScale().setVisibleRange({from,to}); } else { chart.timeScale().fitContent(); } }
+function setTf(tf, keepView){
+  let vr=null; if(keepView){ try{ vr=chart.timeScale().getVisibleRange(); }catch(e){} }
   curTf=tf;
   candle.setData(DATA.candle[tf]); vol.setData(DATA.vol[tf]); candle.setMarkers(DATA.markers[tf]);
   const s=DATA.tfsec[tf]; tmap={}; TRADES.forEach(t=>{ tmap[Math.floor(t.e0/s)*s]=t; });
-  chart.timeScale().fitContent();
   const r=DATA.range[tf]; document.getElementById('span').textContent = tf+' window: '+fmtDate(r[0])+' → '+fmtDate(r[1]);
   document.querySelectorAll('#bar button').forEach(b=>b.style.fontWeight=(b.dataset.tf===tf?'700':'400'));
+  if(vr && vr.from!=null){ applyRange(vr.from, vr.to); } else { chart.timeScale().fitContent(); }
 }
 chart.subscribeCrosshairMove(p=>{ if(p && p.time && tmap[p.time]) document.getElementById('info').innerHTML = fmt(tmap[p.time]); });
-function jump(i){ const t=TRADES[i], s=DATA.tfsec[curTf], pad=Math.max(s*8,(t.e1-t.e0)*2);
-  chart.timeScale().setVisibleRange({from:t.e0-pad, to:t.e1+pad}); document.getElementById('info').innerHTML=fmt(t); }
+function jump(i){
+  const t=TRADES[i];
+  // a trade may be OUTSIDE the current TF's window (fine TFs only hold recent bars) —
+  // switch to the FINEST timeframe that actually has data at this date, so you always
+  // see candles synchronized with the trade.
+  if(!tfCovers(curTf, t.e0)){ for(const tf of TF_ORDER){ if(tfCovers(tf, t.e0)){ setTf(tf); break; } } }
+  const s=DATA.tfsec[curTf], pad=Math.max(s*8,(t.e1-t.e0)*2);
+  applyRange(t.e0-pad, t.e1+pad);
+  const note = tfCovers('1m', t.e0) ? '' :
+    ` · <span style="color:#999">(shown on ${curTf} — finest TF with data here; re-gen with --from/--to for 1m)</span>`;
+  document.getElementById('info').innerHTML = fmt(t) + note;
+}
 document.getElementById('tbody').innerHTML = TRADES.map(t=>
   `<tr class="${t.pnl<0?'L':'W'}" onclick="jump(${t.i})"><td>${t.i}</td><td>${t.e0iso}</td><td>${t.e1iso}</td><td>${t.bars}</td><td>${(t.ret*100).toFixed(2)}</td><td>${t.pnl.toFixed(2)}</td><td>${t.reason}</td><td>${t.rationale}</td></tr>`).join('');
 setTf('__DEFTF__');
@@ -146,7 +162,7 @@ def build_chart_html(result, bars_by_tf, *, title=None, default_tf=None, max_bar
         data["markers"][tf] = _markers(trades, sec, lo, hi)   # only markers within the window
         data["tfsec"][tf] = sec
         data["range"][tf] = [lo, hi]
-    btns = " ".join(f'<button data-tf="{tf}" onclick="setTf(\'{tf}\')">{tf}</button>' for tf in tfs)
+    btns = " ".join(f'<button data-tf="{tf}" onclick="setTf(\'{tf}\',true)">{tf}</button>' for tf in tfs)
     ttl = title or f"{getattr(result, 'strategy_id', '?')} · {getattr(result, 'symbol', '?')}"
     return (_TEMPLATE
             .replace("__TITLE__", ttl)
