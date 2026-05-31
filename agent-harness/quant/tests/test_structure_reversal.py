@@ -62,3 +62,23 @@ def test_entry_gate_blocks_ineligible_regime():
     bars = _falling_then_div_bars()
     gated = gated_evaluate(s, bars, _state("strong_up"), 0.0)  # up regime not eligible
     assert gated is None
+
+
+# --- 区间套 (multi-level nested confirmation) wiring -------------------------
+
+def test_build_states_attaches_sub_div_within_window():
+    from quant.backtest.harness import _build_states
+    T = 3_600_000_000
+    strat_bars = [{"bucket_ts": i * T} for i in range(3)]
+    htf = [{"as_of": 0, "label": "range", "direction": "flat", "stand_down": False, "insufficient": False}]
+    sub = [{"ts": int(1.5 * T), "dir": "down", "is_divergence": True, "metric_ratio": 0.7}]
+    states = _build_states(strat_bars, htf, htf, "BTCUSDT", sub, T)
+    assert states[0].sub_div is None and states[1].sub_div is None   # sub fired after bars 0/1
+    assert states[2].sub_div and states[2].sub_div["dir"] == "down"  # within bar 2's window
+
+
+def test_require_nested_blocks_long_without_sub_div():
+    # require_nested=True + a state carrying no sub_div => no long entry can fire
+    s = StructureReversal(require_range=False, min_rr=0.5, near_atr=5.0, require_nested=True)
+    out = s.evaluate(_falling_then_div_bars(), _state("down"), 0.0)
+    assert out is None or out.direction != "long"

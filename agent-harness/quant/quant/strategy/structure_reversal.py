@@ -43,6 +43,8 @@ class StructureReversal:
     require_range: bool = True
     chop_min: float = 55.0
     merge_pct: float = 0.004
+    require_nested: bool = False   # 区间套: also require a same-direction sub-level 背驰
+                                   # (state.sub_div, supplied by harness.run(sub=...))
     eligible_regimes: frozenset = field(
         default_factory=lambda: frozenset({"down", "strong_down", "range"}))
     requires_bias: str | None = None
@@ -87,6 +89,10 @@ class StructureReversal:
         if self.require_range:
             chop = F.last_valid(F.choppiness(bars, 14))
             if chop is None or chop < self.chop_min:
+                return None
+        if self.require_nested:                 # 区间套: sub-level must also show a down-leg 背驰
+            sd = getattr(state, "sub_div", None)
+            if not (sd and sd.get("dir") == "down"):
                 return None
         stop = sup - self.stop_atr * atr
         conv = max(0.0, min(1.0, 1.0 - last["metric_ratio"]))   # weaker down-leg => higher conviction

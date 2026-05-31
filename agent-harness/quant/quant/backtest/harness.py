@@ -18,7 +18,7 @@ import json
 import sys
 from types import SimpleNamespace
 
-from quant import regime, resample as resample_mod
+from quant import regime, resample as resample_mod, structure
 from quant.backtest import engine, metrics
 from quant.backtest.costs import CostModel
 from quant.market_state import _compose_bias
@@ -31,9 +31,11 @@ def _asof(track, times, ts):
     return track[j] if j >= 0 else None
 
 
-def _build_states(strat_bars, htf_track, confirm_track, symbol):
+def _build_states(strat_bars, htf_track, confirm_track, symbol,
+                  sub_div_track=None, sub_window_us=0):
     htimes = [r["as_of"] for r in htf_track]
     ctimes = [r["as_of"] for r in confirm_track]
+    sub_times = [int(d["ts"]) for d in sub_div_track] if sub_div_track else []
     missing = SimpleNamespace(direction="flat", stand_down=False, insufficient=True, label="range")
     states = []
     for bar in strat_bars:
@@ -42,17 +44,26 @@ def _build_states(strat_bars, htf_track, confirm_track, symbol):
         c = _asof(confirm_track, ctimes, ts)
         hns = SimpleNamespace(**h) if h else missing
         cns = SimpleNamespace(**c) if c else missing
+        # 区间套: the latest sub-level divergence that fired WITHIN this bar's window
+        # (a nested confirmation), else None. Point-in-time (ts <= bar ts).
+        sub_div = None
+        if sub_div_track:
+            j = bisect.bisect_right(sub_times, ts) - 1
+            if j >= 0 and ts - sub_times[j] <= sub_window_us:
+                sub_div = sub_div_track[j]
         states.append(SimpleNamespace(
             symbol=symbol,
             regime_label=(h["label"] if h else "range"),
             composite_bias=_compose_bias(hns, cns),
             stand_down=bool(hns.stand_down or cns.stand_down),
+            sub_div=sub_div,
         ))
     return states
 
 
 def run(strategy_id, symbol, *, root=None, start=None, end=None, htf="1d",
-        confirm="4h", equity0=10000.0, cost=None, source="1s", report_path=None, live_from=None):
+        confirm="4h", equity0=10000.0, cost=None, source="1s", report_path=None,
+        live_from=None, sub=None):
     from quant import market_store
     root = root if root is not None else market_store.DEFAULT_ROOT
     strat = by_id(strategy_id)
@@ -63,7 +74,15 @@ def run(strategy_id, symbol, *, root=None, start=None, end=None, htf="1d",
         return None, {"error": f"no {source} data for {symbol} in range"}
     htf_track = regime.classify_series(htf_bars)
     confirm_track = regime.classify_series(confirm_bars)
-    states = _build_states(strat_bars, htf_track, confirm_track, symbol)
+    # 区间套 (nested-interval): a sub-level (< strategy tf) divergence track the
+    # strategy can require as confirmation. None unless ``sub`` is given.
+    sub_div_track = None
+    sub_window_us = 0
+    if sub is not None:
+        sub_bars = resample_mod.resample(symbol, sub, root=root, source_interval=source, start=start, end=end)
+        sub_div_track = [d for d in structure.divergence(sub_bars, left=3, right=3) if d["is_divergence"]]
+        sub_window_us = market_store.freq_to_seconds(strat.timeframe) * 1_000_000
+    states = _build_states(strat_bars, htf_track, confirm_track, symbol, sub_div_track, sub_window_us)
     res = engine.run_backtest(strat, strat_bars, state_for=lambda i: states[i],
                               equity0=equity0, cost=cost or CostModel(), symbol=symbol)
     m = metrics.summarize(res.equity_curve, res.trades, equity0=equity0,

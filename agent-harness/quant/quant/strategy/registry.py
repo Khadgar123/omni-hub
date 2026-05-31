@@ -19,7 +19,8 @@ def default_strategies() -> list[Strategy]:
     reversal (缠论 背驰), volatility-squeeze breakout (中枢突破), and the composed
     structure-driven reversal (compression + 背驰@support + S/R targets)."""
     return [TrendDonchian(), TSMomentum(), MACross(), RangeBBRevert(), ZScoreRevert(),
-            DivergenceReversal(), SqueezeBreakout(), StructureReversal()]
+            DivergenceReversal(), SqueezeBreakout(), StructureReversal(),
+            StructureReversal(id="structure_reversal_mtf_v1", require_nested=True)]
 
 
 def by_id(strategy_id: str) -> Strategy:
