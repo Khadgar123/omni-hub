@@ -57,6 +57,18 @@ def test_report_badcase_panel_and_zoom():
     assert "__" not in html.split("<script>")[0]            # no unsubstituted placeholders left
 
 
+def test_report_has_tearsheet_panels():
+    import re
+    bars = _uptrend()
+    res = engine.run_backtest(TrendDonchian(), bars, cost=ZERO_COST)
+    html = report.backtest_report_html(res, bars, title="ts")
+    assert "tear-sheet" in html and "MAE / MFE" in html and "underwater" in html
+    assert "monthly returns" in html
+    assert "Plotly.newPlot('dd'" in html and "Plotly.newPlot('maemfe'" in html
+    assert "sortino" in html and "ulcer_index" in html
+    assert not re.search(r"__[A-Z]+__", html)               # every placeholder substituted
+
+
 def test_report_handles_zero_trades():
     # a flat series that never triggers the breakout -> no trades, still renders
     flat = [{"bucket_ts": _BASE + i * _H, "open": 100.0, "high": 100.5,

@@ -19,6 +19,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from quant.backtest import metrics as metrics_mod
+from quant.backtest import tearsheet as tearsheet_mod
 
 _REGIME_COLOR = {
     "strong_up": "#1b5e20", "up": "#66bb6a", "range": "#9e9e9e",
@@ -75,6 +76,11 @@ tr.L{background:#fdecea} tr.W{background:#e8f5e9}
 <th onclick="sortBy('i')">#</th><th onclick="sortBy('e0')">entry (UTC)</th><th onclick="sortBy('e1')">exit (UTC)</th>
 <th onclick="sortBy('bh')">bars</th><th onclick="sortBy('ret')">ret %</th><th onclick="sortBy('pnl')">pnl</th>
 <th onclick="sortBy('r')">exit reason</th></tr></thead><tbody id="tbody"></tbody></table></div>
+<h3>tear-sheet</h3><table>__TEARMETRICS__</table>
+<div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:8px">
+<div id="dd" style="flex:1;min-width:420px;height:240px"></div>
+<div id="maemfe" style="flex:1;min-width:420px;height:240px"></div></div>
+<h4 style="margin:10px 0 2px">monthly returns %</h4><div class="wrap" style="max-height:200px">__MONTHLY__</div>
 <script>
 const f = __FIG__;
 Plotly.newPlot('chart', f.data, f.layout, {responsive:true});
@@ -100,6 +106,8 @@ function sortBy(k){
   render(TR);
 }
 sortBy('pnl');
+Plotly.newPlot('dd', __DDFIG__.data, __DDFIG__.layout, {responsive:true});
+Plotly.newPlot('maemfe', __MMFIG__.data, __MMFIG__.layout, {responsive:true});
 </script>
 </body></html>"""
 
@@ -177,6 +185,40 @@ def backtest_report_html(result, bars, *, regime_track=None, metrics_dict=None,
               "<span style='color:#ef9a9a'>down</span> "
               "<span style='color:#b71c1c'>strong_down</span>")
     fig = json.dumps({"data": [candle, entries, exits, equity], "layout": layout}, default=str)
+
+    # --- tear-sheet: extra risk scalars + underwater + MAE/MFE + monthly ---
+    ts = tearsheet_mod.tearsheet(result, list(bars))
+    tear = {"sortino": ts["sortino"], "calmar": ts["calmar"], "VaR(95%)": ts["var_95"],
+            "CVaR(95%)": ts["cvar_95"], "ulcer_index": ts["ulcer_index"]}
+    tear_rows = "".join(f"<tr><td>{k}</td><td>{round(v, 4) if isinstance(v, float) else v}</td></tr>"
+                        for k, v in tear.items())
+    dd_thin = _thin(ts["drawdown"], max_candles)
+    ddfig = {"data": [{"type": "scatter", "mode": "lines", "name": "drawdown", "fill": "tozeroy",
+                       "x": [_iso(t) for t, _ in dd_thin], "y": [d * 100 for _, d in dd_thin],
+                       "line": {"color": "#c62828"}}],
+             "layout": {"title": "underwater (drawdown %)", "height": 240, "template": "plotly_white",
+                        "margin": {"t": 30, "l": 50, "r": 10, "b": 30}, "yaxis": {"title": "%"}}}
+    mm = ts["mae_mfe"]
+
+    def _sc(pts, name, color):
+        return {"type": "scatter", "mode": "markers", "name": name,
+                "x": [p["mae"] * 100 for p in pts], "y": [p["mfe"] * 100 for p in pts],
+                "marker": {"color": color, "size": 7, "line": {"width": 0.5, "color": "#333"}},
+                "text": [f"ret {p['ret'] * 100:.2f}%" for p in pts], "hoverinfo": "text+x+y"}
+    mmfig = {"data": [_sc([p for p in mm if p["win"]], "win", "#2e7d32"),
+                      _sc([p for p in mm if not p["win"]], "loss", "#c62828")],
+             "layout": {"title": "MAE / MFE per trade (%)", "height": 240, "template": "plotly_white",
+                        "margin": {"t": 30, "l": 50, "r": 10, "b": 40},
+                        "xaxis": {"title": "MAE % (worst draw)"}, "yaxis": {"title": "MFE % (best run-up)"}}}
+    monthly = ts["monthly"]
+    if monthly:
+        mrows = "".join(
+            f"<tr><td>{mo}</td><td style='background:{'#e8f5e9' if r > 0 else '#fdecea' if r < 0 else '#fff'}'>"
+            f"{r * 100:.2f}</td></tr>" for mo, r in sorted(monthly.items()))
+        monthly_html = f"<table><thead><tr><th>month</th><th>ret %</th></tr></thead><tbody>{mrows}</tbody></table>"
+    else:
+        monthly_html = "<i>n/a</i>"
+
     return (_TEMPLATE
             .replace("__TITLE__", ttl)
             .replace("__CDN__", _PLOTLY_CDN)
@@ -185,7 +227,11 @@ def backtest_report_html(result, bars, *, regime_track=None, metrics_dict=None,
             .replace("__DIAG__", diag)
             .replace("__METRICS__", metric_rows)
             .replace("__FIG__", fig)
-            .replace("__TRADES__", json.dumps(trade_js, default=str)))
+            .replace("__TRADES__", json.dumps(trade_js, default=str))
+            .replace("__TEARMETRICS__", tear_rows)
+            .replace("__MONTHLY__", monthly_html)
+            .replace("__DDFIG__", json.dumps(ddfig, default=str))
+            .replace("__MMFIG__", json.dumps(mmfig, default=str)))
 
 
 def write_report(result, bars, path, **kwargs):
