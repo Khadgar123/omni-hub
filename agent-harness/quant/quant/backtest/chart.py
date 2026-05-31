@@ -88,17 +88,22 @@ table{border-collapse:collapse;font-size:12px;margin-top:8px} td,th{border:1px s
 tr.L{background:#fdecea} tr.W{background:#e8f5e9} .wrap{max-height:300px;overflow:auto;border:1px solid #eee;margin-top:6px}</style>
 </head><body>
 <h3>__TITLE__</h3>
-<div id="bar">timeframe: __TFBTNS__ <span id="info">— hover a marker / click a trade row to inspect</span></div>
+<div id="bar">timeframe: __TFBTNS__ <span id="span" style="color:#1565c0;font-weight:600"></span><span id="info"> — hover a marker / click a trade row to inspect</span></div>
+<div style="font-size:11px;color:#999;margin:-2px 0 4px">dates are UTC, YYYY-MM-DD. each timeframe shows its last __MAXBARS__ bars, so finer TFs cover a shorter recent window (their leftmost date is more recent).</div>
 <div id="chart" style="height:560px"></div>
 <div class="wrap"><table id="ttab"><thead><tr>
 <th>#</th><th>entry (UTC)</th><th>exit (UTC)</th><th>bars</th><th>ret %</th><th>pnl</th><th>exit</th><th>trigger reason (背驰/support/…)</th>
 </tr></thead><tbody id="tbody"></tbody></table></div>
 <script>
 const DATA = __DATA__, TRADES = __TRADES__;
+const _p = n => String(n).padStart(2,'0');
+function fmtDate(t){ const d=new Date(t*1000); return d.getUTCFullYear()+'-'+_p(d.getUTCMonth()+1)+'-'+_p(d.getUTCDate()); }
+function fmtFull(t){ const d=new Date(t*1000); return fmtDate(t)+' '+_p(d.getUTCHours())+':'+_p(d.getUTCMinutes())+' UTC'; }
 const chart = LightweightCharts.createChart(document.getElementById('chart'), {
   autoSize: true, layout:{background:{color:'#fff'},textColor:'#333'},
+  localization:{locale:'en-US', timeFormatter: fmtFull},   // unambiguous YYYY-MM-DD HH:mm UTC on the crosshair
   grid:{vertLines:{color:'#f0f0f0'},horzLines:{color:'#f0f0f0'}},
-  timeScale:{timeVisible:true, secondsVisible:false, borderColor:'#ccc'},
+  timeScale:{timeVisible:true, secondsVisible:false, borderColor:'#ccc', tickMarkFormatter:(t)=>fmtDate(t)},
   rightPriceScale:{borderColor:'#ccc'}, crosshair:{mode:0}});
 const candle = chart.addCandlestickSeries({upColor:'#26a69a',downColor:'#ef5350',borderVisible:false,
   wickUpColor:'#26a69a',wickDownColor:'#ef5350'});
@@ -111,6 +116,7 @@ function setTf(tf){
   candle.setData(DATA.candle[tf]); vol.setData(DATA.vol[tf]); candle.setMarkers(DATA.markers[tf]);
   const s=DATA.tfsec[tf]; tmap={}; TRADES.forEach(t=>{ tmap[Math.floor(t.e0/s)*s]=t; });
   chart.timeScale().fitContent();
+  const r=DATA.range[tf]; document.getElementById('span').textContent = tf+' window: '+fmtDate(r[0])+' → '+fmtDate(r[1]);
   document.querySelectorAll('#bar button').forEach(b=>b.style.fontWeight=(b.dataset.tf===tf?'700':'400'));
 }
 chart.subscribeCrosshairMove(p=>{ if(p && p.time && tmap[p.time]) document.getElementById('info').innerHTML = fmt(tmap[p.time]); });
@@ -128,7 +134,7 @@ def build_chart_html(result, bars_by_tf, *, title=None, default_tf=None, max_bar
         raise ValueError("no bars in any timeframe")
     default_tf = default_tf if default_tf in tfs else tfs[0]
     trades = list(result.trades)
-    data = {"candle": {}, "vol": {}, "markers": {}, "tfsec": {}}
+    data = {"candle": {}, "vol": {}, "markers": {}, "tfsec": {}, "range": {}}
     for tf in tfs:
         bars = bars_by_tf[tf]
         if max_bars and len(bars) > max_bars:   # keep the file usable (1m over years = millions)
@@ -139,12 +145,14 @@ def build_chart_html(result, bars_by_tf, *, title=None, default_tf=None, max_bar
         data["vol"][tf] = _vols(bars)
         data["markers"][tf] = _markers(trades, sec, lo, hi)   # only markers within the window
         data["tfsec"][tf] = sec
+        data["range"][tf] = [lo, hi]
     btns = " ".join(f'<button data-tf="{tf}" onclick="setTf(\'{tf}\')">{tf}</button>' for tf in tfs)
     ttl = title or f"{getattr(result, 'strategy_id', '?')} · {getattr(result, 'symbol', '?')}"
     return (_TEMPLATE
             .replace("__TITLE__", ttl)
             .replace("__CDN__", _CDN)
             .replace("__TFBTNS__", btns)
+            .replace("__MAXBARS__", str(max_bars))
             .replace("__DEFTF__", default_tf)
             .replace("__DATA__", json.dumps(data, default=str, ensure_ascii=False))
             .replace("__TRADES__", json.dumps(_trades_js(trades), default=str, ensure_ascii=False)))

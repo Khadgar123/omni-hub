@@ -8,6 +8,7 @@ from quant.strategy.ma_cross import MACross
 from quant.strategy.range_bb_revert import RangeBBRevert
 from quant.strategy.squeeze_breakout import SqueezeBreakout
 from quant.strategy.structure_reversal import StructureReversal
+from quant.strategy.structure_reversal_v2 import StructureReversalV2
 from quant.strategy.trend_donchian import TrendDonchian
 from quant.strategy.tsmom import TSMomentum
 from quant.strategy.zscore_revert import ZScoreRevert
@@ -20,7 +21,8 @@ def default_strategies() -> list[Strategy]:
     structure-driven reversal (compression + 背驰@support + S/R targets)."""
     return [TrendDonchian(), TSMomentum(), MACross(), RangeBBRevert(), ZScoreRevert(),
             DivergenceReversal(), SqueezeBreakout(), StructureReversal(),
-            StructureReversal(id="structure_reversal_mtf_v1", require_nested=True)]
+            StructureReversal(id="structure_reversal_mtf_v1", require_nested=True),
+            StructureReversalV2()]
 
 
 def by_id(strategy_id: str) -> Strategy:

@@ -32,10 +32,11 @@ def _asof(track, times, ts):
 
 
 def _build_states(strat_bars, htf_track, confirm_track, symbol,
-                  sub_div_track=None, sub_window_us=0):
+                  sub_div_track=None, sub_window_us=0, op_atr_track=None):
     htimes = [r["as_of"] for r in htf_track]
     ctimes = [r["as_of"] for r in confirm_track]
     sub_times = [int(d["ts"]) for d in sub_div_track] if sub_div_track else []
+    op_times = [t for t, _ in op_atr_track] if op_atr_track else []
     missing = SimpleNamespace(direction="flat", stand_down=False, insufficient=True, label="range")
     states = []
     for bar in strat_bars:
@@ -51,12 +52,20 @@ def _build_states(strat_bars, htf_track, confirm_track, symbol,
             j = bisect.bisect_right(sub_times, ts) - 1
             if j >= 0 and ts - sub_times[j] <= sub_window_us:
                 sub_div = sub_div_track[j]
+        # operating-level (confirm-TF) ATR, point-in-time — lets a strategy size its
+        # stop/trail on the HOLDING timeframe instead of its tight entry-TF ATR.
+        op_atr = None
+        if op_atr_track:
+            j = bisect.bisect_right(op_times, ts) - 1
+            if j >= 0:
+                op_atr = op_atr_track[j][1]
         states.append(SimpleNamespace(
             symbol=symbol,
             regime_label=(h["label"] if h else "range"),
             composite_bias=_compose_bias(hns, cns),
             stand_down=bool(hns.stand_down or cns.stand_down),
             sub_div=sub_div,
+            op_atr=op_atr,
         ))
     return states
 
@@ -82,7 +91,11 @@ def run(strategy_id, symbol, *, root=None, start=None, end=None, htf="1d",
         sub_bars = resample_mod.resample(symbol, sub, root=root, source_interval=source, start=start, end=end)
         sub_div_track = [d for d in structure.divergence(sub_bars, left=3, right=3) if d["is_divergence"]]
         sub_window_us = market_store.freq_to_seconds(strat.timeframe) * 1_000_000
-    states = _build_states(strat_bars, htf_track, confirm_track, symbol, sub_div_track, sub_window_us)
+    # operating-level ATR track (the confirm TF, e.g. 4h) for HTF-anchored stops/trails
+    from quant import features as _feat
+    _catr = _feat.atr(confirm_bars, 14)
+    op_atr_track = [(int(b["bucket_ts"]), _catr[i]) for i, b in enumerate(confirm_bars) if _catr[i] is not None]
+    states = _build_states(strat_bars, htf_track, confirm_track, symbol, sub_div_track, sub_window_us, op_atr_track)
     res = engine.run_backtest(strat, strat_bars, state_for=lambda i: states[i],
                               equity0=equity0, cost=cost or CostModel(), symbol=symbol)
     m = metrics.summarize(res.equity_curve, res.trades, equity0=equity0,
