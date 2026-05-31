@@ -39,6 +39,8 @@ class Trade:
     return_pct: float
     bars_held: int
     exit_reason: str
+    entry_rationale: str = ""   # the StrategyIntent rationale that triggered the entry
+                                # (so the chart can show WHY each trade fired)
 
 
 @dataclass(slots=True)
@@ -72,6 +74,7 @@ def run_backtest(strategy, bars, *, equity0=10000.0, cost=None, state_for=None,
     stop = 0.0
     trail = 0.0       # >0 => trailing-stop distance below the running peak
     peak = 0.0        # highest high seen since entry, THROUGH THE PRIOR BAR (causal)
+    entry_rationale = ""
     pending = None
     trades: list[Trade] = []
     curve: list[tuple[int, float]] = []
@@ -83,7 +86,7 @@ def run_backtest(strategy, bars, *, equity0=10000.0, cost=None, state_for=None,
         pnl = position * (exit_fill - entry_fill) - entry_fee - fee
         ret = pnl / (position * entry_fill) if entry_fill > 0 and position > 0 else 0.0
         trades.append(Trade(symbol, entry_ts, ts, entry_fill, exit_fill, position,
-                            entry_fee + fee, pnl, ret, i - entry_i, reason))
+                            entry_fee + fee, pnl, ret, i - entry_i, reason, entry_rationale))
         position = 0.0
         stop = 0.0
         trail = 0.0
@@ -104,6 +107,7 @@ def run_backtest(strategy, bars, *, equity0=10000.0, cost=None, state_for=None,
                     position = qty; entry_ts = ts; entry_i = i; stop = pending.stop_price
                     trail = getattr(pending, "trail_distance", 0.0) or 0.0
                     peak = entry_fill
+                    entry_rationale = pending.rationale
             elif pending.direction == FLAT and position > 0:
                 _close(cost.fill_price(op, "sell"), ts, i, "signal")
             pending = None
