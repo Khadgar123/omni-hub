@@ -16,11 +16,42 @@ then open http://127.0.0.1:8787  (Ctrl-C to stop)
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from urllib.parse import parse_qs, urlparse
 
-from quant.backtest import chart as _chart
-
+_CDN = "https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"
 _TFS = ["1m", "15m", "30m", "1h", "2h", "4h", "1d"]
+
+
+def _sec(us) -> int:
+    return int(int(us) // 1_000_000)
+
+
+def _iso(sec: int) -> str:
+    return datetime.fromtimestamp(sec, UTC).strftime("%Y-%m-%d %H:%M")
+
+
+def _candles(bars):
+    return [{"time": _sec(b["bucket_ts"]), "open": float(b["open"]), "high": float(b["high"]),
+             "low": float(b["low"]), "close": float(b["close"])} for b in bars]
+
+
+def _vols(bars):
+    out = []
+    for b in bars:
+        up = float(b["close"]) >= float(b["open"])
+        out.append({"time": _sec(b["bucket_ts"]), "value": float(b.get("volume", 0.0)),
+                    "color": "rgba(38,166,154,0.4)" if up else "rgba(239,83,80,0.4)"})
+    return out
+
+
+def _trades_js(trades):
+    return [{"i": k, "e0": _sec(t.entry_ts), "e1": _sec(t.exit_ts),
+             "e0iso": _iso(_sec(t.entry_ts)), "e1iso": _iso(_sec(t.exit_ts)),
+             "entry": round(float(t.entry), 2), "exit": round(float(t.exit), 2),
+             "pnl": round(float(t.pnl), 2), "ret": float(t.return_pct),
+             "bars": int(t.bars_held), "reason": t.exit_reason,
+             "rationale": getattr(t, "entry_rationale", "") or ""} for k, t in enumerate(trades)]
 
 
 def bars_payload(symbol, tf, from_us, to_us, *, root, max_bars=6000):
@@ -31,9 +62,9 @@ def bars_payload(symbol, tf, from_us, to_us, *, root, max_bars=6000):
                              start=int(from_us), end=int(to_us))
     if len(bars) > max_bars:
         bars = bars[-max_bars:]
-    return {"candle": _chart._candles(bars), "vol": _chart._vols(bars),
-            "from": _chart._sec(bars[0]["bucket_ts"]) if bars else None,
-            "to": _chart._sec(bars[-1]["bucket_ts"]) if bars else None}
+    return {"candle": _candles(bars), "vol": _vols(bars),
+            "from": _sec(bars[0]["bucket_ts"]) if bars else None,
+            "to": _sec(bars[-1]["bucket_ts"]) if bars else None}
 
 
 _PAGE = """<!doctype html><html><head><meta charset="utf-8"><title>__TITLE__</title>
@@ -117,7 +148,7 @@ def build_page_html(meta):
     btns = " ".join(f'<button data-tf="{tf}" onclick="setTf(\'{tf}\')">{tf}</button>' for tf in meta["tfs"])
     return (_PAGE
             .replace("__TITLE__", meta.get("title", meta["symbol"]))
-            .replace("__CDN__", _chart._CDN)
+            .replace("__CDN__", _CDN)
             .replace("__TFBTNS__", btns)
             .replace("__DEFTF__", meta.get("default_tf", meta["tfs"][0]))
             .replace("__META__", json.dumps(meta, ensure_ascii=False, default=str)))
@@ -136,12 +167,12 @@ def serve(strategy, symbol="BTCUSDT", *, start=None, end=None, root=None, port=8
     res, m = harness.run(strategy, symbol, root=root, start=start, end=end, htf=htf, confirm=confirm)
     if res is None:
         raise SystemExit(f"no data: {m}")
-    start_sec = _chart._sec(market_store.parse_ts(start)) if start else _chart._sec(res.equity_curve[0][0])
-    end_sec = _chart._sec(market_store.parse_ts(end, end_of_day=True)) if end else _chart._sec(res.equity_curve[-1][0])
+    start_sec = _sec(market_store.parse_ts(start)) if start else _sec(res.equity_curve[0][0])
+    end_sec = _sec(market_store.parse_ts(end, end_of_day=True)) if end else _sec(res.equity_curve[-1][0])
     meta = {"symbol": symbol, "title": f"{strategy} · {symbol}", "tfs": tfs,
             "tfsec": {tf: market_store.freq_to_seconds(tf) for tf in tfs},
             "range": [start_sec, end_sec], "default_tf": m.get("timeframe", "1h"),
-            "trades": _chart._trades_js(res.trades)}
+            "trades": _trades_js(res.trades)}
     page = build_page_html(meta).encode("utf-8")
 
     class H(http.server.BaseHTTPRequestHandler):
