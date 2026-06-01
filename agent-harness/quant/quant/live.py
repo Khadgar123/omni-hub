@@ -20,16 +20,19 @@ from quant.market_state import _compose_bias
 
 # store symbol -> venue product symbols
 SYMBOL_MAP = {
-    "BTCUSDT": {"coinbase": "BTC-USD", "kraken": "XBTUSD"},
-    "ETHUSDT": {"coinbase": "ETH-USD", "kraken": "ETHUSD"},
-    "BTC-USD": {"coinbase": "BTC-USD", "kraken": "XBTUSD"},
-    "ETH-USD": {"coinbase": "ETH-USD", "kraken": "ETHUSD"},
+    "BTCUSDT": {"coinbase": "BTC-USD", "kraken": "XBTUSD", "binance": "BTCUSDT"},
+    "ETHUSDT": {"coinbase": "ETH-USD", "kraken": "ETHUSD", "binance": "ETHUSDT"},
+    "BTC-USD": {"coinbase": "BTC-USD", "kraken": "XBTUSD", "binance": "BTCUSDT"},
+    "ETH-USD": {"coinbase": "ETH-USD", "kraken": "ETHUSD", "binance": "ETHUSDT"},
 }
-# Coinbase has NO 4h granularity (only 1m/5m/15m/1h/6h/1d); Kraken does.
+# Coinbase has NO 4h granularity (only 1m/5m/15m/1h/6h/1d); Kraken + Binance do.
+# Binance fapi is the venue reachable from CN/Asia where Coinbase/Kraken are geo-blocked,
+# so it is tried FIRST by the scheduled indicator (quant_daily _SOURCES).
 _COINBASE_GRAN = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600, "6h": 21600, "1d": 86400}
 _KRAKEN_INT = {"1m": 1, "5m": 5, "15m": 15, "1h": 60, "4h": 240, "1d": 1440}
-# venue-appropriate mid "confirm" timeframe (Coinbase lacks 4h -> use 6h)
-_CONFIRM_TF = {"coinbase": "6h", "kraken": "4h"}
+_BINANCE_INT = {"1m": "1m", "5m": "5m", "15m": "15m", "1h": "1h", "4h": "4h", "6h": "6h", "1d": "1d"}
+# venue-appropriate mid "confirm" timeframe (Coinbase lacks 4h -> use 6h; Kraken/Binance have 4h)
+_CONFIRM_TF = {"coinbase": "6h", "kraken": "4h", "binance": "4h"}
 _UA = "omni-hub-quant-live/0.1"
 _MICROS = 1_000_000
 
@@ -75,6 +78,18 @@ def kraken_ohlc(raw, pair) -> list[dict]:
     return out
 
 
+def binance_klines(raw) -> list[dict]:
+    """Binance fapi klines ``[[openTime(ms), o, h, l, c, vol, closeTime, quoteVol,
+    trades, ...], ...]`` -> ascending bar dicts (openTime ms -> µs)."""
+    out = []
+    for r in raw:
+        out.append({"bucket_ts": int(r[0]) * 1000, "open": float(r[1]), "high": float(r[2]),
+                    "low": float(r[3]), "close": float(r[4]), "volume": float(r[5]),
+                    "vwap": float(r[4]), "trades": int(r[8]) if len(r) > 8 else 0})
+    out.sort(key=lambda b: b["bucket_ts"])
+    return out
+
+
 def fetch_candles(symbol, interval, *, venue="coinbase", opener=None, timeout=15.0) -> list[dict]:
     product = _product(symbol, venue)
     if venue == "coinbase":
@@ -89,6 +104,13 @@ def fetch_candles(symbol, interval, *, venue="coinbase", opener=None, timeout=15
             raise ValueError(f"kraken has no {interval} interval")
         url = f"https://api.kraken.com/0/public/OHLC?pair={product}&interval={iv}"
         return kraken_ohlc(_get_json(url, opener=opener, timeout=timeout), product)
+    if venue == "binance":
+        iv = _BINANCE_INT.get(interval)
+        if iv is None:
+            raise ValueError(f"binance has no {interval} interval")
+        url = (f"https://fapi.binance.com/fapi/v1/klines?symbol={product}"
+               f"&interval={iv}&limit=300")
+        return binance_klines(_get_json(url, opener=opener, timeout=timeout))
     raise ValueError(f"unknown venue {venue!r}")
 
 
@@ -174,7 +196,7 @@ def main(argv=None):
     p.add_argument("command", choices=["state", "alerts", "watch"])
     p.add_argument("--symbol", default="BTCUSDT")
     p.add_argument("--symbols", default=None, help="comma-separated (watch); default --symbol")
-    p.add_argument("--venue", default="coinbase", choices=["coinbase", "kraken"])
+    p.add_argument("--venue", default="coinbase", choices=["coinbase", "kraken", "binance"])
     p.add_argument("--interval", type=int, default=300, help="watch poll seconds")
     p.add_argument("--emit", dest="emit_path", default=None)
     args = p.parse_args(argv)

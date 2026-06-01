@@ -78,14 +78,30 @@ def build_market_state(
     asof=None,
     htf: str = "1d",
     confirm: str = "4h",
+    live: bool = False,
+    venue: str = "coinbase",
 ) -> MarketState:
-    """Assemble the MarketState for ``symbol`` as of ``asof`` (default: latest).
+    """Assemble the MarketState for ``symbol`` — two data paths, IDENTICAL shape.
 
-    ``asof`` is point-in-time: bars after it are not read (``market_store.bars``
-    drops ``bucket_ts > asof``), so this is safe to call inside a backtest loop.
+    * **stored** (default): read materialized ``bars_<freq>`` from the market
+      store. ``asof`` is point-in-time — bars after it are dropped
+      (``market_store.bars``) — so this is safe inside a backtest loop.
+    * **live** (``live=True``): fetch the most recent candles straight from a
+      public venue (``quant.live``; Coinbase/Kraken) and classify those. This is
+      the CURRENT read for the scheduled indicator when the store is stale; it
+      ignores ``asof``/``root``. Coinbase has no native 4h granularity, so a
+      default ``4h`` confirm is mapped to ``6h`` for that venue (mirrors
+      ``quant.live._CONFIRM_TF``).
     """
-    htf_bars = market_store.bars(symbol, htf, "1970-01-01", "2100-01-01", root=root, asof=asof)
-    confirm_bars = market_store.bars(symbol, confirm, "1970-01-01", "2100-01-01", root=root, asof=asof)
+    if live:
+        from quant import live as live_mod  # lazy: keep urllib off the stored path
+        if venue == "coinbase" and confirm == "4h":
+            confirm = "6h"
+        htf_bars = live_mod.fetch_candles(symbol, htf, venue=venue)
+        confirm_bars = live_mod.fetch_candles(symbol, confirm, venue=venue)
+    else:
+        htf_bars = market_store.bars(symbol, htf, "1970-01-01", "2100-01-01", root=root, asof=asof)
+        confirm_bars = market_store.bars(symbol, confirm, "1970-01-01", "2100-01-01", root=root, asof=asof)
     htf_r = regime.classify(htf_bars)
     confirm_r = regime.classify(confirm_bars)
     return MarketState(
@@ -115,6 +131,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--asof", default=None, help="point-in-time cutoff (default: latest)")
     p.add_argument("--htf", default="1d", help="bias timeframe (default 1d)")
     p.add_argument("--confirm", default="4h", help="confirm timeframe (default 4h)")
+    p.add_argument("--live", action="store_true",
+                   help="fetch current candles from a public venue (quant.live) instead of "
+                        "the stored bars — the fresh read for the scheduled indicator")
+    p.add_argument("--venue", default="coinbase", choices=["coinbase", "kraken", "binance"],
+                   help="live venue (default coinbase; only with --live)")
     p.add_argument("--format", choices=["json"], default="json")
     return p
 
@@ -127,6 +148,8 @@ def main(argv: list[str] | None = None) -> int:
         asof=args.asof,
         htf=args.htf,
         confirm=args.confirm,
+        live=args.live,
+        venue=args.venue,
     )
     json.dump(ms.to_dict(), sys.stdout, ensure_ascii=False, default=str)
     sys.stdout.write("\n")

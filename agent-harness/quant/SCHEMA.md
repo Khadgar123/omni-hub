@@ -222,9 +222,23 @@ here writes to the knowledge vault.
 CLI (the omni-hub shell-out seam — stdout is one JSON object):
 
 ```bash
+# stored bars (point-in-time, default):
 python -m quant.market_state --symbol BTCUSDT [--asof YYYY-MM-DD] \
     [--htf 1d] [--confirm 4h] [--root R]
+# live read (current candles; the fresh read when the store is stale):
+python -m quant.market_state --symbol BTCUSDT --live [--venue coinbase|kraken|binance]
 ```
+
+**Two data paths, identical output shape.** `--live` fetches the most recent
+candles from a public venue (`quant.live`) instead of the stored bars. This is
+the current read for the **scheduled vol+trend reference indicator**
+(`scripts/quant_daily.py`, launchd `com.omni-hub.quant`, daily 09:00), which
+cascades **Binance → Coinbase → Kraken → stored** (Binance leads as the
+CN/Asia-reachable venue) and writes the feed to
+`.omni/quant/regime-indicator.jsonl` (append-only, one line per symbol per run) +
+`.omni/quant/regime-latest.json`, stamping each record's `source` and
+`stale_days` so a stale reading is never mistaken for a current one. Coinbase has
+no native 4h, so a default `4h` confirm maps to `6h` there.
 
 `MarketState` fields:
 

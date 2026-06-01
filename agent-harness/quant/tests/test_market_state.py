@@ -76,3 +76,49 @@ def test_asof_is_point_in_time(tmp_path):
     ms = market_state.build_market_state("BTCUSDT", root=root, asof=cutoff)
     assert ms.as_of <= cutoff          # no look-ahead beyond the cutoff bar
     assert ms.to_dict()["schema_version"] == "ms-v1"
+
+
+# --- live path (network-free: fetch_candles is monkeypatched) -----------------
+
+def _live_bars(n, *, start=100.0, rate=0.01, bucket_s=86400):
+    """A geometric bar list shaped like quant.live.fetch_candles output."""
+    out, prev = [], start
+    for i in range(n):
+        c = start * (1.0 + rate) ** i
+        out.append({
+            "bucket_ts": _BASE + i * bucket_s * market_store.MICROS,
+            "open": prev, "high": max(prev, c) * 1.005, "low": min(prev, c) * 0.995,
+            "close": c, "volume": 1.0, "vwap": c, "trades": 1,
+        })
+        prev = c
+    return out
+
+
+def test_live_path_classifies_and_maps_coinbase_confirm(monkeypatch):
+    from quant import live as live_mod
+    calls = []
+
+    def fake_fetch(symbol, interval, *, venue="coinbase", opener=None, timeout=15.0):
+        calls.append((interval, venue))
+        return _live_bars(300, rate=0.01 if interval == "1d" else 0.004)
+
+    monkeypatch.setattr(live_mod, "fetch_candles", fake_fetch)
+    ms = market_state.build_market_state("BTCUSDT", live=True, venue="coinbase")
+    assert ms.confirm_tf == "6h"                       # coinbase has no 4h -> 6h
+    assert ("1d", "coinbase") in calls and ("6h", "coinbase") in calls
+    assert ms.composite_bias in {"long", "short", "flat"}
+    assert ms.regime_label in {"strong_down", "down", "range", "up", "strong_up"}
+
+
+def test_live_kraken_keeps_4h_confirm(monkeypatch):
+    from quant import live as live_mod
+    calls = []
+
+    def fake_fetch(symbol, interval, *, venue="coinbase", opener=None, timeout=15.0):
+        calls.append((interval, venue))
+        return _live_bars(300, rate=0.01)
+
+    monkeypatch.setattr(live_mod, "fetch_candles", fake_fetch)
+    ms = market_state.build_market_state("BTCUSDT", live=True, venue="kraken")
+    assert ms.confirm_tf == "4h"                       # kraken has native 4h
+    assert ("4h", "kraken") in calls
