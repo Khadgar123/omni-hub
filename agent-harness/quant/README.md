@@ -93,12 +93,23 @@ agent-harness/quant/
   SCHEMA.md               # FROZEN record schema — the cross-session contract
   Makefile                # install / test / sample / smoke (runs in the quant env)
   quant/
+    # --- store (the frozen seam) ---
     market_store.py       # writer + bars_from_trades + DuckDB query API + PIT + CLI
-    backtest.py           # backtest read-path + nautilus_trader record-shape mapping
-    sample.py             # the bundled deterministic sample dataset
-    __main__.py           # `python -m quant` == `python -m quant.market_store`
+    materialize.py        # ingest/refresh CLI · resample.py — derive any TF from 1s/1m
+    sample.py             # bundled deterministic sample · __main__.py — `python -m quant`
+    # --- features -> regime -> indicator ---
+    features.py           # pure-stdlib indicators (EMA / ATR / ADX / realized-vol / …)
+    structure.py levels.py phase.py   # market structure (BOS/CHoCH) · S/R levels · trend phase
+    mtf.py labeling.py    # 区间套 multi-level nesting · López-de-Prado triple-barrier labels
+    regime.py             # ADX / EMA-slope / vol committee + CUSUM change-point
+    market_state.py       # 1d/4h top-down MarketState (stored OR --live) — the indicator seam
+    live.py alert.py      # live Binance/Coinbase/Kraken read · notify+manual TradeAlert feed
+    strategy/             # base + registry + 13 regime-gated strategies (trend/range/reversal/…)
+    backtest/             # in-house engine w/ research<->live parity: engine · harness · sweep ·
+                          #   validation (DSR/PBO) · metrics · report · tearsheet · ffn_report ·
+                          #   nautilus.py (OPTIONAL nautilus_trader-compatible READ-path only)
   sample/trades.ndjson    # human-facing sample artifact (regen: `make sample`)
-  conftest.py + tests/    # quant store tests
+  conftest.py + tests/    # quant store + regime + strategy + backtest tests
 # finance ingestion lives in the sibling integrations dir (it MAY import quant):
 agent-harness/integrations/finance/binance_market_data.py
 tests/test_binance_market_data.py          # ingestion tests (repo-root tests/)
@@ -141,6 +152,11 @@ ticks map to `TradeTick` dicts.  Because nautilus's `ParquetDataCatalog` *is*
 Parquet, this aims to be **compatible** with it rather than reinvent a catalog
 — `pip install ".[backtest]"` adds `nautilus_trader` when you want the real
 catalog/engine.  See [`SCHEMA.md` §6](SCHEMA.md).
+
+The engine the package actually **runs** is the in-house `quant.backtest` (engine
++ harness + sweep/validation, with research-to-live parity); the nautilus piece is
+a **read-path only** — drive nautilus's own engine off the same Parquet if you
+want, not a second engine this package maintains.
 
 ## Testing
 

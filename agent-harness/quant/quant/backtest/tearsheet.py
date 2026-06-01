@@ -6,10 +6,10 @@ MAE/MFE (Maximum Adverse / Favorable Excursion — the "stops too tight / target
 too greedy / does the setup even have edge" diagnostic). All consume the
 backtest's equity_curve / trades / bars; no numpy/pandas/quantstats.
 
-QuantStats is the mature alternative for the *standardized* tearsheet (see
-``quant.backtest.qs_report``); this keeps the report a single self-contained file
+``ffn`` is the mature second-opinion oracle for the *standardized* ratios (see
+``quant.backtest.ffn_report``); this keeps the report a single self-contained file
 with zero extra dependencies, and owns the strategy-specific views (MAE/MFE)
-QuantStats can't produce from a returns series.
+that a generic returns-series tearsheet can't produce.
 """
 
 from __future__ import annotations
