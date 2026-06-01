@@ -45,12 +45,39 @@ def _launch_agents_dir() -> Path:
     return Path.home() / "Library" / "LaunchAgents"
 
 
-def render(name: str, workspace: Path, python_bin: str) -> str:
+def _discover_quant_py() -> str:
+    """Best-effort path to the quant venv interpreter (the one with duckdb +
+    the ``quant`` package): ``QUANT_PY`` override, else a conda env named
+    ``quant``, else a ``quant-market-store`` sibling. Empty string when not
+    found — the quant plist is fail-soft without it."""
+    import shutil
+
+    env = os.environ.get("QUANT_PY")
+    if env and Path(env).expanduser().exists():
+        return str(Path(env).expanduser())
+    for c in (
+        Path.home() / "opt" / "anaconda3" / "envs" / "quant" / "bin" / "python",
+        Path.home() / "anaconda3" / "envs" / "quant" / "bin" / "python",
+        Path.home() / "miniconda3" / "envs" / "quant" / "bin" / "python",
+        Path.home() / "miniforge3" / "envs" / "quant" / "bin" / "python",
+    ):
+        if c.exists():
+            return str(c)
+    cli = shutil.which("quant-market-store")
+    if cli:
+        sib = Path(cli).resolve().parent / "python"
+        if sib.exists():
+            return str(sib)
+    return ""
+
+
+def render(name: str, workspace: Path, python_bin: str, quant_py: str = "") -> str:
     template_path = _repo_root() / "scripts" / "launchd" / f"{name}.plist"
     text = template_path.read_text(encoding="utf-8")
     return (
         text.replace("{{WORKSPACE}}", str(workspace))
             .replace("{{PYTHON}}", python_bin)
+            .replace("{{QUANT_PY}}", quant_py)
     )
 
 
@@ -112,11 +139,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--only",
                         help="Comma-separated subset of plists to install "
                              "(short names: daily, weekly, monthly, worker).")
+    parser.add_argument(
+        "--quant-py", default=None,
+        help="quant venv interpreter baked into the quant plist's QUANT_PY "
+             "(default: auto-discover; empty if not found — the job is fail-soft).")
     args = parser.parse_args(argv)
 
     _check_python(args.python)
 
     workspace = _repo_root().resolve()
+    quant_py = args.quant_py if args.quant_py is not None else _discover_quant_py()
     requested: list[str]
     if args.only:
         short = {s.strip() for s in args.only.split(",") if s.strip()}
@@ -130,13 +162,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.dry_run:
         for name in requested:
             print(f"# === {name}.plist ===")
-            print(render(name, workspace, args.python))
+            print(render(name, workspace, args.python, quant_py))
             print()
         return 0
 
     (workspace / ".omni" / "launchd").mkdir(parents=True, exist_ok=True)
     for name in requested:
-        rendered = render(name, workspace, args.python)
+        rendered = render(name, workspace, args.python, quant_py)
         target = install(name, rendered)
         print(f"installed: {target}")
     return 0

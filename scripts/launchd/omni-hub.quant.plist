@@ -11,13 +11,16 @@
         <string>{{WORKSPACE}}/scripts/quant_daily.py</string>
     </array>
 
-    <!-- The quant CLI (quant-market-store) must be on PATH (quant venv). The
-         job is fail-soft when it is not.  Set QUANT_CLI / DAILY_QUANT_SYMBOLS
-         here to override. -->
+    <!-- QUANT_PY is the quant venv interpreter (has duckdb + the `quant`
+         package); quant_daily.py shells out to it for the regime read and is
+         fail-soft when it is missing.  DAILY_QUANT_SYMBOLS overrides the watch
+         list.  The QUANT_PY value is filled by scripts/install_launchd.py. -->
     <key>EnvironmentVariables</key>
     <dict>
         <key>DAILY_QUANT_SYMBOLS</key>
         <string>BTCUSDT,ETHUSDT</string>
+        <key>QUANT_PY</key>
+        <string>{{QUANT_PY}}</string>
     </dict>
 
     <key>WorkingDirectory</key>
