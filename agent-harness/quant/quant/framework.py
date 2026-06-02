@@ -24,7 +24,7 @@ import sys
 import urllib.request
 from pathlib import Path
 
-from quant import orderflow, regime
+from quant import orderflow, regime, structure
 from quant import live as live_mod
 from quant.market_state import _compose_bias
 
@@ -82,6 +82,75 @@ def _sr_by_tf(bars_by: dict, *, win: int = 20) -> dict:
             "pos_in_range": round((px - lo) / (hi - lo), 2) if hi > lo else 0.5,
             "support_flow": orderflow.absorption_at(bars, lo),
         }
+    return out
+
+
+def _structure_by_tf(bars_by: dict, tfs=("1d", "4h", "1h", "30m"), *, left: int = 3, right: int = 3,
+                     lookback: int = 60, eq_tol: float = 0.02) -> dict:
+    """Per-TF SWING-STRUCTURE verdict — the layer framework.py was blind to (the 2026-06-02 miss:
+    called ETH 'weaker' while its 4h was a double-bottom basing over BTC's lower-low downtrend).
+    Composes the tested ``quant.structure`` engine (no new bespoke detector):
+      trend       — last BOS/CHoCH event (continuation vs change-of-character), decided on closes
+      flip_up/down — the swing high/low whose CLOSE-break flips structure (= the actionable neckline)
+      base_low/high + pos_in_range — the DOMINANT structure boundaries (pivots clustered near the
+                    window extreme, NOT the last micro-swing — that's what hid the multi-day W before)
+      divergence  — 背驰: a new extreme on WEAKER force = exhaustion (quantifies reversal RISK)
+      pattern     — conservative 双底/双顶候选 tag: >=2 dominant base pivots + price off that extreme
+    """
+    out: dict = {}
+    for tf in tfs:
+        full = bars_by.get(tf)
+        if not full or len(full) < 2 * (left + right) + 10:
+            continue
+        ms = structure.market_structure(full, left=left, right=right)
+        dv = structure.divergence(full, left=left, right=right)
+        win = full[-lookback:] if len(full) > lookback else full
+        sw = structure.swings(win, left, right)
+        px = float(full[-1]["close"])
+        lows = [round(s["price"], 2) for s in sw if s["kind"] == "low"]
+        highs = [round(s["price"], 2) for s in sw if s["kind"] == "high"]
+        last, last_dv = (ms[-1] if ms else None), (dv[-1] if dv else None)
+        lo_min = min((float(b["low"]) for b in win), default=px)
+        hi_max = max((float(b["high"]) for b in win), default=px)
+        rng = max(hi_max - lo_min, 1e-9)
+        pos = (px - lo_min) / rng                                     # 0 = at base, 1 = at top
+        base_lows = [p for p in lows if p <= lo_min * (1 + eq_tol)]   # dominant lows (the W feet)
+        base_highs = [p for p in highs if p >= hi_max * (1 - eq_tol)]  # dominant highs (the M caps)
+        flip_up = min((h for h in highs if h > px), default=None)      # reclaim => CHoCH/BOS up
+        flip_down = max((l for l in lows if l < px), default=None)     # lose => BOS down
+        diverg = (f"{last_dv['dir']}背驰·力度{last_dv['metric_ratio']:.2f}"
+                  if last_dv and last_dv.get("is_divergence") else None)
+        pattern = None
+        if len(base_lows) >= 2 and px > lo_min * 1.003 and pos < 0.6:
+            q = "·背驰=下跌力度衰竭" if (last_dv and last_dv.get("dir") == "down" and last_dv.get("is_divergence")) else ""
+            pattern = f"双底候选 {min(base_lows):,.0f}/{max(base_lows):,.0f}" + (f"·颈线{flip_up:,.0f}" if flip_up else "") + q
+        elif len(base_highs) >= 2 and px < hi_max * 0.997 and pos > 0.4:
+            q = "·背驰=上涨力度衰竭" if (last_dv and last_dv.get("dir") == "up" and last_dv.get("is_divergence")) else ""
+            pattern = f"双顶候选 {min(base_highs):,.0f}/{max(base_highs):,.0f}" + (f"·颈线{flip_down:,.0f}" if flip_down else "")
+        out[tf] = {
+            "trend": (last["dir"] if last else "undecided"),
+            "last_event": (f"{last['type']} {last['dir']}@{last['level']:,.0f}" if last else "无结构事件"),
+            "swing_lows": lows[-3:], "swing_highs": highs[-3:],
+            "base_low": round(min(base_lows), 2) if base_lows else round(lo_min, 2),
+            "base_high": round(max(base_highs), 2) if base_highs else round(hi_max, 2),
+            "pos_in_range": round(pos, 2),
+            "flip_up": flip_up, "flip_down": flip_down,
+            "divergence": diverg, "pattern": pattern,
+        }
+    return out
+
+
+def _flow_by_tf(bars_by: dict, tfs=("1d", "4h", "1h", "30m", "15m", "5m", "1m")) -> dict:
+    """Per-TF order-flow (real taker-delta / CVD divergence) — bakes in the 'bounce quality' read
+    (1m being bought vs 5m being sold) that previously had to be computed ad-hoc each time."""
+    out: dict = {}
+    for tf in tfs:
+        bars = bars_by.get(tf)
+        if not bars:
+            continue
+        f = orderflow.read(bars)
+        out[tf] = {"flow": f.get("flow"), "delta": f.get("delta_recent"),
+                   "real": f.get("real"), "divergence": f.get("divergence")}
     return out
 
 
@@ -212,6 +281,15 @@ def narrate(r: dict) -> str:
         parts.append(f"可宏观是 risk-on(VIX {vix}、信用稳)——这是 {sym} 特质性走弱,不是宏观崩。")
     elif m.get("risk") == "off/mixed":
         parts.append(f"宏观转混乱/risk-off(VIX {vix}),系统性压力上升。")
+    # 3b) structure — the TL;DR used to be blind here (the 2026-06-02 ETH double-bottom miss)
+    st4 = (r.get("structure") or {}).get("4h") or {}
+    if st4.get("pattern"):
+        parts.append(f"4h 结构:{st4['pattern']}(未越颈线前不算转)。")
+    elif st4.get("last_event") and st4["last_event"] != "无结构事件":
+        sx = "4h 结构:" + st4["last_event"] + ("、仍是下跌" if st4.get("trend") == "down" else "")
+        if st4.get("divergence"):
+            sx += "、" + st4["divergence"]
+        parts.append(sx + "。")
     # 4) action
     act = "没有可预测的方向——站一边:"
     if lv.get("res"):
@@ -262,13 +340,45 @@ def report(r: dict) -> str:
         L.append("   ↑ 收回压力=逐级转多: " + " → ".join(f"{t}:{sr[t]['resistance']:,.0f}" for t in reversed(lad)))
         L.append("   ↓ 丢支撑=逐级确认空: " + " → ".join(f"{t}:{sr[t]['support']:,.0f}" for t in reversed(lad)))
 
+    st = r.get("structure", {})
+    if st:
+        L.append("②b 摆动结构 / 形态(BOS=续势 · CHoCH=转性,收盘判定;背驰=新极值但力度更弱):")
+        for t in ("1d", "4h", "1h", "30m"):
+            v = st.get(t)
+            if not v:
+                continue
+            bits = [v["last_event"], f"区间 {v['base_low']:,.0f}~{v['base_high']:,.0f}(位置{v['pos_in_range']:.2f})"]
+            if v.get("pattern"):
+                bits.append(v["pattern"])
+            if v.get("divergence") and not v.get("pattern"):
+                bits.append(v["divergence"])
+            flips = []
+            if v.get("flip_up"):
+                flips.append(f"收回 {v['flip_up']:,.0f}→转多")
+            if v.get("flip_down"):
+                flips.append(f"丢 {v['flip_down']:,.0f}→转空")
+            if flips:
+                bits.append(" / ".join(flips))
+            L.append(f"   {t:>3}  " + "  ·  ".join(bits))
+
     L.append("③ 跨级别合成: "
              f"composite={reg['composite_bias']};"
              + ("  低级别 range 嵌在高级别趋势内 = 假震荡/回调(不是反转)" if reg['composite_bias'] in ("short", "long")
                 and any(tfs.get(t, {}).get("label") == "range" for t in ("15m", "5m", "1m")) else "  各级别方向见①"))
 
-    L.append(f"④ 订单流: 主动{of['flow']}(delta {of['delta_recent']:+,.0f},real={of['real']}) "
-             f"CVD背离={of.get('divergence') or '无'}")
+    fbt = r.get("flow_by_tf", {})
+    if fbt:
+        L.append("④ 逐级别订单流(真实 taker-delta;1m 买 vs 5m 卖 = 反弹质量):")
+        for t in order:
+            v = fbt.get(t)
+            if not v:
+                continue
+            dv = f"  CVD背离={v['divergence']}" if v.get("divergence") else ""
+            vb = "买" if v["flow"] == "buy" else "卖" if v["flow"] == "sell" else "均衡"
+            L.append(f"   {t:>3}  主动{v['flow']}({vb}) delta{v['delta']:+,.0f} real={v['real']}{dv}")
+    else:
+        L.append(f"④ 订单流: 主动{of['flow']}(delta {of['delta_recent']:+,.0f},real={of['real']}) "
+                 f"CVD背离={of.get('divergence') or '无'}")
     L.append(f"⑤ carry/持仓: funding {c['funding_ann_pct']:+.0f}%/yr"
              f"({c['funding_pctile_30d']:.0f}分位/{c['crowd']},7d趋势{c['funding_trend7_ann_pct']:+.0f}%) "
              f"basis {c['basis_pct']:+.2f}%  OI {c['open_interest']:,.0f}")
@@ -301,10 +411,13 @@ def read(symbol: str = "BTCUSDT", venue: str = "binance", *, opener=None, with_m
         absorption = orderflow.absorption_at(b4, levels["sup"])    # is the 4h support holding or broken?
     etf = etf if etf is not None else {}
     sr = _sr_by_tf(bars)
+    struct = _structure_by_tf(bars)
+    flow_by_tf = _flow_by_tf(bars)
     syn = synthesize(reg, car, ofl, mac, levels, etf=etf, absorption=absorption)
     reg.pop("_bars", None)
     out = {"symbol": symbol, "carry": car, "regime": reg, "orderflow": ofl, "etf": etf,
-           "macro": mac, "levels": levels, "absorption": absorption, "sr": sr, "synthesis": syn}
+           "macro": mac, "levels": levels, "absorption": absorption, "sr": sr,
+           "structure": struct, "flow_by_tf": flow_by_tf, "synthesis": syn}
     out["narrative"] = narrate(out)
     out["report"] = report(out)
     return out

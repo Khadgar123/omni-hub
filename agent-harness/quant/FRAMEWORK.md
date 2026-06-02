@@ -74,6 +74,15 @@ risk-reduction not alpha;* + the disclaimer.
 - **omni-hub never imports `quant`** — always the CLI shell-out seam.
 - **Always append**: `机械指标/流数据的状态分析,非投资建议、非涨跌预测。`
 
+## 分析纪律 (the behavioral contract — single-sourced in the skill)
+
+The report carries **§②b 摆动结构** (BOS/CHoCH · dominant base/neckline · 背驰, computed by
+`quant.structure`) and a **per-level §④ order-flow** (real taker-delta — the 1m-bought / 5m-sold
+"bounce quality", from `quant.orderflow`). **The discipline for reading them — read the computed
+verdict instead of narrating over it; the 6 rules + the falsify-first step — is canonical in the
+skill `.agents/skills/quant-framework/SKILL.md`** (the contract both Claude Code and Codex load).
+Misses are logged in `research/error-ledger.md`.
+
 ## Data inputs
 
 - Live: Binance fapi (price/funding/OI/basis + klines incl. real taker-buy volume); Yahoo (macro,

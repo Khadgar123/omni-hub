@@ -90,6 +90,44 @@ def test_read_includes_per_level_sr_and_detailed_report():
     assert rep != r["narrative"] and len(rep) > len(r["narrative"])    # report ⊋ narrative
 
 
+# ---- regression for the 2026-06-02 miss: framework was blind to swing structure, so it called
+#      ETH "weaker" while ETH 4h was a double-bottom basing above BTC's lower-low downtrend. ----
+def _ramp(a, b, n):
+    return [a + (b - a) * i / (n - 1) for i in range(n)]
+
+
+def _mk(prices):
+    # high/low straddle the CLOSE (not the open) so a trough bar is a STRICT local min — an
+    # open=prev-close scheme ties a trough's low with its neighbour's and swings() finds nothing.
+    bars = []
+    for i, cl in enumerate(prices):
+        cl = float(cl)
+        bars.append({"open": cl, "high": cl * 1.002, "low": cl * 0.998, "close": cl,
+                     "volume": 1000.0, "taker_buy": 500.0, "bucket_ts": (i + 1) * 14_400_000_000})
+    return bars
+
+
+def test_structure_flags_double_bottom_but_not_a_lower_low_downtrend():
+    # W — two ~equal troughs (90 / 90.5) with a peak between, price recovered to mid-range:
+    W = _ramp(100, 90, 8)[:-1] + _ramp(90, 95, 8)[:-1] + _ramp(95, 90.5, 8)[:-1] + _ramp(90.5, 92.5, 6)
+    sb = framework._structure_by_tf({"4h": _mk(W)})["4h"]
+    assert sb["pattern"] and "双底" in sb["pattern"]          # the structure layer that was missing
+    assert sb["base_low"] <= 91                               # dominant base, not a stray micro-swing
+
+    # Descending — lower-lows (96 -> 93 -> 89), price sits near the low = NOT a base:
+    DN = (_ramp(100, 96, 6)[:-1] + _ramp(96, 99, 4)[:-1] + _ramp(99, 93, 6)[:-1]
+          + _ramp(93, 96, 4)[:-1] + _ramp(96, 89, 7)[:-1] + _ramp(89, 90.5, 4))
+    sd = framework._structure_by_tf({"4h": _mk(DN)})["4h"]
+    assert not (sd["pattern"] and "双底" in sd["pattern"])     # must NOT call a downtrend a double-bottom
+    assert sd["trend"] == "down"                              # market_structure: BOS/CHoCH down
+
+
+def test_read_carries_structure_and_per_level_flow():
+    r = framework.read("BTCUSDT", "binance", opener=_opener(_BINANCE_ROUTES), with_macro=False)
+    assert isinstance(r["structure"], dict) and isinstance(r["flow_by_tf"], dict)
+    assert "②b 摆动结构" in r["report"] and "逐级别订单流" in r["report"]
+
+
 def test_synthesize_folds_etf_and_absorption():
     reg = {"composite_bias": "short", "per_tf": {"4h": {"stand_down": False, "label": "down", "direction": "down"}}}
     car = {"crowd": "long", "funding_pctile_30d": 90, "basis_pct": -0.05}
