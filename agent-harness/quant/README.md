@@ -104,6 +104,9 @@ agent-harness/quant/
     regime.py             # ADX / EMA-slope / vol committee + CUSUM change-point
     market_state.py       # 1d/4h top-down MarketState (stored OR --live) — the indicator seam
     live.py alert.py      # live Binance/Coinbase/Kraken read · notify+manual TradeAlert feed
+    orderflow.py          # REAL taker-delta / CVD / absorption (venue taker-buy volume)
+    framework.py          # unified multi-layer edge-audit read (`python -m quant.framework`):
+                          #   regime + carry + order-flow + macro → counterparty / fragility / triggers
     strategy/             # base + registry + 13 regime-gated strategies (trend/range/reversal/…)
     backtest/             # in-house engine w/ research<->live parity: engine · harness · sweep ·
                           #   validation (DSR/PBO) · metrics · report · tearsheet · ffn_report ·

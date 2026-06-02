@@ -85,7 +85,9 @@ def binance_klines(raw) -> list[dict]:
     for r in raw:
         out.append({"bucket_ts": int(r[0]) * 1000, "open": float(r[1]), "high": float(r[2]),
                     "low": float(r[3]), "close": float(r[4]), "volume": float(r[5]),
-                    "vwap": float(r[4]), "trades": int(r[8]) if len(r) > 8 else 0})
+                    "vwap": float(r[4]), "trades": int(r[8]) if len(r) > 8 else 0,
+                    # index 9 = takerBuyBaseAssetVolume: REAL aggressor-buy volume (for quant.orderflow)
+                    "taker_buy": float(r[9]) if len(r) > 9 else None})
     out.sort(key=lambda b: b["bucket_ts"])
     return out
 
