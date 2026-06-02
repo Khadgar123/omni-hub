@@ -43,8 +43,8 @@ _BINANCE_ROUTES = [
 
 def test_carry_crowd_long():
     c = framework.carry("BTCUSDT", opener=_opener(_BINANCE_ROUTES))
-    assert c["crowd"] == "long"                       # current funding above its 30d history
-    assert c["funding_pctile_30d"] >= 80
+    assert c["crowd"] == "long"                       # current funding above its history (now 1y-based)
+    assert c["funding_pctile_30d"] >= 80 and c["funding_pctile_1y"] >= 80
     assert c["basis_pct"] < 0                          # mark < index
 
 

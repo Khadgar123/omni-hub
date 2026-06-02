@@ -40,19 +40,28 @@ def _getj(url, *, opener=None, timeout=15.0):
 
 
 def carry(symbol: str = "BTCUSDT", *, opener=None) -> dict:
-    """Funding (rate / annualized / 30d-percentile / 7d-trend), basis (mark vs index), OI, crowd."""
+    """Funding (SETTLED + LIVE estimate / 30d + 1y percentile / 7d-trend), basis, OI, crowd.
+
+    ``funding_8h_pct`` is the last SETTLED rate (lags up to 8h — for the live/predicted rate read your
+    exchange's screen or the 8h-TWAP premium index; ``basis_pct`` is the instantaneous premium proxy).
+    **Crowd is gauged vs the ~1y distribution** (``pctile_1y``), not the recent-30d window — funding can
+    read "90th pctile of 30d" while sitting near its multi-month median (deep negative funding is rare
+    ~4% of the time; the 30d window overstates crowding). NOTE pctile_1y here ≈ last ~11mo (1000 funding
+    points), so during a bear it skews high vs the bear baseline; the full-cycle 2y view can differ."""
     pi = _getj(f"{_FAPI}/premiumIndex?symbol={symbol}", opener=opener)
     mark, idx, fr = float(pi["markPrice"]), float(pi["indexPrice"]), float(pi["lastFundingRate"])
-    frs = [float(x["fundingRate"]) for x in _getj(f"{_FAPI}/fundingRate?symbol={symbol}&limit=90", opener=opener)]
-    pct = 100.0 * sum(1 for x in frs if x < fr) / len(frs) if frs else float("nan")
+    frs = [float(x["fundingRate"]) for x in _getj(f"{_FAPI}/fundingRate?symbol={symbol}&limit=1000", opener=opener)]
+    recent = frs[-90:] or frs
+    pct30 = 100.0 * sum(1 for x in recent if x < fr) / len(recent) if recent else float("nan")
+    pct1y = 100.0 * sum(1 for x in frs if x < fr) / len(frs) if frs else float("nan")
     last7 = frs[-21:] or frs
     tr7 = (sum(last7) / max(len(last7), 1)) * 3 * 365 * 100
     oi = float(_getj(f"{_FAPI}/openInterest?symbol={symbol}", opener=opener)["openInterest"])
     return {"mark": mark, "basis_pct": round((mark - idx) / idx * 100, 3),
             "funding_8h_pct": round(fr * 100, 4), "funding_ann_pct": round(fr * 3 * 365 * 100, 1),
-            "funding_pctile_30d": round(pct, 0), "funding_trend7_ann_pct": round(tr7, 1),
-            "open_interest": oi,
-            "crowd": "long" if pct >= 80 else ("short" if pct <= 20 else "neutral")}
+            "funding_pctile_30d": round(pct30, 0), "funding_pctile_1y": round(pct1y, 0),
+            "funding_trend7_ann_pct": round(tr7, 1), "open_interest": oi,
+            "crowd": "long" if pct1y >= 80 else ("short" if pct1y <= 20 else "neutral")}
 
 
 def regime_mtf(symbol: str = "BTCUSDT", venue: str = "binance", tfs=_TFS, *, opener=None) -> dict:
