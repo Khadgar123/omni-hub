@@ -74,6 +74,22 @@ def test_read_integration_no_macro():
     assert isinstance(r["narrative"], str) and len(r["narrative"]) > 30
 
 
+def test_read_includes_per_level_sr_and_detailed_report():
+    r = framework.read("BTCUSDT", "binance", opener=_opener(_BINANCE_ROUTES), with_macro=False,
+                       etf={"trend": "outflow", "note": "test"})
+    # per-TF S/R map present, one entry per timeframe, each with the full shape
+    assert isinstance(r["sr"], dict) and r["sr"]
+    one = next(iter(r["sr"].values()))
+    assert {"support", "resistance", "pos_in_range", "support_flow",
+            "sup_dist_pct", "res_dist_pct"} <= set(one)
+    assert one["resistance"] >= one["support"]
+    # the detailed report renders the sections the narrative omits
+    rep = r["report"]
+    assert isinstance(rep, str)
+    assert "各级别 S/R" in rep and "支撑" in rep and "对手盘" in rep and "收回压力" in rep
+    assert rep != r["narrative"] and len(rep) > len(r["narrative"])    # report ⊋ narrative
+
+
 def test_synthesize_folds_etf_and_absorption():
     reg = {"composite_bias": "short", "per_tf": {"4h": {"stand_down": False, "label": "down", "direction": "down"}}}
     car = {"crowd": "long", "funding_pctile_30d": 90, "basis_pct": -0.05}

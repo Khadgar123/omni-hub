@@ -12,11 +12,12 @@
 ```bash
 # via omni-hub (the module; stdlib, shells out to the quant venv) — the canonical call:
 omni-hub crypto-read --symbol BTCUSDT          # or ETHUSDT, SOLUSDT, …
-omni-hub crypto-read --symbol ETHUSDT --no-macro
+# the op returns {narrative, read{report, sr, regime, carry, orderflow, macro, synthesis}}:
+#   .narrative = TL;DR · .read.report = detailed 10-section text · .read.sr = per-level S/R map
 
-# direct (inside the quant venv) — narrative by default, --metrics / --json for the layers:
-python -m quant.framework --symbol BTCUSDT
-python -m quant.framework --symbol ETHUSDT --json
+# direct (inside the quant venv) — narrative by default; --full = the detailed 10-section report:
+python -m quant.framework --symbol BTCUSDT --full     # per-level S/R + cascade ladder + every section
+python -m quant.framework --symbol ETHUSDT --json     # or --json / --metrics for raw layers
 ```
 
 Ask CC/Codex in natural language ("分析现在的 BTC/ETH", "对手盘是谁", "现在什么状态") → the

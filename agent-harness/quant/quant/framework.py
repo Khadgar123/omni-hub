@@ -30,7 +30,7 @@ from quant.market_state import _compose_bias
 
 _FAPI = "https://fapi.binance.com/fapi/v1"
 _UA = {"User-Agent": "omni-hub-quant-framework/0.1"}
-_TFS = ("1d", "4h", "1h", "15m")
+_TFS = ("1d", "4h", "1h", "30m", "15m", "5m", "1m")
 
 
 def _getj(url, *, opener=None, timeout=15.0):
@@ -61,6 +61,28 @@ def regime_mtf(symbol: str = "BTCUSDT", venue: str = "binance", tfs=_TFS, *, ope
     htf, conf = tfs[0], (tfs[1] if len(tfs) > 1 else tfs[0])
     composite = _compose_bias(regime.classify(bars_by[htf]), regime.classify(bars_by[conf]))
     return {"per_tf": per_tf, "composite_bias": composite, "_bars": bars_by}
+
+
+def _sr_by_tf(bars_by: dict, *, win: int = 20) -> dict:
+    """Per-timeframe S/R = each TF's ``win``-bar Donchian edges + position-in-range + distances +
+    REAL order-flow absorption at the support. This is the '各级别 S/R' map; stacking the
+    resistances/supports across TFs gives the up/down confirmation ladder (the cascade)."""
+    out: dict = {}
+    for tf, bars in bars_by.items():
+        if not bars or len(bars) < win + 2:
+            continue
+        px = float(bars[-1]["close"])
+        seg = bars[-(win + 1):-1]                       # closed bars only (exclude the forming one)
+        hi = max(float(b["high"]) for b in seg)
+        lo = min(float(b["low"]) for b in seg)
+        out[tf] = {
+            "support": round(lo, 2), "resistance": round(hi, 2),
+            "sup_dist_pct": round((px - lo) / px * 100, 2),
+            "res_dist_pct": round((hi - px) / px * 100, 2),
+            "pos_in_range": round((px - lo) / (hi - lo), 2) if hi > lo else 0.5,
+            "support_flow": orderflow.absorption_at(bars, lo),
+        }
+    return out
 
 
 def macro(*, opener=None) -> dict:
@@ -140,7 +162,7 @@ def synthesize(reg, car, ofl, mac, levels, etf=None, absorption=None) -> dict:
         triggers.append(f"收回 {levels['res']:,.0f}(4h 前高)= 转多确认")
     if levels.get("sup"):
         triggers.append(f"丢 {levels['sup']:,.0f}(4h 前低)= 转空确认")
-    triggers += ["ETF 流由负转正 / funding 转负 = BTC 特质拐点信号",
+    triggers += ["ETF 流由负转正 / funding 转负 = 本币特质拐点信号",
                  "VIX 跳 / 信用利差走阔 = 宏观 risk-off 扳机"]
     return {"counterparty": cp, "lean_mechanical": comp, "fragility": flags, "watch": triggers,
             "note": "lean 是机械偏向不是预测;edge 只在你对对手盘有真实信息/解读优势处",
@@ -201,6 +223,69 @@ def narrate(r: dict) -> str:
     return " ".join(parts)
 
 
+_VOL_CN = {"low": "压缩", "high": "扩张", "normal": "正常"}
+_FLOW_CN = {"defended_support": "守", "broke_down": "破", "defended_resistance": "守", "broke_up": "破"}
+
+
+def report(r: dict) -> str:
+    """The DETAILED multi-section read (the 10-section FRAMEWORK.md contract, readable).
+    ``narrate`` is the TL;DR; this is the full per-level micro-structure + S/R ladder +
+    order-flow + carry + slow flows + macro + edge audit. Still state, not a forecast."""
+    c, reg, of = r["carry"], r["regime"], r["orderflow"]
+    m, s = r.get("macro", {}), r["synthesis"]
+    sr, etf, tfs = r.get("sr", {}), (r.get("etf") or {}), reg["per_tf"]
+    order = [t for t in ("1d", "4h", "1h", "30m", "15m", "5m", "1m") if t in tfs]
+    L = [f"=== {r['symbol']} {c['mark']:,.0f} — 详细 edge-audit(机械状态,非预测)==="]
+
+    L.append("① 逐级别 regime · 波动率 · ADX · 位置:")
+    for t in order:
+        x = tfs[t]
+        p = sr.get(t, {})
+        comp = _VOL_CN.get(x.get("vol_bucket"), "—")
+        adx = x.get("adx")
+        adxs = f"ADX{adx:>2.0f}" if isinstance(adx, (int, float)) else "ADX —"
+        pos = p.get("pos_in_range")
+        poss = f"位置{pos:.2f}" if pos is not None else "位置 —"
+        sd = " ⚠变点" if x.get("stand_down") else ""
+        L.append(f"   {t:>3}  {x['label']:<11}({x['direction']:<4})  vol{x.get('vol_bucket')}/{comp}  {adxs}  {poss}{sd}")
+
+    L.append("② 各级别 S/R(支撑↓ 距离 [订单流] · 压力↑ 距离):")
+    for t in order:
+        p = sr.get(t)
+        if not p:
+            continue
+        flow = _FLOW_CN.get(p["support_flow"], "·")
+        L.append(f"   {t:>3}  支撑 {p['support']:>10,.0f}(−{p['sup_dist_pct']:>4.1f}%)[{flow}]   "
+                 f"压力 {p['resistance']:>10,.0f}(+{p['res_dist_pct']:>4.1f}%)")
+    lad = [t for t in order if t in sr]
+    if lad:
+        L.append("   ↑ 收回压力=逐级转多: " + " → ".join(f"{t}:{sr[t]['resistance']:,.0f}" for t in reversed(lad)))
+        L.append("   ↓ 丢支撑=逐级确认空: " + " → ".join(f"{t}:{sr[t]['support']:,.0f}" for t in reversed(lad)))
+
+    L.append("③ 跨级别合成: "
+             f"composite={reg['composite_bias']};"
+             + ("  低级别 range 嵌在高级别趋势内 = 假震荡/回调(不是反转)" if reg['composite_bias'] in ("short", "long")
+                and any(tfs.get(t, {}).get("label") == "range" for t in ("15m", "5m", "1m")) else "  各级别方向见①"))
+
+    L.append(f"④ 订单流: 主动{of['flow']}(delta {of['delta_recent']:+,.0f},real={of['real']}) "
+             f"CVD背离={of.get('divergence') or '无'}")
+    L.append(f"⑤ carry/持仓: funding {c['funding_ann_pct']:+.0f}%/yr"
+             f"({c['funding_pctile_30d']:.0f}分位/{c['crowd']},7d趋势{c['funding_trend7_ann_pct']:+.0f}%) "
+             f"basis {c['basis_pct']:+.2f}%  OI {c['open_interest']:,.0f}")
+    L.append(f"⑥ 慢机构流: ETF={etf.get('trend', '?')}" + (f" — {etf.get('note')}" if etf.get("note") else ""))
+    if m:
+        L.append(f"⑦ 宏观: risk={m.get('risk')}  VIX={m.get('vix', {}).get('last')}"
+                 f"  期限={m.get('vix_term')}({m.get('vol_state', '')})  纳指10d={m.get('nasdaq', {}).get('chg10d_pct')}%")
+    L.append(f"⑨ 对手盘: {s['counterparty']}")
+    L.append("   脆弱: " + ("; ".join(s["fragility"]) or "无"))
+    L.append("   盯: " + " | ".join(s["watch"]))
+    L.append("⑩ 操作(react · L0 notify+manual): 站一边 / 收 carry / 等触发——不下单、不预测;carry 是唯一稳健 edge,趋势跟随是降风险非 alpha。")
+    L.append("—— TL;DR ——")
+    L.append(r.get("narrative", ""))
+    L.append(f"※ {s['disclaimer']}")
+    return "\n".join(L)
+
+
 def read(symbol: str = "BTCUSDT", venue: str = "binance", *, opener=None, with_macro: bool = True, etf=None) -> dict:
     """The full framework read for ``symbol`` as one structured dict (incl. ``narrative``)."""
     car = carry(symbol, opener=opener)
@@ -215,11 +300,13 @@ def read(symbol: str = "BTCUSDT", venue: str = "binance", *, opener=None, with_m
         levels = {"res": max(x["high"] for x in b4[-21:-1]), "sup": min(x["low"] for x in b4[-21:-1])}
         absorption = orderflow.absorption_at(b4, levels["sup"])    # is the 4h support holding or broken?
     etf = etf if etf is not None else {}
+    sr = _sr_by_tf(bars)
     syn = synthesize(reg, car, ofl, mac, levels, etf=etf, absorption=absorption)
     reg.pop("_bars", None)
     out = {"symbol": symbol, "carry": car, "regime": reg, "orderflow": ofl, "etf": etf,
-           "macro": mac, "levels": levels, "absorption": absorption, "synthesis": syn}
+           "macro": mac, "levels": levels, "absorption": absorption, "sr": sr, "synthesis": syn}
     out["narrative"] = narrate(out)
+    out["report"] = report(out)
     return out
 
 
@@ -248,12 +335,15 @@ def main(argv=None) -> int:
     p.add_argument("--etf-json", default=str(Path("~/quant/etf_flow.json").expanduser()),
                    help="maintained ETF-flow JSON (trend/net_recent_musd/note)")
     g = p.add_mutually_exclusive_group()
+    g.add_argument("--full", action="store_true", help="detailed multi-section report (S/R per level, ladder, etc.)")
     g.add_argument("--metrics", action="store_true", help="print the raw layers instead of the narrative")
     g.add_argument("--json", action="store_true", help="emit the full dict as JSON")
     a = p.parse_args(argv)
     r = read(a.symbol, a.venue, with_macro=not a.no_macro, etf=load_etf(a.etf_json))
     if a.json:
         json.dump(r, sys.stdout, ensure_ascii=False, default=str, indent=2); sys.stdout.write("\n")
+    elif a.full:
+        print(r["report"])
     elif a.metrics:
         _print_metrics(r)
     else:
