@@ -298,6 +298,7 @@ def narrate(r: dict) -> str:
         act += f"丢 {lv['sup']:,.0f} 确认下行({'已破' if ab == 'broke_down' else '留意踩踏'}),"
     act += "真拐点看 ETF 流转正或 funding 转负。"
     parts.append(act)
+    parts.append("※ " + r["synthesis"]["disclaimer"] + "。")   # disclaimer baked in — never rely on the agent to append it
     return " ".join(parts)
 
 
@@ -391,8 +392,7 @@ def report(r: dict) -> str:
     L.append("   盯: " + " | ".join(s["watch"]))
     L.append("⑩ 操作(react · L0 notify+manual): 站一边 / 收 carry / 等触发——不下单、不预测;carry 是唯一稳健 edge,趋势跟随是降风险非 alpha。")
     L.append("—— TL;DR ——")
-    L.append(r.get("narrative", ""))
-    L.append(f"※ {s['disclaimer']}")
+    L.append(r.get("narrative", ""))    # narrative already carries the disclaimer (baked into narrate())
     return "\n".join(L)
 
 
@@ -460,8 +460,7 @@ def main(argv=None) -> int:
     elif a.metrics:
         _print_metrics(r)
     else:
-        print(r["narrative"])
-        print(f"※ {r['synthesis']['disclaimer']}")
+        print(r["narrative"])    # disclaimer is baked into the narrative
     return 0
 
 

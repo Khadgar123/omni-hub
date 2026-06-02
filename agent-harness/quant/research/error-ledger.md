@@ -1,9 +1,10 @@
 # Error Ledger — analysis misses & the fixes that pin them
 
 The framework gets durable not by patching one bug at a time but by turning **every caught miss**
-into four things: a **code fix** (L1, deterministic), a **rule** in the skill (L2), a **falsification
-habit** (L3), and a **regression test** (L4). This file is the L4 narrative + the index. New misses
-append here.
+into five things: a **code fix** (L1, deterministic), a **rule** in the skill (L2), a **falsification
+habit** (L3), a **regression test** (L4), and a **golden eval case** (`evals/quant_framework.jsonl`,
+graded by the CI contract gate `tests/test_framework_contract.py`). This file is the narrative + the
+index. New misses append here.
 
 > Discipline that prevents *unknown future* errors (not just the ones below): **state the opposite
 > read and its evidence before concluding** (L3). Most misses here would have been caught by asking
@@ -37,9 +38,9 @@ append here.
 - **Fix — L2 (rules).** Canonical in `.agents/skills/quant-framework/SKILL.md` §分析纪律 (this miss
   drove rules 1–4: read §①/§②b before any cross-level claim · "range at the lows" ≠ weak · no
   cross-asset raw delta · strength needs per-TF structural evidence).
-- **Fix — L4 (test).** `tests/test_framework.py::test_structure_flags_double_bottom_but_not_a_lower_low_downtrend`
-  pins the exact distinction on synthetic W vs descending series; the downtrend must NOT be tagged a
-  double-bottom and must read `trend == "down"`.
+- **Fix — L4 (test + eval).** `tests/test_framework.py::test_structure_flags_double_bottom_but_not_a_lower_low_downtrend`
+  pins the W-vs-descending distinction; golden cases `struct-double-bottom` / `struct-lower-low` in
+  `evals/quant_framework.jsonl` re-assert it through the CI contract gate (`tests/test_framework_contract.py`).
 
 ## 2026-06-02 — "bounce quality" had to be computed ad-hoc (per-level flow was missing)
 
@@ -48,4 +49,15 @@ append here.
 - **Root cause.** `framework` computed order-flow on a single operating TF (15m), so the scale-split
   signature (1m bought, 5m sold into = distribution) was invisible in the report.
 - **Fix.** `_flow_by_tf` + §④ per-level order-flow (L1); covered by
-  `test_read_carries_structure_and_per_level_flow` (L4).
+  `test_read_carries_structure_and_per_level_flow` (L4) + golden case `out-per-level-flow`.
+
+## 2026-06-02 — the narrative didn't carry the disclaimer (caught by the new contract eval)
+
+- **Symptom.** The `out-disclaimer` contract eval FAILED on its first run: `narrate()` returned the
+  4-sentence read WITHOUT the disclaimer — it was appended only by `report()` / the CLI, so the
+  `narrative` field used standalone (which the skill says to lead with) lacked the required
+  "非投资建议" footer.
+- **Root cause.** "Always append the disclaimer" was an *agent instruction*, not a *code guarantee*.
+- **Fix.** Baked the disclaimer into `narrate()` (L1 — code guarantees it); de-duped `report()`/CLI.
+  Pinned by golden case `out-disclaimer` in `evals/quant_framework.jsonl`.
+- **Note.** Found by the eval gate itself on its first run — the loop working as designed.
