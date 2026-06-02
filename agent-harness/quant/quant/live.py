@@ -46,9 +46,14 @@ def _get_json(url, *, opener=None, timeout=15.0):
 
 def _product(symbol, venue):
     m = SYMBOL_MAP.get(symbol.upper())
-    if not m or venue not in m:
-        raise ValueError(f"no {venue} mapping for {symbol!r}")
-    return m[venue]
+    if m and venue in m:
+        return m[venue]
+    # Binance perp symbols ARE the product (e.g. SOLUSDT) — pass any USDT/USDC perp through so the
+    # framework supports "any Binance perp" as documented. The map is only needed for Coinbase/Kraken
+    # symbol translation (BTC-USD / XBTUSD), which still require an explicit entry.
+    if venue == "binance" and symbol.upper().endswith(("USDT", "USDC")):
+        return symbol.upper()
+    raise ValueError(f"no {venue} mapping for {symbol!r}")
 
 
 def coinbase_candles(raw) -> list[dict]:
