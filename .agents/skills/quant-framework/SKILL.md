@@ -34,12 +34,14 @@ multi-timeframe regime + S/R + order-flow + carry + flows + macro, and the **edg
    ```
 
    (Direct equivalent if the omni-hub CLI is unavailable: `python -m quant.framework --symbol BTCUSDT`
-   inside the quant env; default output is the narrative, `--json` for all layers, `--metrics` for the raw block.)
+   inside the quant env; default output is the narrative, `--full` for the detailed per-level report,
+   `--json` for all layers, `--metrics` for the raw block.)
 
 2. **Lead with the narrative** (the `narrative` field / default output) — a readable 4-sentence
-   read, NOT a pile of indicators. Then, only if the user wants depth, expand the layers using the
-   10-section spec in `FRAMEWORK.md`, tagging each signal by nature (`预测型`≈none / `确认型` /
-   `上下文` / `噪声`).
+   read, NOT a pile of indicators. For DEPTH (per-level S/R, the up/down cascade ladder, every
+   section), use the detailed report: `--full` direct, or read `output.read.report` (and
+   `output.read.sr` for the raw per-level S/R map) from the operation. It follows the 10-section
+   spec in `FRAMEWORK.md`; tag each signal by nature (`预测型`≈none / `确认型` / `上下文` / `噪声`).
 3. Frame everything as **state + counterparty + triggers**, never a forecast. If macro is missing
    ({} — Yahoo failed), say so; if `ok:false`, surface the error (e.g. quant venv / network).
 4. Close with the triggers to watch (scale-break confirm prices + exogenous turns: ETF flip,
