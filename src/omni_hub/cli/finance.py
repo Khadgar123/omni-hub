@@ -76,6 +76,16 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     qfind.add_argument("--domain", default="finance")
     qfind.add_argument("--title", default="")
 
+    crypto = subparsers.add_parser(
+        "crypto-read",
+        help="Crypto edge-audit read (BTC/ETH/...): live regime+carry+order-flow+macro -> "
+             "counterparty/fragility/triggers. Read-only; no orders; no prediction. "
+             "See agent-harness/quant/FRAMEWORK.md.",
+    )
+    crypto.add_argument("--symbol", default="BTCUSDT")
+    crypto.add_argument("--venue", default="binance", choices=["binance", "coinbase", "kraken"])
+    crypto.add_argument("--no-macro", action="store_true")
+
 
 def _finance_screen(args, *, runner, workspace) -> int:
     return run_and_print(
@@ -166,6 +176,17 @@ def _quant_finding_propose(args, *, runner, workspace) -> int:
     )
 
 
+def _crypto_read(args, *, runner, workspace) -> int:
+    return run_and_print(
+        runner,
+        OperationSpec(
+            name="crypto_read", action="read",
+            payload={"symbol": args.symbol, "venue": args.venue, "no_macro": args.no_macro},
+            risk_level=RiskLevel.READ_ONLY,
+        ),
+    )
+
+
 COMMANDS = {
     "finance-screen": _finance_screen,
     "finance-watch-create": _finance_watch_create,
@@ -173,4 +194,5 @@ COMMANDS = {
     "finance-portfolio-stats": _finance_portfolio,
     "order-propose": _order_propose,
     "quant-finding-propose": _quant_finding_propose,
+    "crypto-read": _crypto_read,
 }
