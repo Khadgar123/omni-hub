@@ -153,14 +153,14 @@ make worker-codex            # 拉取 codex lane（需要 codex CLI 已安装）
 
 ## 币圈分析 (crypto edge-audit)
 
-分析 BTC/ETH 等任意 Binance 永续的**当前状态**(多级别 regime + S/R + 真实订单流 + carry/持仓 +
-ETF/稳定币流 + 宏观 → 对手盘/脆弱点/触发),一条命令:
+分析 BTC/ETH 等任意 Binance 永续的**当前状态**(多级别 regime + 摆动结构/双底 + S/R + 真实订单流 +
+carry/持仓 + ETF 流 + 宏观 → 对手盘/脆弱点/触发),一条命令:
 
 ```bash
-omni-hub crypto-read --symbol BTCUSDT     # 或 ETHUSDT / SOLUSDT …;--json 看全部层,--no-macro 跳过宏观
+omni-hub crypto-read --symbol BTCUSDT     # 或 ETHUSDT / SOLUSDT …
 ```
 
-只读、**绝不下单、绝不预测价格**(下单走 `order-propose`→`Proposal(order_intent)`)。完整汇报规范(十节)
-+ 硬规则见 **`agent-harness/quant/FRAMEWORK.md`**;引擎是 quant venv 的 `quant.framework`
-(omni-hub stdlib-only,只走 CLI shell-out seam)。CC 里问"分析现在的 BTC/ETH"会自动触发
-`quant-framework` skill。
+只读、绝不下单、绝不预测价格。两个**单一真源**:报告规范(十节)+ 数据源见
+**`agent-harness/quant/FRAMEWORK.md`**;**分析纪律(读计算出的判定、别凭印象;过往 miss→规则)是契约,
+在 `.agents/skills/quant-framework/SKILL.md`**——CC/Codex 问"分析现在的 BTC/ETH"会自动触发该 skill。
+引擎 = quant venv 的 `quant.framework`(omni-hub stdlib-only,CLI shell-out seam)。
