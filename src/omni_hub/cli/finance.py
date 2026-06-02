@@ -86,6 +86,14 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     crypto.add_argument("--venue", default="binance", choices=["binance", "coinbase", "kraken"])
     crypto.add_argument("--no-macro", action="store_true")
 
+    macro = subparsers.add_parser(
+        "macro-read",
+        help="Global macro daily dashboard: regime+structure across world assets (US/CN/JP/KR stocks, "
+             "rates, FX, gold, oil, copper, BTC) + curve/credit/vol panel + cross-asset matrix. "
+             "Read-only; no orders; no prediction; daily granularity.",
+    )
+    macro.add_argument("--period", default="2y")
+
 
 def _finance_screen(args, *, runner, workspace) -> int:
     return run_and_print(
@@ -187,6 +195,17 @@ def _crypto_read(args, *, runner, workspace) -> int:
     )
 
 
+def _macro_read(args, *, runner, workspace) -> int:
+    return run_and_print(
+        runner,
+        OperationSpec(
+            name="macro_read", action="read",
+            payload={"period": args.period},
+            risk_level=RiskLevel.READ_ONLY,
+        ),
+    )
+
+
 COMMANDS = {
     "finance-screen": _finance_screen,
     "finance-watch-create": _finance_watch_create,
@@ -195,4 +214,5 @@ COMMANDS = {
     "order-propose": _order_propose,
     "quant-finding-propose": _quant_finding_propose,
     "crypto-read": _crypto_read,
+    "macro-read": _macro_read,
 }

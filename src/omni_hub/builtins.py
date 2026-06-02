@@ -961,6 +961,51 @@ def make_crypto_read(workspace: Path):
     return crypto_read
 
 
+def make_macro_read(workspace: Path):
+    """Global macro daily dashboard — the TradFi sibling of crypto_read. Stdlib seam to the quant
+    venv's ``quant.macro`` (regime + structure on global daily bars + rate-curve / credit / vol /
+    commodity panel + cross-asset matrix -> readable macro state). Shell-out only (omni-hub never
+    imports ``quant``); read-only; no orders; no prediction; DAILY granularity. Free data sources
+    (yfinance / akshare) live in the quant venv. See agent-harness/quant/quant/macro.py."""
+
+    def macro_read(spec: OperationSpec) -> dict[str, object]:
+        import json as _json
+        import os as _os
+        import shutil as _shutil
+        import subprocess as _sub
+
+        period = str(spec.payload.get("period", "2y"))
+        qpy = _os.environ.get("QUANT_PY")
+        if not (qpy and Path(qpy).expanduser().exists()):
+            qpy = None
+            for c in (Path.home() / "opt/anaconda3/envs/quant/bin/python",
+                      Path.home() / "anaconda3/envs/quant/bin/python",
+                      Path.home() / "miniconda3/envs/quant/bin/python"):
+                if c.exists():
+                    qpy = str(c)
+                    break
+            if qpy is None:
+                cli = _shutil.which("quant-market-store")
+                sib = Path(cli).resolve().parent / "python" if cli else None
+                qpy = str(sib) if (sib and sib.exists()) else None
+        if not qpy:
+            return {"ok": False, "error": "quant venv not found (set QUANT_PY)"}
+        cmd = [qpy, "-m", "quant.macro", "--period", period, "--json"]
+        try:
+            proc = _sub.run(cmd, capture_output=True, text=True, timeout=180)
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "error": f"{type(exc).__name__}: {str(exc)[:140]}"}
+        if proc.returncode != 0:
+            return {"ok": False, "error": f"rc={proc.returncode}: {(proc.stderr or '').strip()[:200]}"}
+        try:
+            read = _json.loads(proc.stdout)
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "error": f"bad json: {exc}"}
+        return {"ok": True, "narrative": read.get("narrative", ""), "read": read}
+
+    return macro_read
+
+
 def make_wiki_ingest_researchflow(workspace: Path):
     workspace_root = workspace.resolve()
 
@@ -2109,6 +2154,7 @@ def build_default_registry(workspace: Path | str = ".") -> OperationRegistry:
     registry.register("wiki_propose_research", make_wiki_propose_research(workspace_path))
     registry.register("quant_finding_propose", make_quant_finding_propose(workspace_path))
     registry.register("crypto_read", make_crypto_read(workspace_path))
+    registry.register("macro_read", make_macro_read(workspace_path))
     registry.register("wiki_ingest_researchflow", make_wiki_ingest_researchflow(workspace_path))
     registry.register("wiki_apply_proposal", make_wiki_apply_proposal(workspace_path))
     registry.register("wiki_ingest", make_wiki_ingest(workspace_path))
