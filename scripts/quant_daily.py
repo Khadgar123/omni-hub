@@ -139,6 +139,28 @@ def collect_indicators(symbols, *, fetch, now: datetime | None = None) -> list[d
     return out
 
 
+def _framework(symbol: str, *, quant_py: str | None, timeout: float = 70.0) -> dict:
+    """Shell the quant venv's unified framework read (JSON, incl. the human ``narrative``)."""
+    if quant_py is None:
+        raise FileNotFoundError("quant venv not found (set QUANT_PY)")
+    proc = subprocess.run([quant_py, "-m", "quant.framework", "--symbol", symbol, "--json"],
+                          capture_output=True, text=True, timeout=timeout)
+    if proc.returncode != 0:
+        raise RuntimeError(f"rc={proc.returncode}: {(proc.stderr or '').strip()[:140]}")
+    return json.loads(proc.stdout)
+
+
+def collect_framework(symbols, *, fetch) -> list[dict]:
+    """Per-symbol framework edge-audit read; fail-soft. ``fetch`` injected for testing."""
+    out: list[dict] = []
+    for sym in symbols:
+        try:
+            out.append(fetch(sym))
+        except Exception as exc:  # noqa: BLE001
+            out.append({"symbol": sym, "error": f"{type(exc).__name__}: {str(exc)[:120]}"})
+    return out
+
+
 _BIAS_GLYPH = {"long": "▲ long", "short": "▼ short", "flat": "■ flat"}
 
 
@@ -167,15 +189,30 @@ def render_brief(records, *, today: str) -> str:
     return "\n".join(lines) + "\n"
 
 
-def write_outputs(records, *, root: Path, today: str, now: datetime) -> str:
-    """Write the three omni integration artifacts; return the brief text."""
+def render_framework(framework) -> str:
+    """A readable '解读' (edge-audit) section — the narrative, not a pile of indicators."""
+    if not framework:
+        return ""
+    lines = ["", "## 解读 (edge-audit)", ""]
+    for fr in framework:
+        sym = fr.get("symbol", "?")
+        if "error" in fr:
+            lines.append(f"- **{sym}**: 不可用 ({fr['error']})")
+        else:
+            lines.append(f"- **{sym}**: {fr.get('narrative', '(no narrative)')}")
+    return "\n".join(lines) + "\n"
+
+
+def write_outputs(records, *, root: Path, today: str, now: datetime, framework=None) -> str:
+    """Write the omni integration artifacts; return the brief text. ``framework`` (optional)
+    appends the readable edge-audit narrative + a framework-latest.json feed."""
     omni = root / ".omni"
     briefs = omni / "briefs"
     qdir = omni / "quant"
     briefs.mkdir(parents=True, exist_ok=True)
     qdir.mkdir(parents=True, exist_ok=True)
 
-    brief = render_brief(records, today=today)
+    brief = render_brief(records, today=today) + render_framework(framework)
     (briefs / f"quant-{today}.md").write_text(brief, encoding="utf-8")
 
     run_ts = now.isoformat()
@@ -188,6 +225,12 @@ def write_outputs(records, *, root: Path, today: str, now: datetime) -> str:
                    ensure_ascii=False, indent=2, default=str),
         encoding="utf-8",
     )
+    if framework:
+        (qdir / "framework-latest.json").write_text(
+            json.dumps({"run_ts": run_ts, "date": today, "reads": framework},
+                       ensure_ascii=False, indent=2, default=str),
+            encoding="utf-8",
+        )
     return brief
 
 
@@ -200,7 +243,8 @@ def main() -> int:
     records = collect_indicators(
         symbols, fetch=lambda s: _default_fetch(s, quant_py=quant_py, now=now), now=now
     )
-    brief = write_outputs(records, root=_repo_root(), today=today, now=now)
+    framework = collect_framework(symbols, fetch=lambda s: _framework(s, quant_py=quant_py))
+    brief = write_outputs(records, root=_repo_root(), today=today, now=now, framework=framework)
     sys.stdout.write(brief)
     return 0
 
