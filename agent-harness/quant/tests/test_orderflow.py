@@ -37,3 +37,10 @@ def test_read_flow_and_bullish_divergence():
 
 def test_read_insufficient():
     assert orderflow.read([_bar(100, 1, 1)])["flow"] == "flat"
+
+
+def test_absorption_defended_vs_broke():
+    held = [_bar(100.2, 10, taker_buy=2) for _ in range(5)]      # sold into (delta<0), price held above
+    assert orderflow.absorption_at(held, 100.0) == "defended_support"
+    broke = [_bar(100, 10, 5), _bar(99, 10, 5)]                  # closed decisively below the level
+    assert orderflow.absorption_at(broke, 100.0) == "broke_down"

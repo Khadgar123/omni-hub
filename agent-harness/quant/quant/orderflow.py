@@ -74,3 +74,32 @@ def read(bars: Sequence[dict], *, lookback: int = 20) -> dict:
     flow = "buy" if delta_recent > 0 else ("sell" if delta_recent < 0 else "flat")
     return {"real": real, "cvd": round(cv[-1], 2), "delta_recent": round(delta_recent, 2),
             "flow": flow, "divergence": divergence, "window": w}
+
+
+def absorption_at(bars: Sequence[dict], level: float, *, tol_pct: float = 0.004, window: int = 36) -> str:
+    """Did aggression get ABSORBED at ``level`` (heavy taker volume, price held)? Causal.
+
+    Combines net taker-delta of recent bars trading within ``tol_pct`` of the level with where
+    price sits now:
+      ``defended_support``    — sold into it (delta<0) but price held above ⇒ bids absorbing
+      ``defended_resistance`` — bought into it (delta>0) but price held below ⇒ asks absorbing
+      ``broke_down`` / ``broke_up`` — price closed decisively through the level
+      ``none``                — no real interaction / unclear
+    """
+    if not bars or level <= 0:
+        return "none"
+    now = float(bars[-1]["close"])
+    far = (now - level) / level
+    if far < -2 * tol_pct:
+        return "broke_down"
+    if far > 2 * tol_pct:
+        return "broke_up"
+    seg = [b for b in bars[-window:] if abs(float(b["close"]) - level) / level <= tol_pct]
+    if len(seg) < 3:
+        return "none"
+    d = sum(taker_delta(seg))
+    if now >= level and d < 0:
+        return "defended_support"
+    if now <= level and d > 0:
+        return "defended_resistance"
+    return "none"
