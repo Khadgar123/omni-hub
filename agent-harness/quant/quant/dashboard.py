@@ -101,12 +101,19 @@ def compute_state(paper_path: str, equity0: float = 10000.0, cfg=None, book_path
     out["account"] = None                                # real account (directional) — only if a key is set
     try:
         import os as _os
-        if _os.environ.get("BINANCE_KEY"):
-            from quant import broker as _bk
-            net = _os.environ.get("BROKER_NET", "testnet")
-            bal = _bk.read_balance(market="futures", net=net)
-            out["account"] = {"equity": bal.get("equity"), "available": bal.get("available"),
-                              "asset": bal.get("asset"), "net": net}
+        from quant import broker as _bk
+        net = _os.environ.get("BROKER_NET")                  # explicit opt-in to hit the REAL account
+        if net and _bk.creds_available():                    # creds: env vars OR the omni-hub secret store
+            market = _os.environ.get("BROKER_MARKET", "futures")
+            bal = _bk.read_balance(market=market, net=net)
+            if market == "spot":                             # spot key returns free balances per asset
+                bals = bal.get("balances", {})
+                cash = sum(float(bals.get(a, 0.0)) for a in ("USDT", "USDC", "FDUSD"))
+                out["account"] = {"equity": cash, "available": cash, "asset": "USDT/USDC", "net": net,
+                                  "market": "spot", "balances": bals}
+            else:
+                out["account"] = {"equity": bal.get("equity"), "available": bal.get("available"),
+                                  "asset": bal.get("asset"), "net": net, "market": "futures"}
     except Exception as e:  # noqa: BLE001
         out["account"] = {"error": str(e)}
     try:
@@ -196,7 +203,9 @@ def render_panels(state: dict) -> str:
     parts = []
     acc = state.get("account")
     if acc and acc.get("equity") is not None:
-        parts.append(f"<div class=card style='border:1px solid #d29922'><h2>💰 真实账户({acc.get('net')}) · 方向交易用</h2>"
+        netcls = "neg" if acc.get("net") == "mainnet" else ""
+        parts.append(f"<div class=card style='border:1px solid #d29922'><h2>💰 真实账户(<span class={netcls}>"
+                     f"{acc.get('net')}</span>·{acc.get('market','')}) · 方向交易用</h2>"
                      f"<p class=big>余额 ${acc['equity']:,.2f} {acc.get('asset','')} · 可用 ${acc.get('available',0):,.2f}</p>"
                      f"<p class=note>实时拉取(只读key)。baseline 用 paper;方向单按这个余额定仓位($金额)。</p></div>")
     elif acc and acc.get("error"):
@@ -204,9 +213,10 @@ def render_panels(state: dict) -> str:
                      f"BROKER_NET=testnet 即显示真实余额): {str(acc['error'])[:90]}</p></div>")
     else:
         parts.append("<div class=card style='border:1px dashed #6e7681'><h2>💰 真实账户 · 未连接</h2>"
-                     "<p class=note>当前用 paper $10,000 模拟。连真实余额(只读即可):<br>"
-                     "<code>export BINANCE_KEY=… BINANCE_SECRET=… BROKER_NET=testnet</code> 后重启本面板,"
-                     "余额就显示在这里,方向单按真实余额算 $。</p></div>")
+                     "<p class=note>当前用 paper $10,000 模拟。key 已从 omni-hub 自动读取——只需选网络/市场:<br>"
+                     "<code>export BROKER_NET=mainnet BROKER_MARKET=spot</code>(或 testnet/futures)后重启本面板,"
+                     "真实余额显示在这里,方向单按真实余额算 $。<br>"
+                     "<span class=neg>mainnet=真钱</span>;不设 BROKER_NET 则不碰真实账户。</p></div>")
     parts.append(_positions_html(state))                 # OPEN positions first (right under the chart)
 
     # 待批准 pending intents (top, right under the chart) — drawn on the chart too

@@ -33,11 +33,81 @@ def sign(query: str, secret: str) -> str:
     return hmac.new(secret.encode("utf-8"), query.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
-def _creds(key_env: str, secret_env: str):
+_SECRET_CACHE: dict | None = None
+
+
+def _secret_store() -> dict:
+    """Read the omni-hub local secret store (the SANCTIONED key location) WITHOUT importing omni_hub —
+    stdlib json only, so it resolves from the quant env. Search order: $OMNI_HUB_SECRET_FILE,
+    $OMNI_HUB_HOME/secrets.json, the repo's .omni/secrets.json (via git, so it works from a worktree),
+    .omni up the cwd tree, then ~/.omni. Format: {"version":1,"secrets":{name:value}}. Cached once found."""
+    global _SECRET_CACHE
+    if _SECRET_CACHE:
+        return _SECRET_CACHE
+    from pathlib import Path
+    cands = []
+    if (f := os.environ.get("OMNI_HUB_SECRET_FILE", "").strip()):
+        cands.append(Path(f).expanduser())
+    if (h := os.environ.get("OMNI_HUB_HOME", "").strip()):
+        cands.append(Path(h).expanduser() / "secrets.json")
+    cwd = Path.cwd()
+    try:                                                     # git-common-dir -> main repo root (worktree-safe)
+        import subprocess
+        r = subprocess.run(["git", "rev-parse", "--git-common-dir"], cwd=str(cwd), timeout=3,
+                           capture_output=True, text=True)
+        if r.returncode == 0 and r.stdout.strip():
+            cands.append((cwd / r.stdout.strip()).resolve().parent / ".omni" / "secrets.json")
+    except Exception:  # noqa: BLE001
+        pass
+    cands += [d / ".omni" / "secrets.json" for d in (cwd, *cwd.parents)]
+    cands.append(Path.home() / ".omni" / "secrets.json")
+    for p in cands:
+        try:
+            if p.is_file():
+                data = json.loads(p.read_text(encoding="utf-8"))
+                sec = data.get("secrets", data) if isinstance(data, dict) else {}
+                if isinstance(sec, dict) and sec:
+                    _SECRET_CACHE = {str(k): str(v) for k, v in sec.items()}
+                    return _SECRET_CACHE
+        except Exception:  # noqa: BLE001
+            continue
+    return {}
+
+
+def _resolve_ref(ref: str) -> str:
+    """Resolve a secret reference: ``env:VAR`` -> env var; ``local:`` / ``file:`` -> omni-hub store."""
+    ref = (ref or "").strip()
+    if not ref:
+        return ""
+    prefix, _, value = ref.partition(":")
+    if prefix == "env":
+        return os.environ.get(value, "")
+    if prefix in ("local", "file"):
+        return _secret_store().get(value, "")
+    return ""
+
+
+def _creds(key_env: str = "BINANCE_KEY", secret_env: str = "BINANCE_SECRET"):
+    """Resolve key+secret, priority: (1) env vars you exported; (2) the omni-hub secret store via
+    ``$BINANCE_KEY_REF`` / ``$BINANCE_SECRET_REF`` (default ``local:omni-hub/api/binance/{key,secret}``).
+    Raw key/secret are never logged or printed — resolved at call time straight into the signer."""
     key, secret = os.environ.get(key_env), os.environ.get(secret_env)
+    if not key:
+        key = _resolve_ref(os.environ.get("BINANCE_KEY_REF", "local:omni-hub/api/binance/key"))
+    if not secret:
+        secret = _resolve_ref(os.environ.get("BINANCE_SECRET_REF", "local:omni-hub/api/binance/secret"))
     if not key or not secret:
-        raise RuntimeError(f"set {key_env} / {secret_env} env vars (your API key/secret — never committed)")
+        raise RuntimeError(f"no credentials: export {key_env}/{secret_env}, OR point $OMNI_HUB_SECRET_FILE at "
+                           f"your omni-hub secrets.json (has local:omni-hub/api/binance/key+secret)")
     return key, secret
+
+
+def creds_available() -> bool:
+    """True if a key+secret resolve (env or omni-hub store) — for the dashboard gate. Never raises."""
+    try:
+        return bool(_creds()[0])
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def _signed(base: str, path: str, params: dict, *, key: str, secret: str, method: str = "GET",

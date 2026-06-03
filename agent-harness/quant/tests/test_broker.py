@@ -47,8 +47,23 @@ def test_read_balance_futures_signed(monkeypatch):
 def test_read_balance_requires_keys(monkeypatch):
     monkeypatch.delenv("BINANCE_KEY", raising=False)
     monkeypatch.delenv("BINANCE_SECRET", raising=False)
+    monkeypatch.setattr(broker, "_secret_store", lambda: {})   # isolate from the real omni-hub store
     with pytest.raises(RuntimeError):
         broker.read_balance(opener=_opener([]))
+
+
+def test_creds_resolve_from_omni_hub_store(monkeypatch):
+    """No env vars — key/secret come straight from the omni-hub secret store (the sanctioned location)."""
+    monkeypatch.delenv("BINANCE_KEY", raising=False)
+    monkeypatch.delenv("BINANCE_SECRET", raising=False)
+    monkeypatch.setattr(broker, "_secret_store",
+                        lambda: {"omni-hub/api/binance/key": "K", "omni-hub/api/binance/secret": "S"})
+    assert broker._creds() == ("K", "S")                       # resolved from store, no env
+    assert broker.creds_available() is True
+    # env still wins when present
+    monkeypatch.setenv("BINANCE_KEY", "envK")
+    monkeypatch.setenv("BINANCE_SECRET", "envS")
+    assert broker._creds() == ("envK", "envS")
 
 
 def test_place_order_payloads(monkeypatch):
