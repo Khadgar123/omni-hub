@@ -23,6 +23,7 @@ def test_render_loading_and_shell():
     assert "function approve" in shell and "function reject" in shell   # approval flow JS
     assert "function execCmd" in shell                                  # 🔴 generate-broker-command JS
     assert "function placeLive" in shell                                # 🔴 one-click live-order JS (gated)
+    assert "function toggleFollow" in shell                             # ⚡基础+埋伏 ⇄ 🪤只埋伏 toggle JS
     assert "of_entry" in shell and "function createIntent" in shell      # fill-in order form
     assert "function autoIntent" in shell and "of_tf" in shell and "自动设计挂单" in shell   # per-TF auto-design
     assert "cb_sr" in shell                                              # S/R declutter toggle
@@ -90,6 +91,7 @@ def test_render_full_board():
     assert "execCmd('intent-1')" in html and "execbox_intent-1" in html   # 🔴 generate-broker-command button + box
     assert "e_lev_intent-1" in html and "e_usd_intent-1" in html     # editable leverage + total-notional($)
     assert "e_p0_intent-1" in html and "e_px0_intent-1" in html      # editable per-entry %@price
+    assert "toggleFollow('intent-1')" in html                        # ⚡基础+埋伏 ⇄ 🪤只埋伏 mode toggle
     assert "一键下单" not in html                                    # disarmed state (no live_armed) -> no live button
     assert "连真实余额" in html                                       # compact account hint when no key set
     assert "更新" in html and "e_stop_" in html                      # inline-editable values before approve

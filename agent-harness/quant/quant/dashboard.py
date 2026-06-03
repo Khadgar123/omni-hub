@@ -256,7 +256,10 @@ def render_panels(state: dict) -> str:
             f"<span class=note>={scf*100:.0f}%权益</span>"
             f"<label>杠杆</label><input id=e_lev_{iid} value='{lev}' style='width:36px'>"
             f"<span class=note>保证金≈${usd/max(lev,1):,.0f}</span></div>"
-            f"<div class=ord><label>入场</label>{''.join(ent_in)}<span class=note>(%占总仓·合计100)</span></div>"
+            f"<div class=ord><label>入场</label>"
+            f"<button onclick=\"toggleFollow('{iid}')\" title='切换成交方式'>"
+            f"{'⚡基础+埋伏' if plan.get('follow') else '🪤只埋伏'}</button>"
+            f"{''.join(ent_in)}<span class=note>(%占总仓·合计100)</span></div>"
             f"<div class=ord><label>损</label><input id=e_stop_{iid} value='{plan['stop']:.0f}' style='width:60px'>"
             f"<span class=note>硬{plan.get('disaster_stop',0):,.0f}</span>"
             f"<label>盈</label><input id=e_t1_{iid} value='{t1v}' style='width:60px'>"
@@ -712,6 +715,39 @@ class _Handler(BaseHTTPRequestHandler):
             except Exception as e:  # noqa: BLE001
                 msg = str(e)
             body = json.dumps({"ok": ok, "msg": msg}).encode()
+        elif u.path == "/toggle_follow":
+            # switch a pending order between ⚡基础(现价maker跟价)+埋伏  and  🪤只埋伏(全挂单等价格来)
+            q = parse_qs(u.query)
+            iid = q.get("id", [""])[0]
+            ok, msg = False, ""
+            try:
+                from quant import papertrade as _pt
+                ip = getattr(self.server, "intents_path", None)
+                with _BOOK_LOCK:
+                    ints = _pt.load_book(ip)
+                    tgt = next((x for x in ints if x.get("id") == iid), None)
+                    if tgt:
+                        plan = tgt["plan"]
+                        ents = plan.get("entries", [])
+                        if plan.get("follow"):                       # -> 只埋伏: drop the base, renormalize埋伏 to 100%
+                            rest = [e for e in ents if not e.get("follow")] or ents[1:] or ents
+                            s = sum(e["size_frac"] for e in rest) or 1.0
+                            for e in rest:
+                                e["size_frac"], e["follow"], e["label"] = round(e["size_frac"] / s, 4), False, "埋伏"
+                            plan["entries"], plan["follow"] = rest, False
+                        else:                                        # -> 有基础: prepend base@现价 40%, rescale rest to 60%
+                            ref = plan.get("ref_price") or (ents[0]["price"] if ents else 0)
+                            s = sum(e["size_frac"] for e in ents) or 1.0
+                            for e in ents:
+                                e["size_frac"], e["follow"], e["label"] = round(e["size_frac"] / s * 0.6, 4), False, "埋伏"
+                            plan["entries"] = [{"price": round(ref, 2), "size_frac": 0.4, "role": "entry",
+                                                "follow": True, "label": "基础·现价"}] + ents
+                            plan["follow"] = True
+                        _pt._save_book(ip, ints)
+                        ok = True
+            except Exception as e:  # noqa: BLE001
+                msg = str(e)
+            body = json.dumps({"ok": ok, "msg": msg}).encode()
         elif u.path == "/edit_intent":
             q = parse_qs(u.query)
             iid = q.get("id", [""])[0]
@@ -892,6 +928,7 @@ function createIntent(){var p=new URLSearchParams({symbol:sym,dir:g('of_dir').va
  fetch('/create_intent?'+p.toString()).then(r=>r.json()).then(d=>{g('of_msg').textContent=d.ok?'✓已创建,见下方待批准':('✗'+(d.msg||''));setTimeout(()=>tick(true),300);});}
 function autoIntent(){var p=new URLSearchParams({symbol:sym,tf:g('of_tf').value,dir:g('of_autodir').value});
  fetch('/auto_intent?'+p.toString()).then(r=>r.json()).then(d=>{g('of_msg').textContent=d.ok?('✓ '+g('of_tf').value+'级别已自动设计,见下方待批准'):('✗'+(d.msg||''));setTimeout(()=>tick(true),300);});}
+function toggleFollow(id){fetch('/toggle_follow?id='+encodeURIComponent(id)).then(()=>setTimeout(()=>tick(true),300));}
 function updateIntent(id,n){var p=new URLSearchParams({id:id,usd:g('e_usd_'+id).value,lev:g('e_lev_'+id).value,stop:g('e_stop_'+id).value,t1:g('e_t1_'+id).value,t2:g('e_t2_'+id).value});
  var es=[];for(var i=0;i<n;i++){es.push(g('e_p'+i+'_'+id).value+'@'+g('e_px'+i+'_'+id).value);}p.set('entries',es.join(','));
  fetch('/edit_intent?'+p.toString()).then(()=>setTimeout(()=>tick(true),300));}
