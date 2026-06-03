@@ -741,6 +741,7 @@ class _Handler(BaseHTTPRequestHandler):
                         ok = True
             except Exception as e:  # noqa: BLE001
                 msg = str(e)
+                print(f"[LIVE ORDER FAIL] intent={iid}: {msg}")     # surface the exact venue rejection
             body = json.dumps({"ok": ok, "msg": msg, "placed": placed, "receipts": receipts}).encode()
         elif u.path == "/create_intent":
             q = parse_qs(u.query)

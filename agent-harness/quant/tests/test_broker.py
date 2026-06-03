@@ -81,6 +81,81 @@ def test_place_order_payloads(monkeypatch):
     assert "stopPrice=69000" in cap2["url"] and "reduceOnly=true" in cap2["url"]
 
 
+def test_position_mode_detects_hedge(monkeypatch):
+    monkeypatch.setenv("BINANCE_KEY", "k")
+    monkeypatch.setenv("BINANCE_SECRET", "s")
+    broker._POS_MODE.clear()
+    assert broker.position_mode(net="mainnet", opener=_opener({"dualSidePosition": True})) == "hedge"
+    broker._POS_MODE.clear()
+    assert broker.position_mode(net="mainnet", opener=_opener({"dualSidePosition": False})) == "oneway"
+
+
+def test_place_order_hedge_uses_position_side(monkeypatch):
+    monkeypatch.setenv("BINANCE_KEY", "k")
+    monkeypatch.setenv("BINANCE_SECRET", "s")
+    cap = {}
+    broker.place_order(symbol="BTCUSDC", side="BUY", otype="STOP_MARKET", quantity=0.01, price=68000,
+                       position_side="SHORT", reduce_only=True, net="mainnet", opener=_opener({"orderId": 1}, cap))
+    assert "positionSide=SHORT" in cap["url"] and "reduceOnly" not in cap["url"]   # hedge: positionSide, no reduceOnly
+
+
+def test_execute_intent_hedge_adds_position_side(monkeypatch):
+    monkeypatch.setenv("BINANCE_KEY", "k")
+    monkeypatch.setenv("BINANCE_SECRET", "s")
+    broker._POS_MODE.clear()
+    broker._FILTERS.clear()
+    order_urls = []
+
+    def op(req, timeout=8.0):
+        url, m = req.full_url, req.get_method()
+        if "positionSide/dual" in url:
+            return _Resp({"dualSidePosition": True})                  # account is in hedge mode
+        if "/fapi/v1/order" in url and m == "POST":
+            order_urls.append(url)
+            return _Resp({"orderId": len(order_urls)})
+        return _Resp({})
+    intent = {"id": "i", "plan": {"symbol": "BTCUSDC", "direction": "short", "size_cap_frac": 0.1,
+              "ref_price": 67000, "entries": [{"price": 68000, "size_frac": 1.0, "label": "埋伏"}],   # no follow base
+              "stop": 69000, "targets": [{"price": 65000, "size_frac": 1.0, "label": "T"}]}}
+    broker.execute_intent(intent, equity=10000, net="mainnet", yes=True, opener=op)
+    assert order_urls and all("positionSide=SHORT" in u for u in order_urls)        # every order carries the side
+    assert all("reduceOnly" not in u for u in order_urls)                           # hedge: reduceOnly omitted
+    assert any("closePosition=true" in u for u in order_urls)                       # stop closes the whole position
+
+
+def test_execute_intent_rounds_qty_and_skips_dust(monkeypatch):
+    monkeypatch.setenv("BINANCE_KEY", "k")
+    monkeypatch.setenv("BINANCE_SECRET", "s")
+    broker._POS_MODE.clear()
+    broker._FILTERS.clear()
+    placed = []
+
+    def op(req, timeout=8.0):
+        url, m = req.full_url, req.get_method()
+        if "positionSide/dual" in url:
+            return _Resp({"dualSidePosition": False})                 # one-way
+        if "exchangeInfo" in url:
+            return _Resp({"symbols": [{"symbol": "BTCUSDC", "quantityPrecision": 3, "pricePrecision": 1,
+                          "filters": [{"filterType": "LOT_SIZE", "minQty": "0.001"},
+                                      {"filterType": "MIN_NOTIONAL", "notional": "50"}]}]})
+        if "/fapi/v1/order" in url and m == "POST":
+            placed.append(url)
+            return _Resp({"orderId": len(placed)})
+        return _Resp({})
+    intent = {"id": "i", "plan": {"symbol": "BTCUSDC", "direction": "long", "size_cap_frac": 0.1, "ref_price": 1000,
+              "entries": [{"price": 1000, "size_frac": 0.001, "label": "dust"},     # $1 notional -> skip
+                          {"price": 1000, "size_frac": 0.999, "label": "ok"}],      # $999 -> place
+              "stop": 900, "targets": []}}
+    res = broker.execute_intent(intent, equity=10000, net="mainnet", yes=True, opener=op)
+    assert any("skipped" in str(r.get("resp")) for r in res["receipts"])            # the $1 dust entry skipped
+    import re
+    for u in placed:
+        mq = re.search(r"quantity=([0-9.]+)", u)
+        if mq and "." in mq.group(1):
+            assert len(mq.group(1).split(".")[-1]) <= 3                             # qty rounded to 3 decimals
+    assert any("closePosition=true" in u for u in placed)                          # stop placed as closePosition
+
+
 def test_build_orders_translates_intent():
     intent = {"id": "i1", "plan": {"symbol": "BTCUSDT", "direction": "short", "size_cap_frac": 0.5,
               "ref_price": 67000,

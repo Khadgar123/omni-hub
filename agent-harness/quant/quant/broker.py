@@ -34,6 +34,7 @@ FAPI = {k: v[0] for k, v in FAPI_HOSTS.items()}      # primary host (public/unsi
 SPOT = {k: v[0] for k, v in SPOT_HOSTS.items()}
 _UA = "omni-hub-quant-broker/0.1"
 _TIME_OFFSET = {"mainnet": 0, "testnet": 0}          # serverTime - localTime, refreshed on -1021 drift
+_POS_MODE: dict = {}                                 # net -> 'hedge'|'oneway' (cached position mode)
 
 
 def sign(query: str, secret: str) -> str:
@@ -178,6 +179,38 @@ def _call(market: str, net: str, path: str, params: dict, *, key: str, secret: s
     raise last or RuntimeError(f"all hosts failed for {path}")
 
 
+_FILTERS: dict = {}
+
+
+def _public_get(net: str, path: str, params=None, *, market: str = "futures", opener=None, timeout: float = 8.0):
+    host = (SPOT if market == "spot" else FAPI)[net]
+    q = ("?" + urllib.parse.urlencode(params)) if params else ""
+    req = urllib.request.Request(f"{host}{path}{q}", headers={"User-Agent": _UA})
+    with (opener or urllib.request.urlopen)(req, timeout=timeout) as r:
+        return json.loads(r.read().decode("utf-8"))
+
+
+def symbol_filters(symbol: str, *, net: str = "testnet", opener=None) -> dict:
+    """Venue precision/limits for a futures symbol (cached): ``{qty_prec, price_prec, min_qty, min_notional}``.
+    Orders MUST round quantity to qty_prec and price to price_prec, and clear min_notional, or Binance
+    rejects them (-1111 precision / -4164 notional). Public endpoint, no auth."""
+    k = (net, symbol)
+    if k in _FILTERS:
+        return _FILTERS[k]
+    out = {"qty_prec": 3, "price_prec": 1, "min_qty": 0.0, "min_notional": 0.0}
+    try:
+        data = _public_get(net, "/fapi/v1/exchangeInfo", {"symbol": symbol}, opener=opener)
+        s = next((x for x in data.get("symbols", []) if x["symbol"] == symbol), {})
+        flt = {x["filterType"]: x for x in s.get("filters", [])}
+        out = {"qty_prec": int(s.get("quantityPrecision", 3)), "price_prec": int(s.get("pricePrecision", 1)),
+               "min_qty": float((flt.get("LOT_SIZE") or {}).get("minQty", 0) or 0),
+               "min_notional": float((flt.get("MIN_NOTIONAL") or {}).get("notional", 0) or 0)}
+    except Exception:  # noqa: BLE001
+        pass
+    _FILTERS[k] = out
+    return out
+
+
 # ---------------------------------------------------------------- READ side
 def read_balance(*, market: str = "futures", net: str = "testnet", key_env: str = "BINANCE_KEY",
                  secret_env: str = "BINANCE_SECRET", opener=None, now_ms=None) -> dict:
@@ -223,18 +256,38 @@ def read_open_orders(symbol=None, *, net: str = "testnet", key_env: str = "BINAN
 
 
 # ---------------------------------------------------- EXECUTION (human-gated)
-def place_order(*, symbol: str, side: str, otype: str, quantity: float, price=None, net: str = "testnet",
-                reduce_only: bool = False, client_order_id=None, key_env: str = "BINANCE_KEY",
-                secret_env: str = "BINANCE_SECRET", opener=None, now_ms=None) -> dict:
-    """Place ONE futures order. ``side`` BUY/SELL, ``otype`` LIMIT/MARKET/STOP_MARKET/TAKE_PROFIT_MARKET.
-    Idempotent via ``newClientOrderId`` (re-running won't double-place the same id)."""
+def position_mode(*, net: str = "testnet", key_env: str = "BINANCE_KEY", secret_env: str = "BINANCE_SECRET",
+                  opener=None) -> str:
+    """'hedge' (dualSidePosition — every order needs positionSide, reduceOnly is invalid) or 'oneway'.
+    Cached per net (mode rarely changes)."""
+    if net in _POS_MODE:
+        return _POS_MODE[net]
     key, secret = _creds(key_env, secret_env)
-    params = {"symbol": symbol, "side": side, "type": otype, "quantity": quantity}
+    d = _call("futures", net, "/fapi/v1/positionSide/dual", {}, key=key, secret=secret, opener=opener)
+    _POS_MODE[net] = "hedge" if d.get("dualSidePosition") else "oneway"
+    return _POS_MODE[net]
+
+
+def place_order(*, symbol: str, side: str, otype: str, quantity=None, price=None, net: str = "testnet",
+                reduce_only: bool = False, position_side=None, close_position: bool = False, client_order_id=None,
+                key_env: str = "BINANCE_KEY", secret_env: str = "BINANCE_SECRET", opener=None, now_ms=None) -> dict:
+    """Place ONE futures order. ``side`` BUY/SELL, ``otype`` LIMIT/MARKET/STOP_MARKET/TAKE_PROFIT_MARKET.
+    ``position_side`` LONG/SHORT for HEDGE-mode accounts (then reduceOnly is omitted — positionSide decides
+    open/close). ``close_position`` STOP/TP closes the WHOLE position on trigger (no quantity, no min-notional)
+    — used for the protective stop. Idempotent via ``newClientOrderId``."""
+    key, secret = _creds(key_env, secret_env)
+    params = {"symbol": symbol, "side": side, "type": otype}
+    if not close_position:
+        params["quantity"] = quantity
     if otype == "LIMIT":
         params.update({"price": price, "timeInForce": "GTC"})
     elif otype in ("STOP_MARKET", "TAKE_PROFIT_MARKET"):
         params["stopPrice"] = price
-    if reduce_only:
+    if position_side:                                    # hedge mode: positionSide opens/closes
+        params["positionSide"] = position_side
+    if close_position:
+        params["closePosition"] = "true"                 # close the whole position on trigger; no qty/reduceOnly
+    elif reduce_only and not position_side:              # one-way exit
         params["reduceOnly"] = "true"
     if client_order_id:
         params["newClientOrderId"] = client_order_id
@@ -243,8 +296,8 @@ def place_order(*, symbol: str, side: str, otype: str, quantity: float, price=No
 
 
 def maker_follow(*, symbol: str, side: str, quantity: float, net: str = "testnet", max_repegs: int = 5,
-                 poll_sec: float = 1.0, key_env: str = "BINANCE_KEY", secret_env: str = "BINANCE_SECRET",
-                 opener=None, sleep_fn=None, price_fn=None) -> dict:
+                 poll_sec: float = 1.0, position_side=None, price_prec: int = 8, key_env: str = "BINANCE_KEY",
+                 secret_env: str = "BINANCE_SECRET", opener=None, sleep_fn=None, price_fn=None) -> dict:
     """Fill ``quantity`` as a MAKER by pegging a LIMIT to the best price and re-pricing (cancel+replace)
     as the market moves — so you join the maker side and pay 0 maker fee. After ``max_repegs`` un-filled
     re-pegs it falls back to a MARKET (taker) to GUARANTEE the fill (基础仓一定到手). ``price_fn`` /
@@ -272,20 +325,21 @@ def maker_follow(*, symbol: str, side: str, quantity: float, net: str = "testnet
     oid = None
     for i in range(max_repegs):
         bid, ask = best()
-        px = round(bid if side == "BUY" else ask, 8)     # join the maker side at the current best
+        px = round(bid if side == "BUY" else ask, price_prec)  # join the maker side at the current best (tick-safe)
         if oid is not None:
             if status(oid).get("status") == "FILLED":
                 return {"filled": True, "as": "maker", "price": px, "repegs": i}
             cancel(oid)                                   # price moved -> re-peg
         oid = place_order(symbol=symbol, side=side, otype="LIMIT", quantity=quantity, price=px, net=net,
-                          key_env=key_env, secret_env=secret_env, opener=opener).get("orderId")
+                          position_side=position_side, key_env=key_env, secret_env=secret_env,
+                          opener=opener).get("orderId")
         sleep_fn(poll_sec)
     if oid is not None:
         if status(oid).get("status") == "FILLED":
             return {"filled": True, "as": "maker", "repegs": max_repegs}
         cancel(oid)
     resp = place_order(symbol=symbol, side=side, otype="MARKET", quantity=quantity, net=net,
-                       key_env=key_env, secret_env=secret_env, opener=opener)
+                       position_side=position_side, key_env=key_env, secret_env=secret_env, opener=opener)
     return {"filled": True, "as": "taker(fallback)", "repegs": max_repegs, "resp": resp}
 
 
@@ -318,6 +372,8 @@ def close_position(symbol: str, *, net: str = "testnet", key_env: str = "BINANCE
     for the full size on the opposite side; re-check and retry up to ``retries``. Also cancels resting
     orders so no stray stop/TP remains. Returns ``{closed, remaining, attempts}``. This is 平仓 that
     does not silently half-fail."""
+    hedge = position_mode(net=net, key_env=key_env, secret_env=secret_env, opener=opener) == "hedge"
+
     def _pos():
         return next((p for p in read_positions(net=net, key_env=key_env, secret_env=secret_env, opener=opener)
                      if p["symbol"] == symbol), None)
@@ -331,9 +387,10 @@ def close_position(symbol: str, *, net: str = "testnet", key_env: str = "BINANCE
             except Exception:  # noqa: BLE001
                 pass
             return {"closed": True, "remaining": 0.0, "attempts": attempts - 1}
-        place_order(symbol=symbol, side=("SELL" if p["qty"] > 0 else "BUY"), otype="MARKET",
-                    quantity=abs(p["qty"]), reduce_only=True, net=net, key_env=key_env,
-                    secret_env=secret_env, opener=opener)
+        long = p["qty"] > 0
+        place_order(symbol=symbol, side=("SELL" if long else "BUY"), otype="MARKET", quantity=abs(p["qty"]),
+                    reduce_only=(not hedge), position_side=(("LONG" if long else "SHORT") if hedge else None),
+                    net=net, key_env=key_env, secret_env=secret_env, opener=opener)
     p = _pos()
     return {"closed": bool(not p or p["qty"] == 0), "remaining": (p["qty"] if p else 0.0), "attempts": attempts}
 
@@ -358,7 +415,7 @@ def build_orders(intent: dict, equity: float) -> list:
                        "note": "基础·maker跟价(没成交转市价)" if f else "埋伏限价"})
     tot_qty = round(notional / ref, 6)
     orders.append({"symbol": sym, "side": xside, "type": "STOP_MARKET", "price": plan["stop"],
-                   "quantity": tot_qty, "reduceOnly": True, "note": "止损"})
+                   "quantity": tot_qty, "reduceOnly": True, "close_position": True, "note": "止损"})
     for g in plan.get("targets", []):
         orders.append({"symbol": sym, "side": xside, "type": "TAKE_PROFIT_MARKET", "price": g["price"],
                        "quantity": round(tot_qty * g["size_frac"], 6), "reduceOnly": True, "note": f"止盈{g['label']}"})
@@ -371,18 +428,33 @@ def execute_intent(intent: dict, *, equity: float, net: str = "testnet", yes: bo
     explicit go) — never auto-fires. Returns the placement receipts. Use testnet first."""
     if not yes:
         raise RuntimeError("execute_intent refuses to fire without yes=True (human approval). Never auto-trade.")
-    receipts = []
+    plan = intent.get("plan", {})
+    hedge = position_mode(net=net, key_env=key_env, secret_env=secret_env, opener=opener) == "hedge"
+    ps = ("LONG" if plan.get("direction") == "long" else "SHORT") if hedge else None
+    filt = symbol_filters(plan.get("symbol", ""), net=net, opener=opener)   # venue precision + min-notional
+    ref = plan.get("ref_price") or 0
+    receipts, placed = [], 0
     for o in build_orders(intent, equity):
+        qty = round(o["quantity"], filt["qty_prec"])
+        px = round(o["price"], filt["price_prec"]) if o.get("price") else None
+        cp = bool(o.get("close_position"))
+        if not cp:                                       # dust filter: below venue min-qty / min-notional -> skip
+            notional = qty * (px or ref or 1)
+            if qty < (filt["min_qty"] or 0) or (filt["min_notional"] and notional < filt["min_notional"]):
+                receipts.append({"note": o["note"] + f" (跳过·名义<${filt['min_notional']:.0f})", "resp": {"skipped": True}})
+                continue
         if o.get("follow"):                              # base: maker-follow re-peg (taker fallback)
-            rec = maker_follow(symbol=o["symbol"], side=o["side"], quantity=o["quantity"], net=net,
-                               key_env=key_env, secret_env=secret_env, opener=opener)
+            rec = maker_follow(symbol=o["symbol"], side=o["side"], quantity=qty, net=net, position_side=ps,
+                               price_prec=filt["price_prec"], key_env=key_env, secret_env=secret_env, opener=opener)
         else:
-            rec = place_order(symbol=o["symbol"], side=o["side"], otype=o["type"], quantity=o["quantity"],
-                              price=o.get("price"), reduce_only=o.get("reduceOnly", False), net=net,
+            rec = place_order(symbol=o["symbol"], side=o["side"], otype=o["type"], quantity=qty, price=px,
+                              reduce_only=(o.get("reduceOnly", False) and not hedge and not cp),
+                              position_side=ps, close_position=cp, net=net,
                               client_order_id=f"{intent.get('id','x')[:24]}-{len(receipts)}",
                               key_env=key_env, secret_env=secret_env, opener=opener)
+        placed += 1
         receipts.append({"note": o["note"], "resp": rec})
-    return {"intent": intent.get("id"), "net": net, "placed": len(receipts), "receipts": receipts}
+    return {"intent": intent.get("id"), "net": net, "placed": placed, "receipts": receipts}
 
 
 def main(argv=None):
