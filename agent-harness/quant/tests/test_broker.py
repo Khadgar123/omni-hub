@@ -37,11 +37,11 @@ def test_read_balance_futures_signed(monkeypatch):
     monkeypatch.setenv("BINANCE_KEY", "k")
     monkeypatch.setenv("BINANCE_SECRET", "s")
     cap = {}
-    op = _opener([{"asset": "USDT", "balance": "1234.5", "availableBalance": "1000.0"}], cap)
+    op = _opener({"totalMarginBalance": "1234.5", "availableBalance": "1000.0", "totalWalletBalance": "1234.5"}, cap)
     bal = broker.read_balance(market="futures", net="testnet", opener=op, now_ms=1)
     assert bal["equity"] == 1234.5 and bal["available"] == 1000.0 and bal["asset"] == "USDT"
     assert "signature=" in cap["url"] and "k" in cap["headers"].values()   # signed + key header
-    assert "testnet.binancefuture.com" in cap["url"]
+    assert "/fapi/v2/account" in cap["url"] and "testnet.binancefuture.com" in cap["url"]
 
 
 def test_read_balance_requires_keys(monkeypatch):

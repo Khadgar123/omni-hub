@@ -99,8 +99,10 @@ def compute_state(paper_path: str, equity0: float = 10000.0, cfg=None, book_path
     cfg = cfg or baseline.BaselineConfig()
     out: dict = {"ts": time.time(), "ready": True, "error": None}
     out["account"] = None                                # real account (directional) — only if a key is set
+    import os as _os
+    out["live_armed"] = _os.environ.get("BROKER_LIVE") == "1"   # one-click real orders ON only if armed
+    out["broker_net"] = _os.environ.get("BROKER_NET")
     try:
-        import os as _os
         from quant import broker as _bk
         net = _os.environ.get("BROKER_NET")                  # explicit opt-in to hit the REAL account
         if net and _bk.creds_available():                    # creds: env vars OR the omni-hub secret store
@@ -201,6 +203,12 @@ def render_panels(state: dict) -> str:
     if not state.get("ready"):
         return f"<p class=load>启动中…首轮拉取实时数据中（{state.get('error') or ''}）</p>"
     parts = []
+    if state.get("live_armed"):
+        bn = state.get("broker_net") or "?"
+        parts.append(f"<div class=card style='border:2px solid #b71c1c;background:#2d0a0a'>"
+                     f"<h2 class=neg>🔴 实盘已武装 · {bn}{'(真钱)' if bn == 'mainnet' else ''} · "
+                     f"「一键实盘下单」会真实下单</h2>"
+                     f"<p class=note>每单仍需你点击+二次确认;系统永不自动下单。停用:不带 BROKER_LIVE=1 重启。</p></div>")
     acc = state.get("account")
     if acc and acc.get("equity") is not None:
         netcls = "neg" if acc.get("net") == "mainnet" else ""
@@ -229,8 +237,13 @@ def render_panels(state: dict) -> str:
                          for e in plan["entries"])
         tgt = " · ".join(f"{g['price']:,.0f}" for g in plan["targets"])
         exp = f"{rem}s 后失效" if rem > 0 else "已过期(不可批)"
+        bnet = state.get("broker_net") or "?"
+        live_btn = (f"<button onclick=\"placeLive('{it['id']}','{bnet}')\" "
+                    f"style='background:#b71c1c;font-weight:bold'>🔴 一键实盘下单({bnet})</button> ") \
+            if state.get("live_armed") and rem > 0 else ""
         btns = (f"<button onclick=\"approve('{it['id']}')\">✅ 批准(paper跟踪)</button> "
-                f"<button onclick=\"execCmd('{it['id']}')\" style='background:#7a1f1f'>🔴 实盘下单命令</button> "
+                f"{live_btn}"
+                f"<button onclick=\"execCmd('{it['id']}')\" style='background:#7a1f1f'>🔴 命令</button> "
                 f"<button onclick=\"editIntent('{it['id']}')\">✎ 改</button> "
                 f"<button onclick=\"reject('{it['id']}')\">✕ 拒绝</button>") if rem > 0 else \
                f"<button onclick=\"reject('{it['id']}')\">清除</button>"
@@ -576,6 +589,45 @@ class _Handler(BaseHTTPRequestHandler):
             except Exception as e:  # noqa: BLE001
                 msg = str(e)
             body = json.dumps({"ok": ok, "msg": msg, "preview": prev, "execute": ex, "path": path}).encode()
+        elif u.path == "/place":
+            # LIVE order placement — fires REAL orders. Triple-gated: BROKER_LIVE=1 (armed at launch) +
+            # confirm=yes (the human's click-through) + BROKER_NET set. NEVER auto-fires on a signal —
+            # only on a deliberate human click. The agent never launches an armed instance.
+            q = parse_qs(u.query)
+            iid = q.get("id", [""])[0]
+            ok, msg, placed, receipts = False, "", 0, []
+            try:
+                import os
+                if os.environ.get("BROKER_LIVE") != "1":
+                    msg = "未武装:面板需以 BROKER_LIVE=1 启动才能一键下实盘(默认关闭,系统不自动交易)"
+                elif q.get("confirm", [""])[0] != "yes":
+                    msg = "需二次确认"
+                elif not os.environ.get("BROKER_NET"):
+                    msg = "未设 BROKER_NET(testnet/mainnet)"
+                else:
+                    from quant import broker as _bk, live as _live, papertrade as _pt
+                    net = os.environ["BROKER_NET"]
+                    ip = getattr(self.server, "intents_path", None)
+                    bp = getattr(self.server, "book_path", None)
+                    tgt = next((x for x in _pt.load_intents(ip) if x.get("id") == iid), None)
+                    if not tgt:
+                        msg = "找不到该委托(可能已过期)"
+                    else:
+                        eq = float(_bk.read_balance(net=net).get("equity", 0) or 0)
+                        res = _bk.execute_intent(tgt, equity=eq, net=net, yes=True)   # human-confirmed click
+                        placed, receipts = res.get("placed", 0), res.get("receipts", [])
+                        with _BOOK_LOCK:                               # track the now-live trade in the book
+                            try:
+                                bars = _live.fetch_candles(tgt["symbol"], tgt["tf"], venue="binance", timeout=10.0)
+                                since = int(bars[-1]["bucket_ts"]) if bars else 0
+                                _pt.approve_intent(ip, bp, iid, since_ts=since)
+                            except Exception:  # noqa: BLE001
+                                pass
+                        print(f"[LIVE ORDER] intent={iid} net={net} placed={placed}")
+                        ok = True
+            except Exception as e:  # noqa: BLE001
+                msg = str(e)
+            body = json.dumps({"ok": ok, "msg": msg, "placed": placed, "receipts": receipts}).encode()
         elif u.path == "/create_intent":
             q = parse_qs(u.query)
             ok, msg = False, ""
@@ -757,6 +809,15 @@ function execCmd(id){fetch('/exec_cmd?id='+encodeURIComponent(id)).then(r=>r.jso
     '<div class=note style="color:#f85149">② 确认无误→实盘下单(测试网·复制到你终端按回车=你的最终确认):</div>'+
     '<textarea readonly rows=2 style="width:99%;font-family:monospace" onclick="this.select()">'+d.execute+'</textarea>'+
     '<div class=note>需先 export BINANCE_KEY/BINANCE_SECRET(交易权限)。系统只生成命令,永不替你按回车。</div>';});}
+function placeLive(id,net){
+  if(!confirm('⚠️ 一键实盘下单到 '+net+'('+(net=='mainnet'?'真钱!':'测试网')+')\n执行:基础仓(maker跟价)+埋伏限价+止损+止盈。确认?'))return;
+  var box=g('execbox_'+id); if(box){box.style.display='block';box.innerHTML='<span class=note>下单中…</span>';}
+  fetch('/place?id='+encodeURIComponent(id)+'&confirm=yes').then(r=>r.json()).then(function(d){
+    if(!box)return; box.style.display='block';
+    if(!d.ok){box.innerHTML='<span class=neg>✗ '+(d.msg||'失败')+'</span>';return;}
+    var rows=(d.receipts||[]).map(function(x){return '<div class=note>✓ '+(x.note||'')+': '+JSON.stringify(x.resp)+'</div>';}).join('');
+    box.innerHTML='<div class=pos>✅ 已下 '+(d.placed||0)+' 单到 '+net+'</div>'+rows;
+    setTimeout(function(){tick(true);},600);});}
 function reject(id){fetch('/reject?id='+encodeURIComponent(id)).then(()=>setTimeout(()=>tick(true),300));}
 function g(id){return document.getElementById(id);}
 function createIntent(){var p=new URLSearchParams({symbol:sym,dir:g('of_dir').value,entry:g('of_entry').value,stop:g('of_stop').value,t1:g('of_t1').value,t2:g('of_t2').value,size:g('of_size').value});

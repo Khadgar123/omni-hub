@@ -22,6 +22,7 @@ def test_render_loading_and_shell():
     assert "data-tf=1h" not in shell                              # 1h dropped
     assert "function approve" in shell and "function reject" in shell   # approval flow JS
     assert "function execCmd" in shell                                  # 🔴 generate-broker-command JS
+    assert "function placeLive" in shell                                # 🔴 one-click live-order JS (gated)
     assert "of_entry" in shell and "function createIntent" in shell      # fill-in order form
     assert "function autoIntent" in shell and "of_tf" in shell and "自动设计挂单" in shell   # per-TF auto-design
     assert "cb_sr" in shell                                              # S/R declutter toggle
@@ -86,7 +87,8 @@ def test_render_full_board():
                          "remaining_sec": 300}]
     html = dashboard.render_panels(state)
     assert "待批准" in html and "批准" in html and "卖×5墙" in html   # pending intent panel + approve
-    assert "实盘下单命令" in html and "execbox_intent-1" in html      # 🔴 generate-broker-command button + box
+    assert "execCmd('intent-1')" in html and "execbox_intent-1" in html   # 🔴 generate-broker-command button + box
+    assert "一键实盘下单" not in html                                # disarmed state (no live_armed) -> no live button
     assert "真实账户 · 未连接" in html                                # account hint when no key set
     assert "更新" in html and "e_stop_" in html                      # inline-editable values before approve
     assert "净值" in html and "$10,100" in html
@@ -101,3 +103,24 @@ def test_render_full_board():
     assert "开仓均价" in html and "浮盈" in html                       # Binance-style position panel
     assert "止损→保本" in html and "立即平仓" in html and "更新止盈止损" in html   # dynamic TP/SL + close
     assert "pnl_BTCUSDC-5m-1" in html                                # 1s live-PnL element hook
+
+
+def _pending_state(**extra):
+    base = {"ready": True, "ts": 1, "error": None,
+            "intents": [{"intent": {"id": "intent-9", "symbol": "BTCUSDC", "tf": "5m", "note": "t",
+                                    "created_ts": 1,
+                                    "plan": {"direction": "short", "stop": 67400.0, "disaster_stop": 67600.0,
+                                             "entries": [{"price": 67090.0, "size_frac": 1.0, "role": "entry",
+                                                          "label": "x"}],
+                                             "targets": [{"price": 64975.0, "size_frac": 1.0, "role": "final",
+                                                          "label": "T"}], "size_cap_frac": 0.2}},
+                         "remaining_sec": 300}]}
+    base.update(extra)
+    return base
+
+
+def test_live_fire_button_only_when_armed():
+    armed = dashboard.render_panels(_pending_state(live_armed=True, broker_net="mainnet"))
+    assert "实盘已武装" in armed and "一键实盘下单(mainnet)" in armed     # armed banner + live button present
+    safe = dashboard.render_panels(_pending_state(live_armed=False, broker_net="mainnet"))
+    assert "实盘已武装" not in safe and "一键实盘下单" not in safe         # disarmed -> NO live button, command-only

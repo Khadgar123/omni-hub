@@ -130,11 +130,13 @@ def read_balance(*, market: str = "futures", net: str = "testnet", key_env: str 
     """Account balance/equity. Futures: USDT/USDC wallet balance + available. Spot: nonzero free assets.
     READ-only (a read key suffices). Returns ``{equity, available, asset, market, net}`` (futures)."""
     key, secret = _creds(key_env, secret_env)
-    if market == "futures":
-        data = _signed(FAPI[net], "/fapi/v2/balance", {}, key=key, secret=secret, opener=opener, now_ms=now_ms)
-        row = next((x for x in data if x.get("asset") in ("USDT", "USDC")), data[0] if data else {})
-        return {"equity": float(row.get("balance", 0) or 0), "available": float(row.get("availableBalance", 0) or 0),
-                "asset": row.get("asset"), "market": "futures", "net": net}
+    if market == "futures":                                  # account-level totals (no per-asset row ambiguity)
+        data = _signed(FAPI[net], "/fapi/v2/account", {}, key=key, secret=secret, opener=opener, now_ms=now_ms)
+        return {"equity": float(data.get("totalMarginBalance", 0) or 0),
+                "available": float(data.get("availableBalance", 0) or 0),
+                "wallet": float(data.get("totalWalletBalance", 0) or 0),
+                "upnl": float(data.get("totalUnrealizedProfit", 0) or 0),
+                "asset": "USDT", "market": "futures", "net": net}
     data = _signed(SPOT[net], "/api/v3/account", {}, key=key, secret=secret, opener=opener, now_ms=now_ms)
     bals = {b["asset"]: float(b["free"]) for b in data.get("balances", []) if float(b.get("free", 0)) > 0}
     return {"balances": bals, "market": "spot", "net": net}
