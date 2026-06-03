@@ -233,3 +233,46 @@ def exhaustion(bars: Sequence[dict], *, core: int = 4, qual: int = 6, length: in
             out.append({"idx": i, "ts": ts, "kind": "bottom", "run": sindex})
             sindex = 0
     return out
+
+
+def order_blocks(bars: Sequence[dict], *, left: int = 2, right: int = 2, lookback: int = 12,
+                 merge_pct: float = 0.004) -> list[dict]:
+    """Demand / supply zones (SMC "order blocks") — the candle ORIGIN of a structure
+    break, where institutional orders sat. Far better entry geometry than a round
+    number or a bare swing: a *zone* with a defended distal edge for the stop.
+
+    A bullish (demand) OB = the last DOWN candle (close<open) in the ``lookback``
+    bars before a close-confirmed BOS/CHoCH **up** (the move that broke structure
+    originated from there). Supply = mirror before a break down. The zone is the
+    full candle range ``[lo, hi]``; the WICK (``lo`` for demand) is the
+    invalidation edge a no-fakeout stop sits beyond.
+
+    Causal: a zone is only emitted at its ``confirmed_idx`` (the break bar), never
+    before. Overlapping same-kind zones within ``merge_pct`` collapse to the
+    FRESHEST (latest confirmed). Returns zones sorted by ``confirmed_idx``, each
+    ``{kind, lo, hi, mid, origin_idx, confirmed_idx, ts, bos_level}``.
+    """
+    ms = market_structure(bars, left=left, right=right)
+    h, low_, c = highs(bars), lows(bars), closes(bars)
+    o = [float(b["open"]) for b in bars]
+    raw: list[dict] = []
+    for ev in ms:
+        i = ev["idx"]
+        up = ev["dir"] == "up"
+        j = next((k for k in range(i - 1, max(-1, i - lookback - 1), -1)
+                  if (c[k] < o[k]) == up), None)         # last opposite-color candle
+        if j is None:
+            continue
+        lo, hi = low_[j], h[j]
+        raw.append({"kind": "demand" if up else "supply", "lo": lo, "hi": hi,
+                    "mid": 0.5 * (lo + hi), "origin_idx": j, "confirmed_idx": i,
+                    "ts": int(bars[i].get("bucket_ts", 0)), "bos_level": ev["level"]})
+    # collapse overlapping same-kind zones to the freshest (latest confirmed_idx wins)
+    kept: list[dict] = []
+    for z in sorted(raw, key=lambda x: -x["confirmed_idx"]):
+        if any(zz["kind"] == z["kind"] and abs(zz["mid"] - z["mid"]) <= merge_pct * z["mid"]
+               for zz in kept):
+            continue
+        kept.append(z)
+    kept.sort(key=lambda x: x["confirmed_idx"])
+    return kept
