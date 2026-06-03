@@ -122,6 +122,20 @@ def _pending_state(**extra):
     return base
 
 
+def test_real_account_positions_and_orders_panel():
+    state = {"ready": True, "ts": 1, "error": None, "broker_net": "mainnet", "live_armed": True,
+             "real_positions": [{"symbol": "BTCUSDC", "qty": -0.01, "entry": 67000.0, "mark": 66900.0,
+                                 "uPnl": 1.0, "leverage": 10}],
+             "real_orders": [{"symbol": "BTCUSDC", "side": "SELL", "type": "LIMIT", "price": 68000.0,
+                              "qty": 0.02, "orderId": 55, "clientOrderId": "x"}]}
+    html = dashboard.render_panels(state)
+    assert "真实账户 · 持仓 + 委托" in html                              # the REAL exchange panel renders
+    assert "BTCUSDC 空" in html and "closeReal('BTCUSDC')" in html       # real position + one-click close
+    assert "委托(挂单)" in html and "cancelOrder('BTCUSDC',55)" in html   # real open order + cancel
+    # not connected -> panel absent
+    assert "真实账户 · 持仓 + 委托" not in dashboard.render_panels({"ready": True, "ts": 1, "error": None})
+
+
 def test_live_fire_button_only_when_armed():
     armed = dashboard.render_panels(_pending_state(live_armed=True, broker_net="mainnet"))
     assert "🔴武装" in armed and "一键下单(mainnet)" in armed             # compact armed indicator + live button

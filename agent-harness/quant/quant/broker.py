@@ -296,6 +296,14 @@ def cancel_all(symbol: str, *, net: str = "testnet", key_env: str = "BINANCE_KEY
                  method="DELETE", opener=opener, now_ms=now_ms)
 
 
+def cancel_order(symbol: str, order_id, *, net: str = "testnet", key_env: str = "BINANCE_KEY",
+                 secret_env: str = "BINANCE_SECRET", opener=None, now_ms=None) -> dict:
+    """Cancel ONE resting order by id (DELETE /fapi/v1/order)."""
+    key, secret = _creds(key_env, secret_env)
+    return _call("futures", net, "/fapi/v1/order", {"symbol": symbol, "orderId": order_id}, key=key,
+                 secret=secret, method="DELETE", opener=opener, now_ms=now_ms)
+
+
 def set_leverage(symbol: str, leverage: int, *, net: str = "testnet", key_env: str = "BINANCE_KEY",
                  secret_env: str = "BINANCE_SECRET", opener=None, now_ms=None) -> dict:
     """Set the futures leverage for a symbol (POST /fapi/v1/leverage)."""

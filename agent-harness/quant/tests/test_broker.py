@@ -169,6 +169,14 @@ def test_close_position_guarantees_flat(monkeypatch):
     assert res["closed"] and res["remaining"] == 0.0 and st["closed"]
 
 
+def test_cancel_order_payload(monkeypatch):
+    monkeypatch.setenv("BINANCE_KEY", "k")
+    monkeypatch.setenv("BINANCE_SECRET", "s")
+    cap = {}
+    broker.cancel_order("BTCUSDC", 123, net="mainnet", opener=_opener({"orderId": 123}, cap))
+    assert "orderId=123" in cap["url"] and "symbol=BTCUSDC" in cap["url"] and cap["method"] == "DELETE"
+
+
 def test_set_leverage_payload(monkeypatch):
     monkeypatch.setenv("BINANCE_KEY", "k")
     monkeypatch.setenv("BINANCE_SECRET", "s")

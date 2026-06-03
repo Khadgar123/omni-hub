@@ -99,6 +99,7 @@ def compute_state(paper_path: str, equity0: float = 10000.0, cfg=None, book_path
     cfg = cfg or baseline.BaselineConfig()
     out: dict = {"ts": time.time(), "ready": True, "error": None}
     out["account"] = None                                # real account (directional) — only if a key is set
+    out["real_positions"], out["real_orders"] = [], []   # REAL exchange positions + open orders (when connected)
     import os as _os
     out["live_armed"] = _os.environ.get("BROKER_LIVE") == "1"   # one-click real orders ON only if armed
     out["broker_net"] = _os.environ.get("BROKER_NET")
@@ -116,6 +117,14 @@ def compute_state(paper_path: str, equity0: float = 10000.0, cfg=None, book_path
             else:
                 out["account"] = {"equity": bal.get("equity"), "available": bal.get("available"),
                                   "asset": bal.get("asset"), "net": net, "market": "futures"}
+                try:                                         # the REAL fills/orders behind that balance change
+                    out["real_positions"] = _bk.read_positions(net=net)
+                except Exception:  # noqa: BLE001
+                    pass
+                try:
+                    out["real_orders"] = _bk.read_open_orders(net=net)
+                except Exception:  # noqa: BLE001
+                    pass
     except Exception as e:  # noqa: BLE001
         out["account"] = {"error": str(e)}
     try:
@@ -272,7 +281,8 @@ def render_panels(state: dict) -> str:
             f"{edit}<div class=ord>{btns}</div>"
             f"<div id=execbox_{iid} style='display:none;margin-top:6px'></div></div>")
 
-    parts.append(_positions_html(state))                 # OPEN positions — right below the 批准下单 panel
+    parts.append(_real_account_html(state))              # REAL exchange 持仓+委托 (source of truth) — when connected
+    parts.append(_positions_html(state))                 # paper-sim tracking — below the 批准下单 panel
 
     # MTF trend-alignment summary (top)
     al = []
@@ -352,6 +362,41 @@ def render_panels(state: dict) -> str:
     if state.get("error"):
         parts.append(f"<div class=card><p class=neg>部分数据失败: {state['error']}</p></div>")
     return "".join(parts)
+
+
+def _real_account_html(state):
+    """REAL exchange positions + open orders — the source of truth behind the balance change. Shown when
+    connected (BROKER_NET set). Each position gets a real 平仓, each resting order a cancel (when armed)."""
+    if not state.get("broker_net"):
+        return ""
+    pos = state.get("real_positions") or []
+    orders = state.get("real_orders") or []
+    armed = state.get("live_armed")
+    body = []
+    if pos:
+        pr = []
+        for p in pos:
+            long = p["qty"] > 0
+            col = "#3fb950" if long else "#f85149"
+            close = f"<button class=fire onclick=\"closeReal('{p['symbol']}')\">平仓</button>" if armed else ""
+            pr.append(f"<div class=ord><b style='color:{col}'>{p['symbol']} {'多' if long else '空'}</b> "
+                      f"{abs(p['qty'])}币 开{p['entry']:,.1f} 标{p['mark']:,.1f} "
+                      f"<span class={'pos' if p['uPnl'] >= 0 else 'neg'}>{p['uPnl']:+.2f}U</span> "
+                      f"{p['leverage']:.0f}× {close}</div>")
+        body.append("<div class=note>持仓</div>" + "".join(pr))
+    else:
+        body.append("<div class=note>持仓: 无</div>")
+    if orders:
+        orr = []
+        for o in orders:
+            cx = f"<button onclick=\"cancelOrder('{o['symbol']}',{o['orderId']})\">✕</button>" if armed else ""
+            px = f"{o['price']:,.1f}" if o.get("price") else "市价"
+            orr.append(f"<div class=ord><span>{o['symbol']} {o['side']} {o['type']} @{px} ×{o['qty']}</span>{cx}</div>")
+        body.append("<div class=note>委托(挂单)</div>" + "".join(orr))
+    else:
+        body.append("<div class=note>委托: 无</div>")
+    return (f"<div class='card tile' style='border:1px solid #d29922'>"
+            f"<h2>📋 真实账户 · 持仓 + 委托</h2>{''.join(body)}</div>")
 
 
 def _positions_html(state):
@@ -549,6 +594,27 @@ class _Handler(BaseHTTPRequestHandler):
                 body = json.dumps({"ok": True}).encode()
             except Exception as e:  # noqa: BLE001
                 body = json.dumps({"ok": False, "msg": str(e)}).encode()
+        elif u.path == "/cancel_order":
+            # cancel ONE resting order. Gated: BROKER_LIVE=1 + confirm + BROKER_NET.
+            q = parse_qs(u.query)
+            sym, oid = q.get("symbol", [""])[0], q.get("orderId", [""])[0]
+            ok, msg = False, ""
+            try:
+                import os
+                if os.environ.get("BROKER_LIVE") != "1":
+                    msg = "未武装(BROKER_LIVE=1)"
+                elif q.get("confirm", [""])[0] != "yes":
+                    msg = "需确认"
+                elif not os.environ.get("BROKER_NET"):
+                    msg = "未设 BROKER_NET"
+                else:
+                    from quant import broker as _bk
+                    _bk.cancel_order(sym, int(oid), net=os.environ["BROKER_NET"])
+                    print(f"[CANCEL] {sym} #{oid}")
+                    ok = True
+            except Exception as e:  # noqa: BLE001
+                msg = str(e)
+            body = json.dumps({"ok": ok, "msg": msg}).encode()
         elif u.path == "/close_real":
             # GUARANTEED real close (market reduceOnly, retried until flat). Gated: BROKER_LIVE=1 + confirm.
             q = parse_qs(u.query)
@@ -939,6 +1005,8 @@ function editIntent(id){var t=(lastState.intents||[]).find(x=>x.intent.id===id);
 function mod(id,a){fetch('/modify?id='+encodeURIComponent(id)+'&action='+a).then(()=>setTimeout(()=>tick(true),200));}
 function modstop(id){var v=document.getElementById('s_'+id).value;if(v)fetch('/modify?id='+encodeURIComponent(id)+'&action=stop&value='+encodeURIComponent(v)).then(()=>setTimeout(()=>tick(true),200));}
 function modtp(id,sym){var p=new URLSearchParams({id:id,stop:g('m_stop_'+id).value,t1:g('m_t1_'+id).value,t2:g('m_t2_'+id).value,lev:g('m_lev_'+id).value,sym:sym||''});fetch('/modtp?'+p.toString()).then(()=>setTimeout(()=>tick(true),300));}
+function cancelOrder(sym,oid){if(!confirm('撤掉委托 '+sym+' #'+oid+'?'))return;
+ fetch('/cancel_order?symbol='+encodeURIComponent(sym)+'&orderId='+oid+'&confirm=yes').then(r=>r.json()).then(function(d){if(!d.ok)alert('✗ '+(d.msg||'失败'));setTimeout(()=>tick(true),400);});}
 function closeReal(sym){if(!confirm('🔴 实盘平仓 '+sym+'(市价 reduceOnly,重试至持仓归零)。确认?'))return;
  fetch('/close_real?symbol='+encodeURIComponent(sym)+'&confirm=yes').then(r=>r.json()).then(function(d){alert(d.ok?('✅ 已平仓 '+sym):('✗ '+(d.msg||'失败')));setTimeout(()=>tick(true),500);});}
 function livePnl(){var sd=(lastState.symbols||{}); for(var s in sd){} (lastState.trades||[]).forEach(function(t){if(t.trade.symbol!==sym)return;var st=t.state||{};if(st.status!=='active'||!st.avg||!st.position)return;var sign=t.trade.plan.direction==='short'?-1:1;var px=window._lastClose||st.mark||st.avg;var r=sign*(px-st.avg)/(t.trade.plan.risk_dist||1)*st.position;var pct=(t.trade.plan.size_cap_frac||0)*sign*(px-st.avg)/st.avg*100;var el=document.getElementById('pnl_'+t.trade.id);if(el){el.innerHTML='<b>'+r.toFixed(2)+'R</b> '+(pct>=0?'+':'')+pct.toFixed(1)+'%';el.className=(r>=0?'pos':'neg');}});}
