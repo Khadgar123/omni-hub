@@ -112,13 +112,41 @@ def test_modify_trade_trails_stop(tmp_path):
     book = str(tmp_path / "b.json")
     pt.record_trade(book, _long_managed_plan(), symbol="X", tf="5m", since_ts=10, note="t")
     tid = pt.load_book(book)[0]["id"]
-    pt.modify_trade(book, tid, stop=101.0)                              # trail stop up to lock profit
+    pt.modify_trade(book, tid, stop=101.0, targets=[{"price": 108.0, "size_frac": 1.0, "role": "final", "label": "T"}])
     tr = pt.load_book(book)[0]
-    assert tr["overrides"]["stop"] == 101.0
+    assert tr["plan"]["stop"] == 101.0 and tr["plan"]["final_target"] == 108.0   # written to plan (single source)
     bars = [{"open": 100, "high": 100.5, "low": 99.8, "close": 100, "bucket_ts": 10},
             {"open": 100, "high": 102, "low": 99.5, "close": 99.6, "bucket_ts": 11}]   # close 99.6 <= 101
     st = pt.advance_trade(tr, bars)
     assert st["status"] == "stopped" and st["realized_r"] > 0           # stopped @101 = locked +profit
+
+
+def test_advance_follow_base_fills_at_market(tmp_path):
+    from quant.execution import OrderLeg, OrderPlan
+    plan = OrderPlan(asof=0, symbol="X", direction="long", conviction=0.5, ref_price=100.0, atr=2.0,
+                     entries=[OrderLeg(99.0, 1.0, "entry", "base", follow=True)], stop=96.0, stop_kind="x",
+                     risk_dist=4.0, targets=[OrderLeg(110.0, 1.0, "final", "T")], final_target=110.0, rr=2.5,
+                     size_cap_frac=1.0, mandatory_stop_rule="", mandatory_tp_rule="", rationale="",
+                     manage_style="runner", disaster_stop=92.0, maker_bps=0.0).to_dict()
+    trade = {"id": "t", "symbol": "X", "tf": "5m", "since_ts": 10, "plan": plan, "overrides": {}}
+    bars = [{"open": 100, "high": 100.5, "low": 99.8, "close": 100.2, "bucket_ts": 10}]  # never dips to 99
+    st = pt.advance_trade(trade, bars)
+    assert 0 in st["filled"] and st["position"] == 1.0   # base filled despite NOT touching the 99 limit
+    assert abs(st["avg"] - 100.2) < 0.01                 # filled at market (close), the follow chased
+
+
+def test_pending_intent_emit_approve_reject(tmp_path):
+    ip, bp = str(tmp_path / "intents.json"), str(tmp_path / "book.json")
+    plan = _long_managed_plan()
+    iid = pt.emit_pending(ip, plan, symbol="X", tf="5m", created_ts=100, note="t", ttl_sec=600)
+    assert len(pt.load_intents(ip)) == 1 and pt.load_intents(ip)[0]["status"] == "pending"
+    iid2 = pt.emit_pending(ip, plan, symbol="Y", tf="5m", created_ts=101, note="t2")
+    pt.reject_intent(ip, iid2)                                  # reject removes it
+    assert all(x["id"] != iid2 for x in pt.load_intents(ip))
+    tid = pt.approve_intent(ip, bp, iid, since_ts=200)         # approve -> trade book + removed from intents
+    assert pt.load_book(bp)[0]["id"] == tid
+    assert pt.load_book(bp)[0]["since_ts"] == 200
+    assert all(x["id"] != iid for x in pt.load_intents(ip))
 
 
 def test_save_load_roundtrip(tmp_path):

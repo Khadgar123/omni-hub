@@ -213,3 +213,28 @@ def test_wall_entries_rest_on_real_liquidity():
     assert [e.price for e in entries] == [64500.0, 63000.0, 61500.0]    # ON the walls, nearest-first
     assert entries[-1].size_frac > entries[0].size_frac                # deeper-weighted
     assert distal == 61500.0
+
+
+def test_manual_plan_from_entered_levels():
+    p = execution.manual_plan("BTCUSDC", "short", entry=67000, stop=67300, targets=[66000, 64000], size=0.2)
+    assert p.direction == "short" and p.entries[0].price == 67000.0
+    assert p.stop == 67300.0 and p.risk_dist == 300.0
+    assert len(p.targets) == 2 and p.final_target == 64000.0
+    assert p.disaster_stop > p.stop                    # short: disaster sits ABOVE the stop
+    assert p.size_cap_frac == 0.2
+    assert p.rr == pytest.approx(10.0, abs=0.1)        # (67000-64000)/300
+    # a long mirrors
+    pl = execution.manual_plan("BTCUSDC", "long", entry=67000, stop=66700, targets=[68000], size=0.1)
+    assert pl.disaster_stop < pl.stop                  # long: disaster BELOW the stop
+
+
+def test_auto_plan_per_timeframe():
+    bars = _bars(_wave())
+    p = execution.auto_plan("BTCUSDC", "5m", bars)     # direction=None -> inferred from regime
+    assert p.direction in ("long", "short", "flat") and p.follow is True
+    assert "5m" in p.rationale
+    if p.entries:
+        assert p.entries[0].follow is True             # proximal entry = the base (maker-follow)
+        assert all(not e.follow for e in p.entries[1:])  # deeper tranches are passive 埋伏 limits
+    p2 = execution.auto_plan("BTCUSDC", "4h", bars, direction="short", follow=False)
+    assert p2.direction == "short" and p2.follow is False and len(p2.entries) == 3

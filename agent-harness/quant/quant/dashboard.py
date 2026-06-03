@@ -30,7 +30,7 @@ def tf_analysis(symbol, tfs=("1m", "5m", "30m", "4h", "1d"), *, venue="binance",
     from quant import levels, live, regime
     from quant.features import atr as _atr
 
-    out, bars_4h = {}, None
+    out, bars_4h, by_tf, ref = {}, None, {}, 0.0
     for tf in tfs:
         try:
             bars = live.fetch_candles(symbol, tf, venue=venue, opener=opener, timeout=timeout)
@@ -45,11 +45,24 @@ def tf_analysis(symbol, tfs=("1m", "5m", "30m", "4h", "1d"), *, venue="binance",
         except Exception:
             trend = "?"
         scored = levels.scored_levels(bars, atr=a) if len(bars) > 20 else []
+        by_tf[tf] = scored
         sup = sorted((L["price"] for L in scored if L["price"] < ref), reverse=True)[:3]
         res = sorted(L["price"] for L in scored if L["price"] > ref)[:3]
         out[tf] = {"trend": trend, "ref": round(ref, 2), "atr": round(a, 2),
                    "supports": [round(x, 2) for x in sup], "resistances": [round(x, 2) for x in res]}
-    return out, bars_4h
+    # cross-TF confluence: merge levels that OVERLAP across timeframes -> one line, scored by
+    # Σ tf_weight·strength. n_tf≥2 = a key level (multiple levels agree); keep the few strongest
+    # near price so the chart isn't dense.
+    conf = []
+    if by_tf and ref:
+        tfw = {"1m": 0.4, "5m": 0.6, "30m": 1.0, "4h": 1.5, "1d": 2.0}
+        zones = levels.confluence(by_tf, tf_weight=tfw, merge_pct=0.0035)
+        near = [z for z in zones if abs(z["price"] / ref - 1) <= 0.045 and abs(z["price"] - ref) > 1e-6]
+        for z in sorted(near, key=lambda x: -x["confluence_score"])[:6]:
+            conf.append({"price": round(z["price"], 2), "n_tf": z["n_tf"], "tfs": z["tfs"],
+                         "score": round(z["confluence_score"], 2),
+                         "side": "res" if z["price"] > ref else "sup", "key": z["n_tf"] >= 2})
+    return out, bars_4h, conf
 
 
 def mtf_alignment(levels: dict) -> dict:
@@ -78,13 +91,24 @@ def mtf_alignment(levels: dict) -> dict:
     return {"score": round(score, 2), "direction": direction, "agree": agree, "n": n, "label": label}
 
 
-def compute_state(paper_path: str, equity0: float = 10000.0, cfg=None, book_path=None) -> dict:
+def compute_state(paper_path: str, equity0: float = 10000.0, cfg=None, book_path=None, intents_path=None) -> dict:
     """Pull live data, advance the paper basket, assemble the full board. Each block is
     independently guarded so one venue hiccup can't blank the whole page."""
     from quant import baseline, exdata, execution, live, papertrade
 
     cfg = cfg or baseline.BaselineConfig()
     out: dict = {"ts": time.time(), "ready": True, "error": None}
+    out["account"] = None                                # real account (directional) — only if a key is set
+    try:
+        import os as _os
+        if _os.environ.get("BINANCE_KEY"):
+            from quant import broker as _bk
+            net = _os.environ.get("BROKER_NET", "testnet")
+            bal = _bk.read_balance(market="futures", net=net)
+            out["account"] = {"equity": bal.get("equity"), "available": bal.get("available"),
+                              "asset": bal.get("asset"), "net": net}
+    except Exception as e:  # noqa: BLE001
+        out["account"] = {"error": str(e)}
     try:
         st = papertrade.load_state(paper_path, inception_equity=equity0)
         now = time.time()
@@ -101,8 +125,8 @@ def compute_state(paper_path: str, equity0: float = 10000.0, cfg=None, book_path
     out["symbols"] = {}
     for sym in ("BTCUSDC", "ETHUSDC"):                # BTC + ETH, each: levels + alignment + board + plans
         try:
-            tf, bars4h = tf_analysis(sym)
-            entry = {"levels": tf, "alignment": mtf_alignment(tf)}
+            tf, bars4h, conf = tf_analysis(sym)
+            entry = {"levels": tf, "alignment": mtf_alignment(tf), "key_levels": conf}
             if bars4h:
                 entry["plan_long"] = execution.build_order_plan(sym, "long", 0.55, bars4h, rr=5.0).to_dict()
                 entry["plan_short"] = execution.build_order_plan(sym, "short", 0.55, bars4h, rr=5.0).to_dict()
@@ -135,13 +159,23 @@ def compute_state(paper_path: str, equity0: float = 10000.0, cfg=None, book_path
                 papertrade._save_book(book_path, book)
     except Exception as e:  # noqa: BLE001
         out["trades_error"] = str(e)
+    out["intents"] = []                              # pending order intents awaiting approval
+    try:
+        now = time.time()
+        for it in (papertrade.load_intents(intents_path) if intents_path else []):
+            if it.get("status") != "pending":
+                continue
+            out["intents"].append({"intent": it,
+                                   "remaining_sec": int(it.get("ttl_sec", 600) - (now - it.get("created_ts", now)))})
+    except Exception as e:  # noqa: BLE001
+        out["intents_error"] = str(e)
     return out
 
 
-def _refresher(paper_path, equity0, refresh, book_path):
+def _refresher(paper_path, equity0, refresh, book_path, intents_path):
     while True:
         try:
-            s = compute_state(paper_path, equity0, book_path=book_path)
+            s = compute_state(paper_path, equity0, book_path=book_path, intents_path=intents_path)
         except Exception as e:  # noqa: BLE001
             s = {"ready": False, "error": str(e), "ts": time.time()}
         with _LOCK:
@@ -160,6 +194,45 @@ def render_panels(state: dict) -> str:
     if not state.get("ready"):
         return f"<p class=load>启动中…首轮拉取实时数据中（{state.get('error') or ''}）</p>"
     parts = []
+    acc = state.get("account")
+    if acc and acc.get("equity") is not None:
+        parts.append(f"<div class=card style='border:1px solid #d29922'><h2>💰 真实账户({acc.get('net')}) · 方向交易用</h2>"
+                     f"<p class=big>余额 ${acc['equity']:,.2f} {acc.get('asset','')} · 可用 ${acc.get('available',0):,.2f}</p>"
+                     f"<p class=note>实时拉取(只读key)。baseline 用 paper;方向单按这个余额定仓位($金额)。</p></div>")
+    elif acc and acc.get("error"):
+        parts.append(f"<div class=card><p class=note>真实账户未接(设 BINANCE_KEY/BINANCE_SECRET + "
+                     f"BROKER_NET=testnet 即显示真实余额): {str(acc['error'])[:90]}</p></div>")
+    parts.append(_positions_html(state))                 # OPEN positions first (right under the chart)
+
+    # 待批准 pending intents (top, right under the chart) — drawn on the chart too
+    for t in (state.get("intents") or []):
+        it = t["intent"]
+        plan = it["plan"]
+        rem = t.get("remaining_sec", 0)
+        side = "空" if plan["direction"] == "short" else "多"
+        ent = " · ".join(f"{'⚡基础' if e.get('follow') else '埋伏'}{e['size_frac']*100:.0f}%@{e['price']:,.0f}"
+                         for e in plan["entries"])
+        tgt = " · ".join(f"{g['price']:,.0f}" for g in plan["targets"])
+        exp = f"{rem}s 后失效" if rem > 0 else "已过期(不可批)"
+        btns = (f"<button onclick=\"approve('{it['id']}')\">✅ 批准</button> "
+                f"<button onclick=\"editIntent('{it['id']}')\">✎ 改</button> "
+                f"<button onclick=\"reject('{it['id']}')\">✕ 拒绝</button>") if rem > 0 else \
+               f"<button onclick=\"reject('{it['id']}')\">清除</button>"
+        tlist = plan.get("targets", [])
+        t1v = f"{tlist[0]['price']:.0f}" if tlist else ""
+        t2v = f"{tlist[-1]['price']:.0f}" if len(tlist) > 1 else ""
+        edit = (f"<div class=note style='margin:4px 0'>改数值→批: 止损<input id=e_stop_{it['id']} size=7 "
+                f"value='{plan['stop']:.0f}'> T1<input id=e_t1_{it['id']} size=7 value='{t1v}'> "
+                f"T2<input id=e_t2_{it['id']} size=7 value='{t2v}'> 仓位×<input id=e_size_{it['id']} size=4 "
+                f"value='{plan.get('size_cap_frac',0.15)}'> <button onclick=\"updateIntent('{it['id']}')\">更新</button></div>")
+        parts.append(
+            f"<div class=card style='border:1px solid #a371f7'><h2>⏳ 待批准 · {it['symbol']} 做{side} "
+            f"[{it.get('note','')}]</h2>"
+            f"<p>入场(图上紫虚线): {ent} &nbsp; 成交: "
+            f"{'maker跟随(没成交自动跟价,免taker)' if plan.get('follow') else '限价埋伏'}"
+            f"<br>⛔ 止损 {plan['stop']:,.0f} · 硬 {plan.get('disaster_stop',0):,.0f} "
+            f"&nbsp; 🎯 目标 {tgt} &nbsp; 仓位 {plan.get('size_cap_frac','?')}× &nbsp; R:R {plan.get('rr','?')}</p>"
+            f"{edit}<p class=note>{exp} · 批准→broker 执行(实盘需你这一下;paper 直接成交并跟踪)</p>{btns}</div>")
 
     # MTF trend-alignment summary (top)
     al = []
@@ -203,42 +276,7 @@ def render_panels(state: dict) -> str:
                      f"<div><b class=neg>做空(最弱)</b><table>{S}</table></div></div>"
                      f"<p class=note>赌'强者继续强于弱者',不赌大盘涨跌。这就是 paper 在跑的策略。</p></div>")
 
-    # discretionary trades — stateful: 持仓/委托 split, auto-breakeven stop, quick TP/SL edit
-    _st = {"active": "🟢持仓中", "stopped": "⛔已止损", "target": "✅已止盈",
-           "disaster": "❌硬止损", "closed": "⬛已平"}
-    for t in (state.get("trades") or []):
-        tr, st, bd = t["trade"], t.get("state", {}), t.get("breakdown", [])
-        plan = tr["plan"]
-        tid = tr.get("id", "")
-        side = "空" if plan["direction"] == "short" else "多"
-        status = st.get("status", "active")
-        r = st.get("total_r", 0) or 0.0
-        held = [e for e in bd if e["filled"]]
-        pend = [e for e in bd if not e["filled"]]
-        hrows = "".join(_row([f"{e['size_frac']*100:.0f}%", f"{e['price']:,.2f}", e["label"]]) for e in held) \
-            or "<tr><td colspan=3>—</td></tr>"
-        prows = "".join(_row([f"{e['size_frac']*100:.0f}%", f"{e['price']:,.2f}", e["label"]]) for e in pend) \
-            or "<tr><td colspan=3>无</td></tr>"
-        avg = st.get("avg")
-        avg_s = f"{avg:,.2f}" if avg else "—"
-        astop = st.get("active_stop", plan["stop"])
-        be = " 🔒已保本" if st.get("be_done") else ""
-        mark_s = f"{t['mark']:,.2f}" if t.get("mark") else "—"
-        btns = ("" if status != "active" else
-                f"<div class=note>快速改: <button onclick=\"mod('{tid}','breakeven')\">止损→保本</button>"
-                f" <input id='s_{tid}' size=8 placeholder='新止损价'>"
-                f"<button onclick=\"modstop('{tid}')\">改止损</button>"
-                f" <button onclick=\"mod('{tid}','close')\">立即平仓</button></div>")
-        parts.append(
-            f"<div class=card><h2>📝 {tr['symbol']} 做{side} [{tr.get('note','')}] · "
-            f"<span class={'pos' if r > 0 else 'neg'}>{_st.get(status, status)} {r:+.2f}R</span> · 现价 {mark_s}</h2>"
-            f"<div class=cols><div><b class=pos>持仓(已成交)</b> 均价 {avg_s}"
-            f"<table><tr><th>仓</th><th>成交价</th><th></th></tr>{hrows}</table></div>"
-            f"<div><b>委托(挂单待成交)</b><table><tr><th>仓</th><th>挂单价</th><th></th></tr>{prows}</table></div></div>"
-            f"<p>⛔ 当前止损 <b>{astop:,.2f}</b>{be} · 硬止损 {plan.get('disaster_stop',0):,.2f}  "
-            f"🎯 目标 {plan['final_target']:,.2f}</p>{btns}"
-            f"<p class=note>止损=保护:到 +{tr.get('breakeven_at_r',1)}R 自动移到保本(防赚钱变亏),硬止损防亏太多;"
-            f"止盈跟大级别,随时手动改。低级别形态低edge,paper检验。图上黄=持仓 灰虚=委托 红=止损 绿=目标。</p></div>")
+    # (open positions are rendered first by _positions_html, above)
 
     # per-symbol: alignment badge + multi-level trend + 3-tier S/R + auxiliary board + both scenarios
     for sym, data in (state.get("symbols") or {}).items():
@@ -253,7 +291,15 @@ def render_panels(state: dict) -> str:
             bcls = "pos" if a["direction"] == "多" else "neg" if a["direction"] == "空" else ""
             badge = f" · <span class={bcls}>{a['label']}偏{a['direction']} {a['agree']}/{a['n']}</span>"
         head = sym + (f" · 现价 {ref:,.0f}" if ref else "")
-        block = [f"<div class=card><h2>📊 {head}{badge}</h2>", _levels_table(lv),
+        kl = data.get("key_levels", [])
+        kl_html = ""
+        if kl:
+            items = " · ".join(
+                f"<b class={'pos' if z['side'] == 'sup' else 'neg'}>{z['price']:,.0f}</b>"
+                f"({'撑' if z['side'] == 'sup' else '压'}×{z['n_tf']})" for z in kl)
+            kl_html = (f"<p class=note>🔑 关键位(多级别共振): {items} "
+                       f"<span>（×N=N个级别在此重叠,N≥2=关键;只画最强几条,不密集）</span></p>")
+        block = [f"<div class=card><h2>📊 {head}{badge}</h2>", _levels_table(lv), kl_html,
                  _board_html(data.get("board"))]
         pl, ps = data.get("plan_long"), data.get("plan_short")
         if pl and ps:
@@ -266,6 +312,51 @@ def render_panels(state: dict) -> str:
     if state.get("error"):
         parts.append(f"<div class=card><p class=neg>部分数据失败: {state['error']}</p></div>")
     return "".join(parts)
+
+
+def _positions_html(state):
+    """Binance-style OPEN positions panel (placed right under the chart). Side/size/avg/mark/uPnL,
+    the SHARED stop+targets (加仓 = one combined position), inline DYNAMIC TP/SL edit + close. Closed
+    positions drop off (their chart lines are already gone)."""
+    rows = []
+    equity = (state.get("account") or {}).get("equity") or (state.get("paper") or {}).get("inception_equity", 10000.0)
+    for t in (state.get("trades") or []):
+        tr, st = t["trade"], t.get("state", {})
+        if st.get("status", "active") != "active":
+            continue
+        plan, tid, bd = tr["plan"], tr.get("id", ""), t.get("breakdown", [])
+        side = "空" if plan["direction"] == "short" else "多"
+        col = "#f85149" if side == "空" else "#3fb950"
+        avg = st.get("avg") or 0
+        mark = st.get("mark") or t.get("mark") or avg
+        r = st.get("total_r", 0) or 0.0
+        pos = st.get("position", 0) or 0
+        held = [e for e in bd if e["filled"]]
+        pend = [e for e in bd if not e["filled"]]
+        tlist = plan.get("targets", [])
+        t1v = f"{tlist[0]['price']:.0f}" if tlist else ""
+        t2v = f"{tlist[-1]['price']:.0f}" if len(tlist) > 1 else ""
+        heldn = " · ".join(f"{e['size_frac']*100:.0f}%@{e['price']:,.0f}" for e in held) or "—"
+        pendn = " · ".join(f"{e['size_frac']*100:.0f}%@{e['price']:,.0f}" for e in pend) or "无"
+        tgts = " · ".join(f"{g['price']:,.0f}" for g in tlist) or "—"
+        astop = plan["stop"]                             # effective stop (breakeven + manual edits write here)
+        notional = (plan.get("size_cap_frac", 0) or 0) * equity      # full intended $ at this size
+        filled_usd = notional * pos                                  # $ actually filled so far
+        qty = filled_usd / avg if avg else 0
+        rows.append(
+            f"<div class=card style='border-left:4px solid {col}'>"
+            f"<h2>📈 {tr['symbol']} <b style='color:{col}'>{side} {pos*100:.0f}%仓</b> · "
+            f"<span id=pnl_{tid} class={'pos' if r >= 0 else 'neg'}>浮盈 {r:+.2f}R</span></h2>"
+            f"<p>开仓均价 <b>{avg:,.2f}</b> · 标记价 {mark:,.2f} · 仓位 {plan.get('size_cap_frac','?')}×权益"
+            f" ≈ <b>${notional:,.0f}</b>名义(已成交 ${filled_usd:,.0f}≈{qty:.4f}币)"
+            f" · 当前止损 <b>{astop:,.2f}</b>{' 🔒保本' if st.get('be_done') else ''} · 目标 {tgts}</p>"
+            f"<p class=note>持仓(已成交): {heldn} &nbsp;|&nbsp; 委托(挂单): {pendn}</p>"
+            f"<div class=note>动态改止盈止损: 止损<input id=m_stop_{tid} size=8 value='{astop:.0f}'> "
+            f"T1<input id=m_t1_{tid} size=8 value='{t1v}'> T2<input id=m_t2_{tid} size=8 value='{t2v}'> "
+            f"<button onclick=\"modtp('{tid}')\">更新止盈止损</button> "
+            f"<button onclick=\"mod('{tid}','breakeven')\">止损→保本</button> "
+            f"<button onclick=\"mod('{tid}','close')\">立即平仓</button></div></div>")
+    return "".join(rows)
 
 
 def _board_html(b):
@@ -312,6 +403,35 @@ def _plan_col(title, p, cls):
             f"<table><tr><th>仓</th><th>埋单</th><th>距</th></tr>{entries}</table>"
             f"<p class={cls}>⛔ 止损 {p['stop']:,.0f} ({p['risk_dist']/p['atr']:.1f}ATR) · 硬顶 {p['disaster_stop']:,.0f}</p>"
             f"<table><tr><th>仓</th><th>止盈</th><th></th></tr>{tgts}</table></div>")
+
+
+def _live_overlay(snap, book_path, intents_path):
+    """Re-read the fast-changing intents/trade files so approve / reject / create / modify reflect
+    IMMEDIATELY — the cached STATE only recomputes every ~refresh+compute seconds (~20s), which is why
+    a click looked like 'no change'. The slow data (symbols / baseline / board) stays cached."""
+    from quant import papertrade as _pt
+
+    snap = dict(snap)
+    now = time.time()
+    if intents_path:
+        try:
+            snap["intents"] = [{"intent": it,
+                                "remaining_sec": int(it.get("ttl_sec", 600) - (now - it.get("created_ts", now)))}
+                               for it in _pt.load_intents(intents_path) if it.get("status") == "pending"]
+        except Exception:  # noqa: BLE001
+            pass
+    if book_path:
+        try:
+            trades = []
+            for bt in _pt.load_book(book_path):
+                st = bt.get("state", {})
+                bd = [{"price": e["price"], "size_frac": e["size_frac"], "label": e["label"],
+                       "filled": i in st.get("filled", [])} for i, e in enumerate(bt["plan"]["entries"])]
+                trades.append({"trade": bt, "state": st, "breakdown": bd, "mark": st.get("mark")})
+            snap["trades"] = trades
+        except Exception:  # noqa: BLE001
+            pass
+    return snap
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -362,14 +482,136 @@ class _Handler(BaseHTTPRequestHandler):
             except Exception as e:  # noqa: BLE001
                 msg = str(e)
             body = json.dumps({"ok": ok, "msg": msg}).encode()
+        elif u.path == "/modtp":                              # edit an OPEN position's stop + targets (dynamic)
+            q = parse_qs(u.query)
+            tid = q.get("id", [""])[0]
+            try:
+                from quant import papertrade as _pt
+                kw = {}
+                if q.get("stop", [""])[0]:
+                    kw["stop"] = float(q["stop"][0])
+                tg = [float(x) for x in (q.get("t1", [""])[0], q.get("t2", [""])[0]) if x]
+                if tg:
+                    kw["targets"] = [{"price": round(p, 2), "size_frac": round(1 / len(tg), 3),
+                                      "role": "final" if i == len(tg) - 1 else "scale_out", "label": f"T{i+1}"}
+                                     for i, p in enumerate(tg)]
+                with _BOOK_LOCK:
+                    _pt.modify_trade(getattr(self.server, "book_path", None), tid, **kw)
+                body = json.dumps({"ok": True}).encode()
+            except Exception as e:  # noqa: BLE001
+                body = json.dumps({"ok": False, "msg": str(e)}).encode()
+        elif u.path == "/approve":
+            q = parse_qs(u.query)
+            iid = q.get("id", [""])[0]
+            ok, msg = False, ""
+            try:
+                from quant import live as _live, papertrade as _pt
+                ip = getattr(self.server, "intents_path", None)
+                bp = getattr(self.server, "book_path", None)
+                tgt = next((x for x in _pt.load_intents(ip) if x.get("id") == iid), None)
+                if tgt:
+                    bars = _live.fetch_candles(tgt["symbol"], tgt["tf"], venue="binance", timeout=10.0)
+                    since = int(bars[-1]["bucket_ts"]) if bars else 0
+                    with _BOOK_LOCK:
+                        _pt.approve_intent(ip, bp, iid, since_ts=since)
+                ok = True
+            except Exception as e:  # noqa: BLE001
+                msg = str(e)
+            body = json.dumps({"ok": ok, "msg": msg}).encode()
+        elif u.path == "/reject":
+            q = parse_qs(u.query)
+            try:
+                from quant import papertrade as _pt
+                with _BOOK_LOCK:
+                    _pt.reject_intent(getattr(self.server, "intents_path", None), q.get("id", [""])[0])
+                body = json.dumps({"ok": True}).encode()
+            except Exception as e:  # noqa: BLE001
+                body = json.dumps({"ok": False, "msg": str(e)}).encode()
+        elif u.path == "/create_intent":
+            q = parse_qs(u.query)
+            ok, msg = False, ""
+            try:
+                from quant import execution as _ex, papertrade as _pt
+                sym = q.get("symbol", ["BTCUSDC"])[0]
+                plan = _ex.manual_plan(sym, q.get("dir", ["short"])[0], q.get("entry", ["0"])[0],
+                                       q.get("stop", ["0"])[0],
+                                       [q.get("t1", [""])[0], q.get("t2", [""])[0]],
+                                       size=q.get("size", ["0.15"])[0])
+                with _BOOK_LOCK:
+                    _pt.emit_pending(getattr(self.server, "intents_path", None), plan.to_dict(),
+                                     symbol=sym, tf="manual", created_ts=int(time.time()),
+                                     note="手填", ttl_sec=3600)
+                ok = True
+            except Exception as e:  # noqa: BLE001
+                msg = str(e)
+            body = json.dumps({"ok": ok, "msg": msg}).encode()
+        elif u.path == "/auto_intent":
+            q = parse_qs(u.query)
+            ok, msg = False, ""
+            try:
+                from quant import execution as _ex, live as _live, papertrade as _pt
+                sym = q.get("symbol", ["BTCUSDC"])[0]
+                tf = q.get("tf", ["5m"])[0]
+                dirn = q.get("dir", ["auto"])[0]
+                bars = _live.fetch_candles(sym, tf, venue="binance", timeout=10.0)
+                plan = _ex.auto_plan(sym, tf, bars, direction=(None if dirn == "auto" else dirn))
+                if plan.direction == "flat":
+                    msg = f"{tf} 级别 regime 中性,没自动给方向(请手选 多/空)"
+                else:
+                    with _BOOK_LOCK:
+                        _pt.emit_pending(getattr(self.server, "intents_path", None), plan.to_dict(),
+                                         symbol=sym, tf=tf, created_ts=int(time.time()),
+                                         note=f"{tf}自动{plan.direction}", ttl_sec=3600)
+                    ok = True
+            except Exception as e:  # noqa: BLE001
+                msg = str(e)
+            body = json.dumps({"ok": ok, "msg": msg}).encode()
+        elif u.path == "/edit_intent":
+            q = parse_qs(u.query)
+            iid = q.get("id", [""])[0]
+            ok, msg = False, ""
+            try:
+                from quant import papertrade as _pt
+                ip = getattr(self.server, "intents_path", None)
+                with _BOOK_LOCK:
+                    ints = _pt.load_book(ip)
+                    tgt = next((x for x in ints if x.get("id") == iid), None)
+                    if tgt:
+                        plan = tgt["plan"]
+                        sign = 1 if plan["direction"] == "long" else -1
+                        wsum = max(sum(e["size_frac"] for e in plan["entries"]), 1e-9)
+                        avg = sum(e["price"] * e["size_frac"] for e in plan["entries"]) / wsum
+                        if q.get("stop", [""])[0]:
+                            plan["stop"] = float(q["stop"][0])
+                        risk = abs(avg - plan["stop"]) or plan.get("risk_dist", 1.0)
+                        plan["risk_dist"] = round(risk, 2)
+                        plan["disaster_stop"] = round(avg - sign * 1.8 * risk, 2)
+                        tg = [float(x) for x in (q.get("t1", [""])[0], q.get("t2", [""])[0]) if x]
+                        if tg:
+                            plan["targets"] = [{"price": round(p, 2), "size_frac": round(1 / len(tg), 3),
+                                                "role": "final" if i == len(tg) - 1 else "scale_out",
+                                                "label": f"T{i+1}"} for i, p in enumerate(tg)]
+                            plan["final_target"] = round(tg[-1], 2)
+                            plan["rr"] = round(abs(tg[-1] - avg) / risk, 2)
+                        if q.get("size", [""])[0]:
+                            plan["size_cap_frac"] = float(q["size"][0])
+                        _pt._save_book(ip, ints)
+                        ok = True
+            except Exception as e:  # noqa: BLE001
+                msg = str(e)
+            body = json.dumps({"ok": ok, "msg": msg}).encode()
         elif u.path == "/panels":
             with _LOCK:
                 snap = dict(STATE)
+            snap = _live_overlay(snap, getattr(self.server, "book_path", None),
+                                 getattr(self.server, "intents_path", None))
             body = render_panels(snap).encode()
             ctype = "text/html; charset=utf-8"
         elif u.path.startswith("/api/state"):
             with _LOCK:
                 snap = dict(STATE)
+            snap = _live_overlay(snap, getattr(self.server, "book_path", None),
+                                 getattr(self.server, "intents_path", None))
             body = json.dumps(snap, ensure_ascii=False, default=str).encode()
         else:
             body = render_shell(self.server.refresh).encode()
@@ -406,8 +648,17 @@ th:first-child,td:first-child{text-align:left}
 <div class=card>
  <div id=ctrls>标的: <button data-sym=BTCUSDC class=on>BTC</button> <button data-sym=ETHUSDC>ETH</button>
   &nbsp;&nbsp;级别: <button data-tf=1m>1m</button> <button data-tf=5m class=on>5m</button>
-  <button data-tf=30m>30m</button> <button data-tf=4h>4h</button> <button data-tf=1d>1d</button></div>
+  <button data-tf=30m>30m</button> <button data-tf=4h>4h</button> <button data-tf=1d>1d</button>
+  &nbsp;&nbsp;<label><input type=checkbox id=cb_sr onchange=drawLevels()> S/R线</label></div>
  <div id=chart></div><div id=legend class=note></div>
+ <div id=orderform class=note style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+  <b>按级别自动:</b><select id=of_tf><option>1m</option><option selected>5m</option><option>30m</option><option>4h</option><option>1d</option></select>
+  <select id=of_autodir><option value=auto>自动方向</option><option value=short>空</option><option value=long>多</option></select>
+  <button onclick=autoIntent()>自动设计挂单</button> &nbsp;|&nbsp;
+  手填: 方向<select id=of_dir><option value=short>空</option><option value=long>多</option></select>
+  入场<input id=of_entry size=8> 止损<input id=of_stop size=8> 目标1<input id=of_t1 size=8>
+  目标2<input id=of_t2 size=8> 仓位×<input id=of_size size=4 value=0.15>
+  <button onclick=createIntent()>创建待批挂单</button> <span id=of_msg></span></div>
 </div>
 <div id=panels><p class=load>加载中…</p></div>
 <p class=note>机械指标/流数据状态分析,非投资建议、非涨跌预测。低级别形态低edge。方向与审批由你定。</p>
@@ -419,26 +670,53 @@ const candle=chart.addCandlestickSeries({upColor:'#26a69a',downColor:'#ef5350',b
 let sym='BTCUSDC',tf='5m',lines=[],lastState={},inited=false;
 function clearLines(){lines.forEach(l=>candle.removePriceLine(l));lines=[];}
 function drawLevels(){clearLines();const leg=[];
- (lastState.trades||[]).filter(t=>t.trade.symbol===sym).forEach(t=>{const p=t.trade.plan;
+ const sd=(lastState.symbols||{})[sym];
+ if(sd&&sd.key_levels&&document.getElementById('cb_sr').checked){sd.key_levels.filter(z=>z.key).slice(0,4).forEach(z=>{
+  lines.push(candle.createPriceLine({price:z.price,color:z.side==='sup'?'#2a9d8f':'#e9a23b',
+   lineWidth:2,lineStyle:0,axisLabelVisible:true,title:(z.side==='sup'?'撑':'压')+'×'+z.n_tf}));});}
+ (lastState.trades||[]).filter(t=>t.trade.symbol===sym&&(!t.state||t.state.status==='active')).forEach(t=>{const p=t.trade.plan;
   (t.breakdown||[]).forEach(e=>lines.push(candle.createPriceLine({price:e.price,color:e.filled?'#d29922':'#8b949e',lineWidth:1,lineStyle:e.filled?0:2,axisLabelVisible:true,title:(e.filled?'持仓':'委托')+Math.round(e.size_frac*100)+'%'})));
   lines.push(candle.createPriceLine({price:p.stop,color:'#f85149',lineWidth:2,axisLabelVisible:true,title:'止损'}));
   if(p.disaster_stop)lines.push(candle.createPriceLine({price:p.disaster_stop,color:'#a01a13',lineWidth:1,lineStyle:2,axisLabelVisible:true,title:'硬止损'}));
   (p.targets||[]).forEach((g,i)=>lines.push(candle.createPriceLine({price:g.price,color:'#3fb950',lineWidth:1,axisLabelVisible:true,title:'目标'+(i+1)})));
   leg.push((p.direction==='short'?'空':'多')+' 止损'+p.stop.toLocaleString()+' 目标'+p.final_target.toLocaleString());});
- document.getElementById('legend').textContent=leg.join('   |   ')||(sym.replace('USDC','')+' 当前无自选持仓单');}
+ (lastState.intents||[]).filter(t=>t.intent.symbol===sym).forEach(t=>{const p=t.intent.plan;
+  (p.entries||[]).forEach(e=>lines.push(candle.createPriceLine({price:e.price,color:'#a371f7',lineWidth:1,lineStyle:1,axisLabelVisible:true,title:'待批入场'})));
+  lines.push(candle.createPriceLine({price:p.stop,color:'#a371f7',lineWidth:1,lineStyle:1,axisLabelVisible:true,title:'待批止损'}));
+  (p.targets||[]).forEach(g=>lines.push(candle.createPriceLine({price:g.price,color:'#a371f7',lineWidth:1,lineStyle:1,axisLabelVisible:true,title:'待批目标'})));
+  leg.push('⏳待批'+(p.direction==='short'?'空':'多'));});
+ document.getElementById('legend').textContent=leg.join('   |   ')||(sym.replace('USDC','')+' 当前无单');}
 function setActive(a,v){document.querySelectorAll('[data-'+a+']').forEach(b=>b.classList.toggle('on',b.dataset[a]===v));}
 function loadBars(keep){const r=(keep&&inited)?chart.timeScale().getVisibleRange():null;
- return fetch('/api/bars?symbol='+sym+'&tf='+tf).then(x=>x.json()).then(d=>{candle.setData(d.bars||[]);
-  if(r){try{chart.timeScale().setVisibleRange(r);}catch(e){}}else{chart.timeScale().fitContent();}inited=true;drawLevels();});}
+ return fetch('/api/bars?symbol='+sym+'&tf='+tf).then(x=>x.json()).then(d=>{var b=d.bars||[];candle.setData(b);
+  if(b.length)window._lastClose=b[b.length-1].close;
+  if(r){try{chart.timeScale().setVisibleRange(r);}catch(e){}}else{chart.timeScale().fitContent();}inited=true;drawLevels();livePnl();});}
+function updateLast(){return fetch('/api/bars?symbol='+sym+'&tf='+tf).then(x=>x.json()).then(d=>{var b=d.bars||[];if(b.length&&inited){candle.update(b[b.length-1]);window._lastClose=b[b.length-1].close;livePnl();}});}
 document.querySelectorAll('[data-sym]').forEach(b=>b.onclick=()=>{sym=b.dataset.sym;setActive('sym',sym);inited=false;loadBars(false);});
 document.querySelectorAll('[data-tf]').forEach(b=>b.onclick=()=>{const r=inited?chart.timeScale().getVisibleRange():null;tf=b.dataset.tf;setActive('tf',tf);
  fetch('/api/bars?symbol='+sym+'&tf='+tf).then(x=>x.json()).then(d=>{candle.setData(d.bars||[]);if(r){try{chart.timeScale().setVisibleRange(r);}catch(e){}}drawLevels();});});
 function tick(keep){fetch('/api/state').then(x=>x.json()).then(s=>{lastState=s;drawLevels();
   if(s.ts)document.getElementById('meta').textContent='· '+new Date(s.ts*1000).toLocaleTimeString()+' · 自动__REFRESH__s · 余额0/模拟/不下实盘';});
- loadBars(keep);fetch('/panels').then(x=>x.text()).then(h=>{document.getElementById('panels').innerHTML=h;});}
+ fetch('/panels').then(x=>x.text()).then(h=>{document.getElementById('panels').innerHTML=h;});}
+function approve(id){fetch('/approve?id='+encodeURIComponent(id)).then(()=>setTimeout(()=>tick(true),300));}
+function reject(id){fetch('/reject?id='+encodeURIComponent(id)).then(()=>setTimeout(()=>tick(true),300));}
+function g(id){return document.getElementById(id);}
+function createIntent(){var p=new URLSearchParams({symbol:sym,dir:g('of_dir').value,entry:g('of_entry').value,stop:g('of_stop').value,t1:g('of_t1').value,t2:g('of_t2').value,size:g('of_size').value});
+ fetch('/create_intent?'+p.toString()).then(r=>r.json()).then(d=>{g('of_msg').textContent=d.ok?'✓已创建,见下方待批准':('✗'+(d.msg||''));setTimeout(()=>tick(true),300);});}
+function autoIntent(){var p=new URLSearchParams({symbol:sym,tf:g('of_tf').value,dir:g('of_autodir').value});
+ fetch('/auto_intent?'+p.toString()).then(r=>r.json()).then(d=>{g('of_msg').textContent=d.ok?('✓ '+g('of_tf').value+'级别已自动设计,见下方待批准'):('✗'+(d.msg||''));setTimeout(()=>tick(true),300);});}
+function updateIntent(id){var p=new URLSearchParams({id:id,stop:g('e_stop_'+id).value,t1:g('e_t1_'+id).value,t2:g('e_t2_'+id).value,size:g('e_size_'+id).value});
+ fetch('/edit_intent?'+p.toString()).then(()=>setTimeout(()=>tick(true),300));}
+function editIntent(id){var t=(lastState.intents||[]).find(x=>x.intent.id===id);if(!t)return;var p=t.intent.plan;
+ g('of_dir').value=p.direction;g('of_entry').value=p.entries[0].price;g('of_stop').value=p.stop;
+ g('of_t1').value=(p.targets[0]||{}).price||'';g('of_t2').value=(p.targets[1]||{}).price||'';g('of_size').value=p.size_cap_frac;
+ window.scrollTo(0,0);g('of_msg').textContent='已载入到表单,改完点「创建待批挂单」(旧的可拒绝)';}
 function mod(id,a){fetch('/modify?id='+encodeURIComponent(id)+'&action='+a).then(()=>setTimeout(()=>tick(true),200));}
 function modstop(id){var v=document.getElementById('s_'+id).value;if(v)fetch('/modify?id='+encodeURIComponent(id)+'&action=stop&value='+encodeURIComponent(v)).then(()=>setTimeout(()=>tick(true),200));}
-tick(false);setInterval(()=>tick(true),__REFRESH__*1000);
+function modtp(id){var p=new URLSearchParams({id:id,stop:g('m_stop_'+id).value,t1:g('m_t1_'+id).value,t2:g('m_t2_'+id).value});fetch('/modtp?'+p.toString()).then(()=>setTimeout(()=>tick(true),300));}
+function livePnl(){var sd=(lastState.symbols||{}); for(var s in sd){} (lastState.trades||[]).forEach(function(t){if(t.trade.symbol!==sym)return;var st=t.state||{};if(st.status!=='active'||!st.avg||!st.position)return;var sign=t.trade.plan.direction==='short'?-1:1;var px=window._lastClose||st.mark||st.avg;var r=sign*(px-st.avg)/(t.trade.plan.risk_dist||1)*st.position;var pct=(t.trade.plan.size_cap_frac||0)*sign*(px-st.avg)/st.avg*100;var el=document.getElementById('pnl_'+t.trade.id);if(el)el.innerHTML='浮盈 <b>'+r.toFixed(2)+'R</b> ('+(pct>=0?'+':'')+pct.toFixed(2)+'%权益) 现价'+px.toLocaleString();});}
+loadBars(false);tick(false);setInterval(()=>tick(true),__REFRESH__*1000);
+setInterval(updateLast,1000);   // 1s: only candle.update(last bar) — never touches zoom/pan
 </script></body></html>"""
 
 
@@ -447,12 +725,14 @@ def render_shell(refresh: int = 10) -> str:
 
 
 def serve(port=8799, refresh=10, paper_path="~/quant/paper_state.json", equity0=10000.0,
-          book_path="~/quant/paper_trades.json"):
-    t = threading.Thread(target=_refresher, args=(paper_path, equity0, refresh, book_path), daemon=True)
+          book_path="~/quant/paper_trades.json", intents_path="~/quant/paper_intents.json"):
+    t = threading.Thread(target=_refresher, args=(paper_path, equity0, refresh, book_path, intents_path),
+                         daemon=True)
     t.start()
     httpd = ThreadingHTTPServer(("127.0.0.1", port), _Handler)
     httpd.refresh = refresh
     httpd.book_path = book_path
+    httpd.intents_path = intents_path
     print(f"dashboard → http://127.0.0.1:{port}  (refresh {refresh}s, Ctrl-C to stop)", flush=True)
     httpd.serve_forever()
 
@@ -465,10 +745,11 @@ def main(argv=None):
     p.add_argument("--refresh", type=int, default=10)
     p.add_argument("--paper", default="~/quant/paper_state.json")
     p.add_argument("--book", default="~/quant/paper_trades.json", help="discretionary trade book")
+    p.add_argument("--intents", default="~/quant/paper_intents.json", help="pending order intents")
     p.add_argument("--equity", type=float, default=10000.0)
     args = p.parse_args(argv)
     serve(port=args.port, refresh=args.refresh, paper_path=args.paper, equity0=args.equity,
-          book_path=args.book)
+          book_path=args.book, intents_path=args.intents)
     return 0
 
 

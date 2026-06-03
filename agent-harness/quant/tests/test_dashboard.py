@@ -20,6 +20,10 @@ def test_render_loading_and_shell():
     assert "<html" in shell and "addCandlestickSeries" in shell    # TradingView chart present
     assert "data-tf=1m" in shell and "data-tf=5m" in shell        # 1m/5m switches
     assert "data-tf=1h" not in shell                              # 1h dropped
+    assert "function approve" in shell and "function reject" in shell   # approval flow JS
+    assert "of_entry" in shell and "function createIntent" in shell      # fill-in order form
+    assert "function autoIntent" in shell and "of_tf" in shell and "自动设计挂单" in shell   # per-TF auto-design
+    assert "cb_sr" in shell                                              # S/R declutter toggle
     assert "非投资建议" in shell
 
 
@@ -71,7 +75,17 @@ def test_render_full_board():
                       {"price": 67034.0, "size_frac": 0.35, "label": "埋伏", "filled": False}],
         "mark": 66888.0,
     }]
+    state["intents"] = [{"intent": {"id": "intent-1", "symbol": "BTCUSDC", "tf": "5m", "note": "卖×5墙",
+                                    "created_ts": 1700000000,
+                                    "plan": {"direction": "short", "stop": 67400.0, "disaster_stop": 67600.0,
+                                             "entries": [{"price": 67090.0, "size_frac": 1.0, "role": "entry",
+                                                          "label": "墙"}],
+                                             "targets": [{"price": 64975.0, "size_frac": 1.0, "role": "final",
+                                                          "label": "T"}], "size_cap_frac": 0.2}},
+                         "remaining_sec": 300}]
     html = dashboard.render_panels(state)
+    assert "待批准" in html and "批准" in html and "卖×5墙" in html   # pending intent panel + approve
+    assert "更新" in html and "e_stop_" in html                      # inline-editable values before approve
     assert "净值" in html and "$10,100" in html
     assert "BNBUSDT" in html and "UNIUSDT" in html          # basket
     assert "BTCUSDC" in html and "ETHUSDC" in html          # both symbols analyzed
@@ -80,5 +94,7 @@ def test_render_full_board():
     assert "资金费" in html and "买墙" in html               # per-symbol auxiliary board
     assert "若做多" in html and "若做空" in html             # both execution scenarios
     assert "止损" in html and "硬顶" in html                 # stop + disaster cap shown
-    assert "持仓(已成交)" in html and "委托(挂单待成交)" in html and "5min双头做空" in html   # 持仓+委托 split
-    assert "止损→保本" in html and "立即平仓" in html and "持仓中" in html                  # quick TP/SL edit + status
+    assert "持仓(已成交)" in html and "委托(挂单)" in html              # 持仓+委托 split
+    assert "开仓均价" in html and "浮盈" in html                       # Binance-style position panel
+    assert "止损→保本" in html and "立即平仓" in html and "更新止盈止损" in html   # dynamic TP/SL + close
+    assert "pnl_BTCUSDC-5m-1" in html                                # 1s live-PnL element hook

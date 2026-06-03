@@ -178,10 +178,9 @@ def advance_trade(trade: dict, bars) -> dict:
     plan = trade["plan"]
     sign = 1 if plan["direction"] == "long" else -1
     risk = plan.get("risk_dist") or 1.0
-    ov = trade.setdefault("overrides", {})
-    stop = ov.get("stop", plan["stop"])
-    disaster = ov.get("disaster_stop", plan.get("disaster_stop", 0.0))
-    targets = ov.get("targets", plan.get("targets", []))
+    stop = plan["stop"]                                  # plan is the single source — modify_trade writes here
+    disaster = plan.get("disaster_stop", 0.0)
+    targets = plan.get("targets", [])
     be_at_r = trade.get("breakeven_at_r", 1.0)
     st = trade.setdefault("state", {})
     for _k, _v in (("position", 0.0), ("avg", 0.0), ("realized_r", 0.0), ("status", "active"),
@@ -194,16 +193,18 @@ def advance_trade(trade: dict, bars) -> dict:
             for i, e in enumerate(plan["entries"]):                  # fills (idempotent)
                 if i in st["filled"]:
                     continue
-                if (lo <= e["price"]) if sign > 0 else (hi >= e["price"]):
+                touched = (lo <= e["price"]) if sign > 0 else (hi >= e["price"])
+                if e.get("follow") or touched:                       # base-follow fills ~now; limits on touch
+                    fpx = e["price"] if touched else cl              # follow chases to market if its limit isn't hit
                     npos = st["position"] + e["size_frac"]
-                    st["avg"] = (st["avg"] * st["position"] + e["price"] * e["size_frac"]) / npos
+                    st["avg"] = (st["avg"] * st["position"] + fpx * e["size_frac"]) / npos
                     st["position"] = npos
                     st["filled"].append(i)
             if st["position"] <= 1e-9:
                 continue
             if not st["be_done"] and (sign * (cl - st["avg"]) / risk >= be_at_r or st["hit"]):
                 stop = st["avg"]                                     # breakeven (don't give back the win)
-                ov["stop"] = stop
+                plan["stop"] = stop
                 st["be_done"] = True
             if disaster and ((lo <= disaster) if sign > 0 else (hi >= disaster)):
                 st["realized_r"] += st["position"] * sign * (disaster - st["avg"]) / risk
@@ -234,6 +235,39 @@ def advance_trade(trade: dict, bars) -> dict:
     return st
 
 
+# ---------------------------------------------------- pending order intents
+# An intent is a fully-computed order awaiting the human's one-click approval. It is
+# drawn on the chart + listed in 待批准; on approve it becomes a tracked trade (paper) or
+# is handed to the broker CLI (live, post-approval). The LLM never auto-fires it.
+def load_intents(path) -> list:
+    return load_book(path)
+
+
+def emit_pending(path, plan_dict: dict, *, symbol: str, tf: str, created_ts: int,
+                 note: str = "", ttl_sec: int = 600) -> str:
+    ints = load_book(path)
+    iid = f"intent-{symbol}-{tf}-{int(created_ts)}"
+    ints.append({"id": iid, "symbol": symbol, "tf": tf, "note": note, "created_ts": int(created_ts),
+                 "ttl_sec": int(ttl_sec), "status": "pending", "plan": plan_dict})
+    _save_book(path, ints)
+    return iid
+
+
+def approve_intent(intents_path, book_path, intent_id, *, since_ts: int, breakeven_at_r: float = 1.0) -> str:
+    ints = load_book(intents_path)
+    tgt = next((x for x in ints if x.get("id") == intent_id), None)
+    if not tgt:
+        raise KeyError(intent_id)
+    tid = record_trade(book_path, tgt["plan"], symbol=tgt["symbol"], tf=tgt["tf"],
+                       since_ts=since_ts, note=tgt.get("note", ""), breakeven_at_r=breakeven_at_r)
+    _save_book(intents_path, [x for x in ints if x.get("id") != intent_id])
+    return tid
+
+
+def reject_intent(intents_path, intent_id) -> None:
+    _save_book(intents_path, [x for x in load_book(intents_path) if x.get("id") != intent_id])
+
+
 def modify_trade(book_path, trade_id, *, stop=None, disaster_stop=None, targets=None,
                  breakeven_at_r=None, close=False) -> dict:
     """Quick TP/SL edit on an open trade (applied FORWARD). Move the stop (e.g. trail it to a big-TF
@@ -241,14 +275,15 @@ def modify_trade(book_path, trade_id, *, stop=None, disaster_stop=None, targets=
     book = load_book(book_path)
     for tr in book:
         if tr.get("id") == trade_id:
-            ov = tr.setdefault("overrides", {})
+            plan = tr["plan"]                                        # plan is the single source of truth
             if stop is not None:
-                ov["stop"] = float(stop)
+                plan["stop"] = float(stop)
                 tr.setdefault("state", {})["be_done"] = True         # manual stop wins over auto-breakeven
             if disaster_stop is not None:
-                ov["disaster_stop"] = float(disaster_stop)
+                plan["disaster_stop"] = float(disaster_stop)
             if targets is not None:
-                ov["targets"] = targets
+                plan["targets"] = targets
+                plan["final_target"] = targets[-1]["price"] if targets else plan.get("final_target")
             if breakeven_at_r is not None:
                 tr["breakeven_at_r"] = float(breakeven_at_r)
             if close:

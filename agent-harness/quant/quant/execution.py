@@ -51,6 +51,7 @@ class OrderLeg:
     size_frac: float          # fraction of the full intended position (entries sum ≈ 1.0)
     role: str                 # "entry" | "scale_out" | "final"
     label: str
+    follow: bool = False       # base position: maker-follow (chase to fill ~now) vs a passive resting limit
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -81,6 +82,7 @@ class OrderPlan:
     tick: float = 0.01
     maker_bps: float = 0.0
     disaster_stop: float = 0.0       # hard intrabar cap (further out) — bounds tail when close-confirm lags
+    follow: bool = False             # maker-follow: peg the entry to market, re-price until filled (then taker)
     kind: str = "order_intent"
     schema_version: str = "orderplan-v2"
 
@@ -459,12 +461,64 @@ def plan_from_live(symbol: str, direction: str, conviction: float, *, venue: str
     return build_order_plan(symbol, direction, conviction, bars, walls=walls, **kw)
 
 
+def auto_plan(symbol: str, tf: str, bars, *, direction=None, conviction: float = 0.55,
+              rr: float = 4.0, follow: bool = True, **kw) -> OrderPlan:
+    """AUTO-design an order for a TIMEFRAME (1m/5m/30m/4h/1d): if ``direction`` is None, infer it from
+    that TF's regime (down→short, up→long, range→flat), then build the plan on the TF's bars so entries/
+    stop/targets auto-scale to that TF's ATR (1m = scalp, 1d = swing). ``follow`` marks the entry as a
+    maker-follow (peg to market, re-price until filled, timeout→taker) so it gets in without paying taker."""
+    from quant import regime
+    if direction is None:
+        lab = regime.classify(bars).label
+        direction = "long" if "up" in lab else "short" if "down" in lab else "flat"
+    plan = build_order_plan(symbol, direction, conviction, bars, rr=rr, **kw)
+    plan.follow = follow
+    if follow and plan.entries:
+        plan.entries[0].follow = True       # proximal entry = the BASE (maker-follow, guarantees a fill)
+        plan.entries[0].label = "基础·" + plan.entries[0].label
+    plan.rationale = f"{tf}级别自动·" + plan.rationale
+    return plan
+
+
+def manual_plan(symbol: str, direction: str, entry, stop, targets, *, size: float = 0.15,
+                conviction: float = 0.5, hard_stop_mult: float = 1.8, tick=None, maker_bps=None) -> OrderPlan:
+    """Build an OrderPlan from raw entered levels (single entry, explicit stop, 1-2 targets) — for the
+    dashboard order form, so you OR the agent can fill/edit an order by hand."""
+    spec = SYMBOL_SPECS.get(symbol.upper(), {"tick": 0.01, "maker_bps": 0.0})
+    tick = spec["tick"] if tick is None else tick
+    maker_bps = spec["maker_bps"] if maker_bps is None else maker_bps
+    direction = direction.lower()
+    sign = 1 if direction == "long" else -1
+    entry, stop = float(entry), float(stop)
+    if entry <= 0 or stop <= 0:
+        raise ValueError("entry/stop required")
+    risk = abs(entry - stop) or (0.005 * entry)
+    tg = [float(t) for t in targets if t not in (None, "", 0, "0")]
+    if not tg:
+        tg = [round(entry - sign * 3 * risk, 2)]
+    n = len(tg)
+    tlegs = [OrderLeg(_round_tick(p, tick), round(1.0 / n, 3), "final" if i == n - 1 else "scale_out",
+                      f"T{i+1}") for i, p in enumerate(tg)]
+    disaster = _round_tick(entry - sign * hard_stop_mult * risk, tick)
+    final = tg[-1]
+    return OrderPlan(asof=0, symbol=symbol, direction=direction, conviction=conviction,
+                     ref_price=_round_tick(entry, tick), atr=round(risk, 2),
+                     entries=[OrderLeg(_round_tick(entry, tick), 1.0, "entry", "manual")],
+                     stop=_round_tick(stop, tick), stop_kind="manual", risk_dist=round(risk, 2),
+                     targets=tlegs, final_target=_round_tick(final, tick),
+                     rr=round(abs(final - entry) / risk, 2), size_cap_frac=round(float(size), 4),
+                     mandatory_stop_rule=f"收盘{'升破' if sign < 0 else '跌破'} {stop:,.0f} 即平",
+                     mandatory_tp_rule=f"目标 {', '.join(f'{p:,.0f}' for p in tg)}",
+                     rationale="手填挂单", manage_style="defensive", quality="manual",
+                     tick=tick, maker_bps=maker_bps, disaster_stop=disaster)
+
+
 def plan_from_dict(d: dict) -> OrderPlan:
     """Reconstruct an OrderPlan (+ its OrderLegs) from ``to_dict`` output — so a live
     discretionary trade can be persisted and re-evaluated with ``simulate_plan`` each tick."""
     d = dict(d)
-    d["entries"] = [OrderLeg(price=e["price"], size_frac=e["size_frac"], role=e["role"], label=e["label"])
-                    for e in d.get("entries", [])]
+    d["entries"] = [OrderLeg(price=e["price"], size_frac=e["size_frac"], role=e["role"], label=e["label"],
+                             follow=e.get("follow", False)) for e in d.get("entries", [])]
     d["targets"] = [OrderLeg(price=t["price"], size_frac=t["size_frac"], role=t["role"], label=t["label"])
                     for t in d.get("targets", [])]
     return OrderPlan(**{k: v for k, v in d.items() if k in OrderPlan.__slots__})
