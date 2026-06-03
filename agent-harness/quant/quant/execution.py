@@ -143,13 +143,14 @@ def _ladder_entries(ref, a, sign, scored, tranches, max_depth_atr, tick):
     for p in struct:
         if len(rungs) >= len(tranches):
             break
-        if all(abs(p - q) > 0.4 * a for q, _ in rungs):
+        if all(abs(p - q) > 0.3 * a for q, _ in rungs):
             rungs.append((p, "swing"))
-    k = 1
-    while len(rungs) < len(tranches):
-        p = ref - sign * (0.75 * k) * a
-        if all(abs(p - q) > 0.4 * a for q, _ in rungs):
-            rungs.append((p, f"atr-{0.75*k:.2f}"))
+    k = 0
+    while len(rungs) < len(tranches):                  # tight, near-price rungs: 0.3 / 0.75 / 1.2 ATR
+        off = 0.3 + 0.45 * k
+        p = ref - sign * off * a
+        if all(abs(p - q) > 0.3 * a for q, _ in rungs):
+            rungs.append((p, f"atr-{off:.2f}"))
         k += 1
     rungs.sort(key=lambda r: (ref - r[0]) if below else (r[0] - ref))
     weights = sorted(tranches)
@@ -175,10 +176,10 @@ def _wall_entries(ref, a, sign, walls, tranches, max_depth_atr, tick):
         return None
     prices.sort(key=lambda p: (ref - p) if below else (p - ref))
     prices = prices[:len(tranches)]
-    k = 1
-    while len(prices) < len(tranches):
-        p = ref - sign * (0.75 * k) * a
-        if all(abs(p - q) > 0.4 * a for q in prices):
+    k = 0
+    while len(prices) < len(tranches):                 # tight near-price rungs
+        p = ref - sign * (0.3 + 0.45 * k) * a
+        if all(abs(p - q) > 0.3 * a for q in prices):
             prices.append(p)
         k += 1
     prices.sort(key=lambda p: (ref - p) if below else (p - ref))
@@ -191,7 +192,7 @@ def build_order_plan(symbol: str, direction: str, conviction: float,
                      bars: Sequence[dict], *, walls: dict | None = None,
                      atr_n: int = 14, risk_atr: float = 1.5,
                      rr: float = 4.0, tranches: Sequence[float] = (0.4, 0.35, 0.25),
-                     max_depth_atr: float = 3.0, risk_per_trade: float = 0.01,
+                     max_depth_atr: float = 1.5, risk_per_trade: float = 0.01,
                      max_lev: float = 3.0, left: int = 3, right: int = 3,
                      fakeout_atr: float = 0.35, runner_conviction: float = 0.6,
                      hard_stop_mult: float = 1.8, tick: float | None = None,
