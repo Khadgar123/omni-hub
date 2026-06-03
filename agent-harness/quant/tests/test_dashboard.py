@@ -21,6 +21,7 @@ def test_render_loading_and_shell():
     assert "data-tf=1m" in shell and "data-tf=5m" in shell        # 1m/5m switches
     assert "data-tf=1h" not in shell                              # 1h dropped
     assert "function approve" in shell and "function reject" in shell   # approval flow JS
+    assert "function execCmd" in shell                                  # 🔴 generate-broker-command JS
     assert "of_entry" in shell and "function createIntent" in shell      # fill-in order form
     assert "function autoIntent" in shell and "of_tf" in shell and "自动设计挂单" in shell   # per-TF auto-design
     assert "cb_sr" in shell                                              # S/R declutter toggle
@@ -85,6 +86,8 @@ def test_render_full_board():
                          "remaining_sec": 300}]
     html = dashboard.render_panels(state)
     assert "待批准" in html and "批准" in html and "卖×5墙" in html   # pending intent panel + approve
+    assert "实盘下单命令" in html and "execbox_intent-1" in html      # 🔴 generate-broker-command button + box
+    assert "真实账户 · 未连接" in html                                # account hint when no key set
     assert "更新" in html and "e_stop_" in html                      # inline-editable values before approve
     assert "净值" in html and "$10,100" in html
     assert "BNBUSDT" in html and "UNIUSDT" in html          # basket

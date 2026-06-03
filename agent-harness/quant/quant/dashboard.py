@@ -202,6 +202,11 @@ def render_panels(state: dict) -> str:
     elif acc and acc.get("error"):
         parts.append(f"<div class=card><p class=note>真实账户未接(设 BINANCE_KEY/BINANCE_SECRET + "
                      f"BROKER_NET=testnet 即显示真实余额): {str(acc['error'])[:90]}</p></div>")
+    else:
+        parts.append("<div class=card style='border:1px dashed #6e7681'><h2>💰 真实账户 · 未连接</h2>"
+                     "<p class=note>当前用 paper $10,000 模拟。连真实余额(只读即可):<br>"
+                     "<code>export BINANCE_KEY=… BINANCE_SECRET=… BROKER_NET=testnet</code> 后重启本面板,"
+                     "余额就显示在这里,方向单按真实余额算 $。</p></div>")
     parts.append(_positions_html(state))                 # OPEN positions first (right under the chart)
 
     # 待批准 pending intents (top, right under the chart) — drawn on the chart too
@@ -214,7 +219,8 @@ def render_panels(state: dict) -> str:
                          for e in plan["entries"])
         tgt = " · ".join(f"{g['price']:,.0f}" for g in plan["targets"])
         exp = f"{rem}s 后失效" if rem > 0 else "已过期(不可批)"
-        btns = (f"<button onclick=\"approve('{it['id']}')\">✅ 批准</button> "
+        btns = (f"<button onclick=\"approve('{it['id']}')\">✅ 批准(paper跟踪)</button> "
+                f"<button onclick=\"execCmd('{it['id']}')\" style='background:#7a1f1f'>🔴 实盘下单命令</button> "
                 f"<button onclick=\"editIntent('{it['id']}')\">✎ 改</button> "
                 f"<button onclick=\"reject('{it['id']}')\">✕ 拒绝</button>") if rem > 0 else \
                f"<button onclick=\"reject('{it['id']}')\">清除</button>"
@@ -232,7 +238,8 @@ def render_panels(state: dict) -> str:
             f"{'maker跟随(没成交自动跟价,免taker)' if plan.get('follow') else '限价埋伏'}"
             f"<br>⛔ 止损 {plan['stop']:,.0f} · 硬 {plan.get('disaster_stop',0):,.0f} "
             f"&nbsp; 🎯 目标 {tgt} &nbsp; 仓位 {plan.get('size_cap_frac','?')}× &nbsp; R:R {plan.get('rr','?')}</p>"
-            f"{edit}<p class=note>{exp} · 批准→broker 执行(实盘需你这一下;paper 直接成交并跟踪)</p>{btns}</div>")
+            f"{edit}<p class=note>{exp} · ✅批准=paper跟踪 · 🔴实盘=生成命令,你在终端按回车才下单(系统永不自动下实盘)</p>"
+            f"{btns}<div id=execbox_{it['id']} style='display:none;margin-top:8px'></div></div>")
 
     # MTF trend-alignment summary (top)
     al = []
@@ -527,6 +534,38 @@ class _Handler(BaseHTTPRequestHandler):
                 body = json.dumps({"ok": True}).encode()
             except Exception as e:  # noqa: BLE001
                 body = json.dumps({"ok": False, "msg": str(e)}).encode()
+        elif u.path == "/exec_cmd":
+            # Generate the broker command for a pending intent — the dashboard NEVER fires; the human runs
+            # it in their terminal (that keystroke is the gate). Writes the intent to a file broker reads.
+            q = parse_qs(u.query)
+            iid = q.get("id", [""])[0]
+            net = q.get("net", ["testnet"])[0]
+            ok, msg, prev, ex, path = False, "", "", "", ""
+            try:
+                import os
+                from quant import papertrade as _pt
+                ip = getattr(self.server, "intents_path", None)
+                tgt = next((x for x in _pt.load_intents(ip) if x.get("id") == iid), None)
+                if not tgt:
+                    msg = "找不到该委托(可能已过期/已处理)"
+                else:
+                    outdir = os.path.dirname(ip) if ip else "/tmp"
+                    path = os.path.join(outdir, f"broker_intent_{iid}.json")
+                    with open(path, "w", encoding="utf-8") as f:
+                        json.dump(tgt, f, ensure_ascii=False, indent=2)
+                    eq = 10000.0
+                    try:
+                        if os.environ.get("BINANCE_KEY"):           # size preview by real balance if a key is set
+                            from quant import broker as _bk
+                            eq = _bk.read_balance(net=net).get("equity", eq) or eq
+                    except Exception:  # noqa: BLE001
+                        pass
+                    prev = f"python -m quant.broker preview --intent {path} --equity {eq:.0f}"
+                    ex = f"python -m quant.broker execute --intent {path} --net {net} --yes"
+                    ok = True
+            except Exception as e:  # noqa: BLE001
+                msg = str(e)
+            body = json.dumps({"ok": ok, "msg": msg, "preview": prev, "execute": ex, "path": path}).encode()
         elif u.path == "/create_intent":
             q = parse_qs(u.query)
             ok, msg = False, ""
@@ -699,6 +738,15 @@ function tick(keep){fetch('/api/state').then(x=>x.json()).then(s=>{lastState=s;d
   if(s.ts)document.getElementById('meta').textContent='· '+new Date(s.ts*1000).toLocaleTimeString()+' · 自动__REFRESH__s · 余额0/模拟/不下实盘';});
  fetch('/panels').then(x=>x.text()).then(h=>{document.getElementById('panels').innerHTML=h;});}
 function approve(id){fetch('/approve?id='+encodeURIComponent(id)).then(()=>setTimeout(()=>tick(true),300));}
+function execCmd(id){fetch('/exec_cmd?id='+encodeURIComponent(id)).then(r=>r.json()).then(d=>{
+  var box=g('execbox_'+id); if(!box)return;
+  if(!d.ok){box.style.display='block';box.innerHTML='<span class=neg>✗ '+(d.msg||'失败')+'</span>';return;}
+  box.style.display='block';
+  box.innerHTML='<div class=note>① 先预览(安全·不下单·不需要key):</div>'+
+    '<textarea readonly rows=2 style="width:99%;font-family:monospace" onclick="this.select()">'+d.preview+'</textarea>'+
+    '<div class=note style="color:#f85149">② 确认无误→实盘下单(测试网·复制到你终端按回车=你的最终确认):</div>'+
+    '<textarea readonly rows=2 style="width:99%;font-family:monospace" onclick="this.select()">'+d.execute+'</textarea>'+
+    '<div class=note>需先 export BINANCE_KEY/BINANCE_SECRET(交易权限)。系统只生成命令,永不替你按回车。</div>';});}
 function reject(id){fetch('/reject?id='+encodeURIComponent(id)).then(()=>setTimeout(()=>tick(true),300));}
 function g(id){return document.getElementById(id);}
 function createIntent(){var p=new URLSearchParams({symbol:sym,dir:g('of_dir').value,entry:g('of_entry').value,stop:g('of_stop').value,t1:g('of_t1').value,t2:g('of_t2').value,size:g('of_size').value});
