@@ -468,15 +468,55 @@ def auto_plan(symbol: str, tf: str, bars, *, direction=None, conviction: float =
     stop/targets auto-scale to that TF's ATR (1m = scalp, 1d = swing). ``follow`` marks the entry as a
     maker-follow (peg to market, re-price until filled, timeout→taker) so it gets in without paying taker."""
     from quant import regime
+    from quant.features import atr as _atr
+
     if direction is None:
         lab = regime.classify(bars).label
         direction = "long" if "up" in lab else "short" if "down" in lab else "flat"
     plan = build_order_plan(symbol, direction, conviction, bars, rr=rr, **kw)
     plan.follow = follow
-    if follow and plan.entries:
-        plan.entries[0].follow = True       # proximal entry = the BASE (maker-follow, guarantees a fill)
-        plan.entries[0].label = "基础·" + plan.entries[0].label
     plan.rationale = f"{tf}级别自动·" + plan.rationale
+    if not (follow and plan.entries):
+        return plan
+    if direction == "flat":                          # no directional bias: mark base, no re-anchor
+        plan.entries[0].follow = True
+        plan.entries[0].label = "基础·" + plan.entries[0].label
+        return plan
+    sign = 1 if direction == "long" else -1
+    tick = plan.tick
+    ref = float(bars[-1]["close"])
+    a = next((x for x in reversed(_atr(bars, 14)) if x), None) or (0.01 * ref)
+    # 1) BASE at the real-time price (maker-follow, guarantees a fill); the structural levels become the
+    #    deeper 埋伏 limits (passive, re-weighted to 60%).
+    for e in plan.entries:
+        e.follow = False
+    dw = sum(e.size_frac for e in plan.entries) or 1.0
+    for e in plan.entries:
+        e.size_frac = round(e.size_frac / dw * 0.6, 3)
+    plan.entries = [OrderLeg(_round_tick(ref, tick), 0.4, "entry", "基础·现价", follow=True)] + plan.entries
+    wsum = sum(e.size_frac for e in plan.entries) or 1.0
+    avg = sum(e.price * e.size_frac for e in plan.entries) / wsum
+    # 2) STOP beyond the recent WICK extreme (the last 20 bars' high/low) + 0.6·ATR — past the stop-hunt
+    #    liquidity pool, not at the magnet level; triggered on CLOSE (not a wick), with a 1.8R hard cap.
+    win = bars[-20:]
+    ext = max(float(b["high"]) for b in win) if sign < 0 else min(float(b["low"]) for b in win)
+    stop = _round_tick(ext - sign * 0.6 * a, tick)
+    if (stop >= avg) if sign > 0 else (stop <= avg):
+        stop = _round_tick(avg - sign * a, tick)
+    risk = abs(avg - stop) or a
+    plan.stop = stop
+    plan.stop_kind = "近期插针之外"
+    plan.risk_dist = round(risk, 2)
+    plan.disaster_stop = _round_tick(avg - sign * 1.8 * risk, tick)
+    plan.targets = [OrderLeg(_round_tick(avg + sign * 1.5 * risk, tick), 0.5, "scale_out", "1.5R"),
+                    OrderLeg(_round_tick(avg + sign * rr * risk, tick), 0.5, "final", f"{rr:.0f}R")]
+    plan.final_target = _round_tick(avg + sign * rr * risk, tick)
+    plan.rr = rr
+    plan.ref_price = _round_tick(ref, tick)
+    plan.atr = round(a, 2)
+    plan.mandatory_stop_rule = (f"收盘{'升破' if sign < 0 else '跌破'} {stop:,.0f}（近20根插针之外）即平"
+                                f"——按收盘确认不被影线扫；硬止损 {plan.disaster_stop:,.0f}(1.8R)")
+    plan.rationale = f"{tf}级别自动·基础现价(maker跟价)+埋伏结构·止损在近期插针之外"
     return plan
 
 
