@@ -203,31 +203,24 @@ def render_panels(state: dict) -> str:
     if not state.get("ready"):
         return f"<p class=load>启动中…首轮拉取实时数据中（{state.get('error') or ''}）</p>"
     parts = []
+    # compact ONE-LINE status (was two big cards): arm state + real balance
+    bn = state.get("broker_net") or "?"
+    bits = []
     if state.get("live_armed"):
-        bn = state.get("broker_net") or "?"
-        parts.append(f"<div class=card style='border:2px solid #b71c1c;background:#2d0a0a'>"
-                     f"<h2 class=neg>🔴 实盘已武装 · {bn}{'(真钱)' if bn == 'mainnet' else ''} · "
-                     f"「一键实盘下单」会真实下单</h2>"
-                     f"<p class=note>每单仍需你点击+二次确认;系统永不自动下单。停用:不带 BROKER_LIVE=1 重启。</p></div>")
+        bits.append(f"<b class=neg>🔴武装·{bn}{'(真钱)' if bn == 'mainnet' else ''}</b>"
+                    f"<span class=note>(点击+确认才下,永不自动)</span>")
     acc = state.get("account")
     if acc and acc.get("equity") is not None:
-        netcls = "neg" if acc.get("net") == "mainnet" else ""
-        parts.append(f"<div class=card style='border:1px solid #d29922'><h2>💰 真实账户(<span class={netcls}>"
-                     f"{acc.get('net')}</span>·{acc.get('market','')}) · 方向交易用</h2>"
-                     f"<p class=big>余额 ${acc['equity']:,.2f} {acc.get('asset','')} · 可用 ${acc.get('available',0):,.2f}</p>"
-                     f"<p class=note>实时拉取(只读key)。baseline 用 paper;方向单按这个余额定仓位($金额)。</p></div>")
+        bits.append(f"💰<b>${acc['equity']:,.2f}</b> 可用${acc.get('available', 0):,.2f}"
+                    f"<span class=note> {acc.get('net')}·{acc.get('market', '')}只读</span>")
     elif acc and acc.get("error"):
-        parts.append(f"<div class=card><p class=note>真实账户未接(设 BINANCE_KEY/BINANCE_SECRET + "
-                     f"BROKER_NET=testnet 即显示真实余额): {str(acc['error'])[:90]}</p></div>")
+        bits.append(f"<span class=note>账户错误 {str(acc['error'])[:60]}</span>")
     else:
-        parts.append("<div class=card style='border:1px dashed #6e7681'><h2>💰 真实账户 · 未连接</h2>"
-                     "<p class=note>当前用 paper $10,000 模拟。key 已从 omni-hub 自动读取——只需选网络/市场:<br>"
-                     "<code>export BROKER_NET=mainnet BROKER_MARKET=spot</code>(或 testnet/futures)后重启本面板,"
-                     "真实余额显示在这里,方向单按真实余额算 $。<br>"
-                     "<span class=neg>mainnet=真钱</span>;不设 BROKER_NET 则不碰真实账户。</p></div>")
-    parts.append(_positions_html(state))                 # OPEN positions first (right under the chart)
+        bits.append("<span class=note>💰paper$10k · 连真实余额:export BROKER_NET=mainnet BROKER_MARKET=futures</span>")
+    parts.append(f"<div class='card tile' style='padding:5px 12px;margin:6px 0'>{' &nbsp;·&nbsp; '.join(bits)}</div>")
 
-    # 待批准 pending intents (top, right under the chart) — drawn on the chart too
+    equity = (acc or {}).get("equity") or (state.get("paper") or {}).get("inception_equity", 10000.0)
+    # 批准下单 pending intents — DIRECTLY under the chart (drawn on the chart too)
     for t in (state.get("intents") or []):
         it = t["intent"]
         plan = it["plan"]
@@ -250,19 +243,33 @@ def render_panels(state: dict) -> str:
         t1v = f"{tlist[0]['price']:.0f}" if tlist else ""
         t2v = f"{tlist[-1]['price']:.0f}" if len(tlist) > 1 else ""
         lev = int(plan.get("leverage", 0) or 0) or 10
-        edit = (f"<div class=ord><label>损</label><input id=e_stop_{iid} value='{plan['stop']:.0f}'>"
-                f"<label>T1</label><input id=e_t1_{iid} value='{t1v}'>"
-                f"<label>T2</label><input id=e_t2_{iid} value='{t2v}'>"
-                f"<label>仓位×</label><input id=e_size_{iid} value='{plan.get('size_cap_frac',0.15)}' style='width:48px'>"
-                f"<label>杠杆</label><input id=e_lev_{iid} value='{lev}' style='width:40px'>"
-                f"<button class=go onclick=\"updateIntent('{iid}')\">更新</button></div>")
+        scf = plan.get("size_cap_frac", 0.15) or 0
+        usd = scf * equity                               # total order notional in USDC (not a bare ×multiplier)
+        ents = plan.get("entries", [])
+        ent_in = []
+        for i, e in enumerate(ents):                     # base + each 埋伏: editable % (of total) + price
+            ent_in.append(f"<span class=note>{'基础' if e.get('follow') else '埋伏'}</span>"
+                          f"<input id=e_p{i}_{iid} value='{e['size_frac']*100:.0f}' style='width:30px'>%@"
+                          f"<input id=e_px{i}_{iid} value='{e['price']:.0f}' style='width:60px'>")
+        edit = (
+            f"<div class=ord><label>总仓位$</label><input id=e_usd_{iid} value='{usd:.0f}' style='width:60px'>"
+            f"<span class=note>={scf*100:.0f}%权益</span>"
+            f"<label>杠杆</label><input id=e_lev_{iid} value='{lev}' style='width:36px'>"
+            f"<span class=note>保证金≈${usd/max(lev,1):,.0f}</span></div>"
+            f"<div class=ord><label>入场</label>{''.join(ent_in)}<span class=note>(%占总仓·合计100)</span></div>"
+            f"<div class=ord><label>损</label><input id=e_stop_{iid} value='{plan['stop']:.0f}' style='width:60px'>"
+            f"<span class=note>硬{plan.get('disaster_stop',0):,.0f}</span>"
+            f"<label>盈</label><input id=e_t1_{iid} value='{t1v}' style='width:60px'>"
+            f"<input id=e_t2_{iid} value='{t2v}' style='width:60px'>"
+            f"<span class=note>{plan.get('rr','?')}R·{'maker跟价' if plan.get('follow') else '限价'}</span>"
+            f"<button class=go onclick=\"updateIntent('{iid}',{len(ents)})\">更新</button></div>")
         parts.append(
             f"<div class='card tile' style='border:1px solid #a371f7'>"
             f"<h2>⏳ {it['symbol']} 做{side} <span class=note>{it.get('note','')} · {exp}</span></h2>"
-            f"<p class=note>{ent} → 损<b>{plan['stop']:,.0f}</b>/硬{plan.get('disaster_stop',0):,.0f} "
-            f"🎯{tgt} · {plan.get('rr','?')}R · {'maker跟价' if plan.get('follow') else '限价'}</p>"
             f"{edit}<div class=ord>{btns}</div>"
             f"<div id=execbox_{iid} style='display:none;margin-top:6px'></div></div>")
+
+    parts.append(_positions_html(state))                 # OPEN positions — right below the 批准下单 panel
 
     # MTF trend-alignment summary (top)
     al = []
@@ -718,6 +725,18 @@ class _Handler(BaseHTTPRequestHandler):
                     if tgt:
                         plan = tgt["plan"]
                         sign = 1 if plan["direction"] == "long" else -1
+                        ents_raw = q.get("entries", [""])[0]     # "pct@price,..." (first = follow base)
+                        if ents_raw:
+                            new = []
+                            for j, pair in enumerate(ents_raw.split(",")):
+                                pc, _, px = pair.partition("@")
+                                if not px:
+                                    continue
+                                new.append({"price": round(float(px), 2), "size_frac": round(float(pc) / 100, 4),
+                                            "role": "entry", "follow": (j == 0),
+                                            "label": "基础·现价" if j == 0 else "埋伏"})
+                            if new:
+                                plan["entries"] = new
                         wsum = max(sum(e["size_frac"] for e in plan["entries"]), 1e-9)
                         avg = sum(e["price"] * e["size_frac"] for e in plan["entries"]) / wsum
                         if q.get("stop", [""])[0]:
@@ -732,8 +751,10 @@ class _Handler(BaseHTTPRequestHandler):
                                                 "label": f"T{i+1}"} for i, p in enumerate(tg)]
                             plan["final_target"] = round(tg[-1], 2)
                             plan["rr"] = round(abs(tg[-1] - avg) / risk, 2)
-                        if q.get("size", [""])[0]:
-                            plan["size_cap_frac"] = float(q["size"][0])
+                        if q.get("usd", [""])[0]:                # total notional $ -> fraction of equity
+                            eq = ((STATE.get("account") or {}).get("equity")
+                                  or (STATE.get("paper") or {}).get("inception_equity") or 10000.0)
+                            plan["size_cap_frac"] = round(float(q["usd"][0]) / max(eq, 1e-9), 4)
                         if q.get("lev", [""])[0]:
                             plan["leverage"] = int(float(q["lev"][0]))
                         _pt._save_book(ip, ints)
@@ -871,7 +892,8 @@ function createIntent(){var p=new URLSearchParams({symbol:sym,dir:g('of_dir').va
  fetch('/create_intent?'+p.toString()).then(r=>r.json()).then(d=>{g('of_msg').textContent=d.ok?'✓已创建,见下方待批准':('✗'+(d.msg||''));setTimeout(()=>tick(true),300);});}
 function autoIntent(){var p=new URLSearchParams({symbol:sym,tf:g('of_tf').value,dir:g('of_autodir').value});
  fetch('/auto_intent?'+p.toString()).then(r=>r.json()).then(d=>{g('of_msg').textContent=d.ok?('✓ '+g('of_tf').value+'级别已自动设计,见下方待批准'):('✗'+(d.msg||''));setTimeout(()=>tick(true),300);});}
-function updateIntent(id){var p=new URLSearchParams({id:id,stop:g('e_stop_'+id).value,t1:g('e_t1_'+id).value,t2:g('e_t2_'+id).value,size:g('e_size_'+id).value,lev:g('e_lev_'+id).value});
+function updateIntent(id,n){var p=new URLSearchParams({id:id,usd:g('e_usd_'+id).value,lev:g('e_lev_'+id).value,stop:g('e_stop_'+id).value,t1:g('e_t1_'+id).value,t2:g('e_t2_'+id).value});
+ var es=[];for(var i=0;i<n;i++){es.push(g('e_p'+i+'_'+id).value+'@'+g('e_px'+i+'_'+id).value);}p.set('entries',es.join(','));
  fetch('/edit_intent?'+p.toString()).then(()=>setTimeout(()=>tick(true),300));}
 function editIntent(id){var t=(lastState.intents||[]).find(x=>x.intent.id===id);if(!t)return;var p=t.intent.plan;
  g('of_dir').value=p.direction;g('of_entry').value=p.entries[0].price;g('of_stop').value=p.stop;

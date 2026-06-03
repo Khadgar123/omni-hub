@@ -88,9 +88,10 @@ def test_render_full_board():
     html = dashboard.render_panels(state)
     assert "⏳" in html and "批准" in html and "卖×5墙" in html       # pending intent panel + approve
     assert "execCmd('intent-1')" in html and "execbox_intent-1" in html   # 🔴 generate-broker-command button + box
-    assert "e_lev_intent-1" in html                                  # leverage editable on the pending order
+    assert "e_lev_intent-1" in html and "e_usd_intent-1" in html     # editable leverage + total-notional($)
+    assert "e_p0_intent-1" in html and "e_px0_intent-1" in html      # editable per-entry %@price
     assert "一键下单" not in html                                    # disarmed state (no live_armed) -> no live button
-    assert "真实账户 · 未连接" in html                                # account hint when no key set
+    assert "连真实余额" in html                                       # compact account hint when no key set
     assert "更新" in html and "e_stop_" in html                      # inline-editable values before approve
     assert "净值" in html and "$10,100" in html
     assert "BNBUSDT" in html and "UNIUSDT" in html          # basket
@@ -121,6 +122,6 @@ def _pending_state(**extra):
 
 def test_live_fire_button_only_when_armed():
     armed = dashboard.render_panels(_pending_state(live_armed=True, broker_net="mainnet"))
-    assert "实盘已武装" in armed and "一键下单(mainnet)" in armed         # armed banner + live button present
+    assert "🔴武装" in armed and "一键下单(mainnet)" in armed             # compact armed indicator + live button
     safe = dashboard.render_panels(_pending_state(live_armed=False, broker_net="mainnet"))
-    assert "实盘已武装" not in safe and "一键下单" not in safe             # disarmed -> NO live button, command-only
+    assert "🔴武装" not in safe and "一键下单" not in safe                 # disarmed -> NO live button, command-only
