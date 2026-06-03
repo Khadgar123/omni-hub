@@ -4,6 +4,7 @@ All network injected; NO real keys, NO real orders."""
 import hashlib
 import hmac
 import json
+import urllib.error
 
 import pytest
 
@@ -131,6 +132,49 @@ def test_maker_follow_taker_fallback(monkeypatch):
                             opener=_broker_opener(status_seq=["NEW", "NEW", "NEW"]),
                             sleep_fn=lambda s: None, price_fn=lambda: (100.0, 100.2))
     assert r["filled"] and r["as"] == "taker(fallback)"      # never filled -> guaranteed via market
+
+
+def test_call_fails_over_to_next_host(monkeypatch):
+    monkeypatch.setenv("BINANCE_KEY", "k")
+    monkeypatch.setenv("BINANCE_SECRET", "s")
+    seen = []
+
+    def op(req, timeout=6.0):
+        seen.append(req.full_url)
+        if "//fapi.binance.com" in req.full_url:              # primary host is down
+            raise urllib.error.URLError("down")
+        return _Resp({"totalMarginBalance": "100", "availableBalance": "100", "totalWalletBalance": "100"})
+    bal = broker.read_balance(market="futures", net="mainnet", opener=op)
+    assert bal["equity"] == 100.0                             # succeeded via fail-over
+    assert any("//fapi.binance.com" in u for u in seen) and any("fapi1.binance.com" in u for u in seen)
+
+
+def test_close_position_guarantees_flat(monkeypatch):
+    monkeypatch.setenv("BINANCE_KEY", "k")
+    monkeypatch.setenv("BINANCE_SECRET", "s")
+    st = {"reads": 0, "closed": False}
+
+    def op(req, timeout=6.0):
+        url, m = req.full_url, req.get_method()
+        if "positionRisk" in url:
+            st["reads"] += 1
+            amt = "0" if st["closed"] else "0.5"              # flat only AFTER the close order fires
+            return _Resp([{"symbol": "BTCUSDC", "positionAmt": amt, "entryPrice": "100", "markPrice": "100",
+                           "unRealizedProfit": "0", "leverage": "5"}])
+        if "/fapi/v1/order" in url and m == "POST":
+            st["closed"] = True
+            return _Resp({"orderId": 1})                      # market reduceOnly close
+        return _Resp({})                                      # allOpenOrders DELETE etc.
+    res = broker.close_position("BTCUSDC", net="mainnet", opener=op)
+    assert res["closed"] and res["remaining"] == 0.0 and st["closed"]
+
+
+def test_set_leverage_payload(monkeypatch):
+    monkeypatch.setenv("BINANCE_KEY", "k")
+    monkeypatch.setenv("BINANCE_SECRET", "s")
+    cap = {}
+    broker.set_leverage("BTCUSDC", 10, net="mainnet", opener=_opener({"leverage": 10}, cap))
+    assert "leverage=10" in cap["url"] and "symbol=BTCUSDC" in cap["url"] and cap["method"] == "POST"
 
 
 def test_execute_refuses_without_approval():

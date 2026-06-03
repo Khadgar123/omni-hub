@@ -233,36 +233,36 @@ def render_panels(state: dict) -> str:
         plan = it["plan"]
         rem = t.get("remaining_sec", 0)
         side = "空" if plan["direction"] == "short" else "多"
+        iid = it["id"]
         ent = " · ".join(f"{'⚡基础' if e.get('follow') else '埋伏'}{e['size_frac']*100:.0f}%@{e['price']:,.0f}"
                          for e in plan["entries"])
         tgt = " · ".join(f"{g['price']:,.0f}" for g in plan["targets"])
         exp = f"{rem}s 后失效" if rem > 0 else "已过期(不可批)"
         bnet = state.get("broker_net") or "?"
-        live_btn = (f"<button onclick=\"placeLive('{it['id']}','{bnet}')\" "
-                    f"style='background:#b71c1c;font-weight:bold'>🔴 一键实盘下单({bnet})</button> ") \
+        live_btn = (f"<button class=fire onclick=\"placeLive('{iid}','{bnet}')\">🔴一键下单({bnet})</button>") \
             if state.get("live_armed") and rem > 0 else ""
-        btns = (f"<button onclick=\"approve('{it['id']}')\">✅ 批准(paper跟踪)</button> "
-                f"{live_btn}"
-                f"<button onclick=\"execCmd('{it['id']}')\" style='background:#7a1f1f'>🔴 命令</button> "
-                f"<button onclick=\"editIntent('{it['id']}')\">✎ 改</button> "
-                f"<button onclick=\"reject('{it['id']}')\">✕ 拒绝</button>") if rem > 0 else \
-               f"<button onclick=\"reject('{it['id']}')\">清除</button>"
+        btns = (f"<button class=gd onclick=\"approve('{iid}')\">✅批准</button>{live_btn}"
+                f"<button onclick=\"execCmd('{iid}')\">命令</button>"
+                f"<button onclick=\"editIntent('{iid}')\">✎</button>"
+                f"<button onclick=\"reject('{iid}')\">✕</button>") if rem > 0 else \
+               f"<button onclick=\"reject('{iid}')\">清除</button>"
         tlist = plan.get("targets", [])
         t1v = f"{tlist[0]['price']:.0f}" if tlist else ""
         t2v = f"{tlist[-1]['price']:.0f}" if len(tlist) > 1 else ""
-        edit = (f"<div class=note style='margin:4px 0'>改数值→批: 止损<input id=e_stop_{it['id']} size=7 "
-                f"value='{plan['stop']:.0f}'> T1<input id=e_t1_{it['id']} size=7 value='{t1v}'> "
-                f"T2<input id=e_t2_{it['id']} size=7 value='{t2v}'> 仓位×<input id=e_size_{it['id']} size=4 "
-                f"value='{plan.get('size_cap_frac',0.15)}'> <button onclick=\"updateIntent('{it['id']}')\">更新</button></div>")
+        lev = int(plan.get("leverage", 0) or 0) or 10
+        edit = (f"<div class=ord><label>损</label><input id=e_stop_{iid} value='{plan['stop']:.0f}'>"
+                f"<label>T1</label><input id=e_t1_{iid} value='{t1v}'>"
+                f"<label>T2</label><input id=e_t2_{iid} value='{t2v}'>"
+                f"<label>仓位×</label><input id=e_size_{iid} value='{plan.get('size_cap_frac',0.15)}' style='width:48px'>"
+                f"<label>杠杆</label><input id=e_lev_{iid} value='{lev}' style='width:40px'>"
+                f"<button class=go onclick=\"updateIntent('{iid}')\">更新</button></div>")
         parts.append(
-            f"<div class=card style='border:1px solid #a371f7'><h2>⏳ 待批准 · {it['symbol']} 做{side} "
-            f"[{it.get('note','')}]</h2>"
-            f"<p>入场(图上紫虚线): {ent} &nbsp; 成交: "
-            f"{'maker跟随(没成交自动跟价,免taker)' if plan.get('follow') else '限价埋伏'}"
-            f"<br>⛔ 止损 {plan['stop']:,.0f} · 硬 {plan.get('disaster_stop',0):,.0f} "
-            f"&nbsp; 🎯 目标 {tgt} &nbsp; 仓位 {plan.get('size_cap_frac','?')}× &nbsp; R:R {plan.get('rr','?')}</p>"
-            f"{edit}<p class=note>{exp} · ✅批准=paper跟踪 · 🔴实盘=生成命令,你在终端按回车才下单(系统永不自动下实盘)</p>"
-            f"{btns}<div id=execbox_{it['id']} style='display:none;margin-top:8px'></div></div>")
+            f"<div class='card tile' style='border:1px solid #a371f7'>"
+            f"<h2>⏳ {it['symbol']} 做{side} <span class=note>{it.get('note','')} · {exp}</span></h2>"
+            f"<p class=note>{ent} → 损<b>{plan['stop']:,.0f}</b>/硬{plan.get('disaster_stop',0):,.0f} "
+            f"🎯{tgt} · {plan.get('rr','?')}R · {'maker跟价' if plan.get('follow') else '限价'}</p>"
+            f"{edit}<div class=ord>{btns}</div>"
+            f"<div id=execbox_{iid} style='display:none;margin-top:6px'></div></div>")
 
     # MTF trend-alignment summary (top)
     al = []
@@ -373,19 +373,23 @@ def _positions_html(state):
         notional = (plan.get("size_cap_frac", 0) or 0) * equity      # full intended $ at this size
         filled_usd = notional * pos                                  # $ actually filled so far
         qty = filled_usd / avg if avg else 0
+        lev = int(plan.get("leverage", 0) or 0) or 10
+        sym = tr["symbol"]
+        close_btn = (f"<button class=fire onclick=\"closeReal('{sym}')\">🔴实盘平仓</button>"
+                     if state.get("live_armed") else f"<button onclick=\"mod('{tid}','close')\">平仓</button>")
         rows.append(
-            f"<div class=card style='border-left:4px solid {col}'>"
-            f"<h2>📈 {tr['symbol']} <b style='color:{col}'>{side} {pos*100:.0f}%仓</b> · "
-            f"<span id=pnl_{tid} class={'pos' if r >= 0 else 'neg'}>浮盈 {r:+.2f}R</span></h2>"
-            f"<p>开仓均价 <b>{avg:,.2f}</b> · 标记价 {mark:,.2f} · 仓位 {plan.get('size_cap_frac','?')}×权益"
-            f" ≈ <b>${notional:,.0f}</b>名义(已成交 ${filled_usd:,.0f}≈{qty:.4f}币)"
-            f" · 当前止损 <b>{astop:,.2f}</b>{' 🔒保本' if st.get('be_done') else ''} · 目标 {tgts}</p>"
-            f"<p class=note>持仓(已成交): {heldn} &nbsp;|&nbsp; 委托(挂单): {pendn}</p>"
-            f"<div class=note>动态改止盈止损: 止损<input id=m_stop_{tid} size=8 value='{astop:.0f}'> "
-            f"T1<input id=m_t1_{tid} size=8 value='{t1v}'> T2<input id=m_t2_{tid} size=8 value='{t2v}'> "
-            f"<button onclick=\"modtp('{tid}')\">更新止盈止损</button> "
-            f"<button onclick=\"mod('{tid}','breakeven')\">止损→保本</button> "
-            f"<button onclick=\"mod('{tid}','close')\">立即平仓</button></div></div>")
+            f"<div class='card tile' style='border-left:4px solid {col}'>"
+            f"<h2>{sym} <b style='color:{col}'>{side} {pos*100:.0f}%</b> "
+            f"<span id=pnl_{tid} class={'pos' if r >= 0 else 'neg'}>{r:+.2f}R</span>"
+            f"<span class=note> 均{avg:,.1f} 标{mark:,.1f} ${notional:,.0f}≈{qty:.4f}币"
+            f"{' 🔒保本' if st.get('be_done') else ''}</span></h2>"
+            f"<div class=ord>"
+            f"<label>损</label><input id=m_stop_{tid} value='{astop:.0f}'>"
+            f"<label>T1</label><input id=m_t1_{tid} value='{t1v}'>"
+            f"<label>T2</label><input id=m_t2_{tid} value='{t2v}'>"
+            f"<label>×</label><input id=m_lev_{tid} value='{lev}' style='width:40px'>"
+            f"<button class=go onclick=\"modtp('{tid}','{sym}')\">改</button>"
+            f"<button onclick=\"mod('{tid}','breakeven')\">保本</button>{close_btn}</div></div>")
     return "".join(rows)
 
 
@@ -527,9 +531,37 @@ class _Handler(BaseHTTPRequestHandler):
                                      for i, p in enumerate(tg)]
                 with _BOOK_LOCK:
                     _pt.modify_trade(getattr(self.server, "book_path", None), tid, **kw)
+                import os
+                lev, sym = q.get("lev", [""])[0], q.get("sym", [""])[0]   # leverage -> real account if armed
+                if lev and sym and os.environ.get("BROKER_LIVE") == "1" and os.environ.get("BROKER_NET"):
+                    from quant import broker as _bk
+                    _bk.set_leverage(sym, int(float(lev)), net=os.environ["BROKER_NET"])
                 body = json.dumps({"ok": True}).encode()
             except Exception as e:  # noqa: BLE001
                 body = json.dumps({"ok": False, "msg": str(e)}).encode()
+        elif u.path == "/close_real":
+            # GUARANTEED real close (market reduceOnly, retried until flat). Gated: BROKER_LIVE=1 + confirm.
+            q = parse_qs(u.query)
+            sym = q.get("symbol", [""])[0]
+            ok, msg, res = False, "", {}
+            try:
+                import os
+                if os.environ.get("BROKER_LIVE") != "1":
+                    msg = "未武装(BROKER_LIVE=1)"
+                elif q.get("confirm", [""])[0] != "yes":
+                    msg = "需确认"
+                elif not os.environ.get("BROKER_NET"):
+                    msg = "未设 BROKER_NET"
+                else:
+                    from quant import broker as _bk
+                    res = _bk.close_position(sym, net=os.environ["BROKER_NET"])
+                    print(f"[LIVE CLOSE] {sym}: {res}")
+                    ok = bool(res.get("closed"))
+                    if not ok:
+                        msg = f"未完全平仓,剩 {res.get('remaining')}"
+            except Exception as e:  # noqa: BLE001
+                msg = str(e)
+            body = json.dumps({"ok": ok, "msg": msg, "result": res}).encode()
         elif u.path == "/approve":
             q = parse_qs(u.query)
             iid = q.get("id", [""])[0]
@@ -614,6 +646,12 @@ class _Handler(BaseHTTPRequestHandler):
                         msg = "找不到该委托(可能已过期)"
                     else:
                         eq = float(_bk.read_balance(net=net).get("equity", 0) or 0)
+                        lev = int((tgt.get("plan") or {}).get("leverage", 0) or 0)
+                        if lev:
+                            try:
+                                _bk.set_leverage(tgt["plan"]["symbol"], lev, net=net)   # apply leverage first
+                            except Exception:  # noqa: BLE001
+                                pass
                         res = _bk.execute_intent(tgt, equity=eq, net=net, yes=True)   # human-confirmed click
                         placed, receipts = res.get("placed", 0), res.get("receipts", [])
                         with _BOOK_LOCK:                               # track the now-live trade in the book
@@ -696,6 +734,8 @@ class _Handler(BaseHTTPRequestHandler):
                             plan["rr"] = round(abs(tg[-1] - avg) / risk, 2)
                         if q.get("size", [""])[0]:
                             plan["size_cap_frac"] = float(q["size"][0])
+                        if q.get("lev", [""])[0]:
+                            plan["leverage"] = int(float(q["lev"][0]))
                         _pt._save_book(ip, ints)
                         ok = True
             except Exception as e:  # noqa: BLE001
@@ -740,10 +780,17 @@ h1{font-size:18px;margin:0 0 8px} h2{font-size:15px;margin:0 0 8px;color:#58a6ff
 table{border-collapse:collapse;width:100%;margin:6px 0} th,td{text-align:right;padding:3px 8px;border-bottom:1px solid #21262d}
 th:first-child,td:first-child{text-align:left}
 .cols{display:flex;gap:18px;flex-wrap:wrap} .cols>div{flex:1;min-width:240px}
-.pos{color:#3fb950} .neg{color:#f85149} .note{color:#8b949e;font-size:12.5px}
+.pos{color:#3fb950} .neg{color:#f85149} .note{color:#8b949e;font-size:12px}
 .load{color:#8b949e;padding:40px;text-align:center} ul{margin:6px 0;padding-left:18px}
-#ctrls button{background:#21262d;color:#c9d1d9;border:1px solid #30363d;border-radius:5px;padding:3px 11px;margin:2px;cursor:pointer}
+button{background:#21262d;color:#c9d1d9;border:1px solid #30363d;border-radius:5px;padding:3px 9px;margin:1px;cursor:pointer;font-size:12.5px}
+button:hover{border-color:#58a6ff}
+input,select{background:#0d1117;color:#c9d1d9;border:1px solid #30363d;border-radius:4px;padding:2px 5px;font-size:12.5px}
+.fire{background:#b71c1c;color:#fff;font-weight:700;border-color:#d11}
+.go{background:#1f6feb;color:#fff;border-color:#1f6feb} .gd{background:#238636;color:#fff;border-color:#238636}
 #ctrls button.on{background:#1f6feb;border-color:#1f6feb;color:#fff} #chart{height:440px}
+.ord{display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin:5px 0}
+.ord label{color:#8b949e;font-size:12px} .ord input{width:64px} .tile{padding:9px 12px}
+.tile h2{font-size:14px;margin:0 0 4px}
 </style></head><body>
 <h1>📈 quant paper 监控 <span id=meta class=note></span></h1>
 <div class=card>
@@ -810,7 +857,7 @@ function execCmd(id){fetch('/exec_cmd?id='+encodeURIComponent(id)).then(r=>r.jso
     '<textarea readonly rows=2 style="width:99%;font-family:monospace" onclick="this.select()">'+d.execute+'</textarea>'+
     '<div class=note>需先 export BINANCE_KEY/BINANCE_SECRET(交易权限)。系统只生成命令,永不替你按回车。</div>';});}
 function placeLive(id,net){
-  if(!confirm('⚠️ 一键实盘下单到 '+net+'('+(net=='mainnet'?'真钱!':'测试网')+')\n执行:基础仓(maker跟价)+埋伏限价+止损+止盈。确认?'))return;
+  if(!confirm('⚠️ 一键实盘下单到 '+net+'('+(net=='mainnet'?'真钱!':'测试网')+') 执行:基础仓(maker跟价)+埋伏限价+止损+止盈。确认?'))return;
   var box=g('execbox_'+id); if(box){box.style.display='block';box.innerHTML='<span class=note>下单中…</span>';}
   fetch('/place?id='+encodeURIComponent(id)+'&confirm=yes').then(r=>r.json()).then(function(d){
     if(!box)return; box.style.display='block';
@@ -824,7 +871,7 @@ function createIntent(){var p=new URLSearchParams({symbol:sym,dir:g('of_dir').va
  fetch('/create_intent?'+p.toString()).then(r=>r.json()).then(d=>{g('of_msg').textContent=d.ok?'✓已创建,见下方待批准':('✗'+(d.msg||''));setTimeout(()=>tick(true),300);});}
 function autoIntent(){var p=new URLSearchParams({symbol:sym,tf:g('of_tf').value,dir:g('of_autodir').value});
  fetch('/auto_intent?'+p.toString()).then(r=>r.json()).then(d=>{g('of_msg').textContent=d.ok?('✓ '+g('of_tf').value+'级别已自动设计,见下方待批准'):('✗'+(d.msg||''));setTimeout(()=>tick(true),300);});}
-function updateIntent(id){var p=new URLSearchParams({id:id,stop:g('e_stop_'+id).value,t1:g('e_t1_'+id).value,t2:g('e_t2_'+id).value,size:g('e_size_'+id).value});
+function updateIntent(id){var p=new URLSearchParams({id:id,stop:g('e_stop_'+id).value,t1:g('e_t1_'+id).value,t2:g('e_t2_'+id).value,size:g('e_size_'+id).value,lev:g('e_lev_'+id).value});
  fetch('/edit_intent?'+p.toString()).then(()=>setTimeout(()=>tick(true),300));}
 function editIntent(id){var t=(lastState.intents||[]).find(x=>x.intent.id===id);if(!t)return;var p=t.intent.plan;
  g('of_dir').value=p.direction;g('of_entry').value=p.entries[0].price;g('of_stop').value=p.stop;
@@ -832,8 +879,10 @@ function editIntent(id){var t=(lastState.intents||[]).find(x=>x.intent.id===id);
  window.scrollTo(0,0);g('of_msg').textContent='已载入到表单,改完点「创建待批挂单」(旧的可拒绝)';}
 function mod(id,a){fetch('/modify?id='+encodeURIComponent(id)+'&action='+a).then(()=>setTimeout(()=>tick(true),200));}
 function modstop(id){var v=document.getElementById('s_'+id).value;if(v)fetch('/modify?id='+encodeURIComponent(id)+'&action=stop&value='+encodeURIComponent(v)).then(()=>setTimeout(()=>tick(true),200));}
-function modtp(id){var p=new URLSearchParams({id:id,stop:g('m_stop_'+id).value,t1:g('m_t1_'+id).value,t2:g('m_t2_'+id).value});fetch('/modtp?'+p.toString()).then(()=>setTimeout(()=>tick(true),300));}
-function livePnl(){var sd=(lastState.symbols||{}); for(var s in sd){} (lastState.trades||[]).forEach(function(t){if(t.trade.symbol!==sym)return;var st=t.state||{};if(st.status!=='active'||!st.avg||!st.position)return;var sign=t.trade.plan.direction==='short'?-1:1;var px=window._lastClose||st.mark||st.avg;var r=sign*(px-st.avg)/(t.trade.plan.risk_dist||1)*st.position;var pct=(t.trade.plan.size_cap_frac||0)*sign*(px-st.avg)/st.avg*100;var el=document.getElementById('pnl_'+t.trade.id);if(el)el.innerHTML='浮盈 <b>'+r.toFixed(2)+'R</b> ('+(pct>=0?'+':'')+pct.toFixed(2)+'%权益) 现价'+px.toLocaleString();});}
+function modtp(id,sym){var p=new URLSearchParams({id:id,stop:g('m_stop_'+id).value,t1:g('m_t1_'+id).value,t2:g('m_t2_'+id).value,lev:g('m_lev_'+id).value,sym:sym||''});fetch('/modtp?'+p.toString()).then(()=>setTimeout(()=>tick(true),300));}
+function closeReal(sym){if(!confirm('🔴 实盘平仓 '+sym+'(市价 reduceOnly,重试至持仓归零)。确认?'))return;
+ fetch('/close_real?symbol='+encodeURIComponent(sym)+'&confirm=yes').then(r=>r.json()).then(function(d){alert(d.ok?('✅ 已平仓 '+sym):('✗ '+(d.msg||'失败')));setTimeout(()=>tick(true),500);});}
+function livePnl(){var sd=(lastState.symbols||{}); for(var s in sd){} (lastState.trades||[]).forEach(function(t){if(t.trade.symbol!==sym)return;var st=t.state||{};if(st.status!=='active'||!st.avg||!st.position)return;var sign=t.trade.plan.direction==='short'?-1:1;var px=window._lastClose||st.mark||st.avg;var r=sign*(px-st.avg)/(t.trade.plan.risk_dist||1)*st.position;var pct=(t.trade.plan.size_cap_frac||0)*sign*(px-st.avg)/st.avg*100;var el=document.getElementById('pnl_'+t.trade.id);if(el){el.innerHTML='<b>'+r.toFixed(2)+'R</b> '+(pct>=0?'+':'')+pct.toFixed(1)+'%';el.className=(r>=0?'pos':'neg');}});}
 loadBars(false);tick(false);setInterval(()=>tick(true),__REFRESH__*1000);
 setInterval(updateLast,1000);   // 1s: only candle.update(last bar) — never touches zoom/pan
 </script></body></html>"""

@@ -20,12 +20,20 @@ import hmac
 import json
 import os
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
-FAPI = {"mainnet": "https://fapi.binance.com", "testnet": "https://testnet.binancefuture.com"}
-SPOT = {"mainnet": "https://api.binance.com", "testnet": "https://testnet.binance.vision"}
+# Multiple base hosts per venue — on timeout/5xx/429 we fail over to the next, so a single slow/blocked
+# endpoint never stalls an order or a close (latency + resilience matter most for 下单/平仓).
+FAPI_HOSTS = {"mainnet": ["https://fapi.binance.com", "https://fapi1.binance.com", "https://fapi2.binance.com"],
+              "testnet": ["https://testnet.binancefuture.com"]}
+SPOT_HOSTS = {"mainnet": ["https://api.binance.com", "https://api1.binance.com", "https://api-gcp.binance.com"],
+              "testnet": ["https://testnet.binance.vision"]}
+FAPI = {k: v[0] for k, v in FAPI_HOSTS.items()}      # primary host (public/unsigned calls, back-compat)
+SPOT = {k: v[0] for k, v in SPOT_HOSTS.items()}
 _UA = "omni-hub-quant-broker/0.1"
+_TIME_OFFSET = {"mainnet": 0, "testnet": 0}          # serverTime - localTime, refreshed on -1021 drift
 
 
 def sign(query: str, secret: str) -> str:
@@ -124,6 +132,52 @@ def _signed(base: str, path: str, params: dict, *, key: str, secret: str, method
         return json.loads(r.read().decode("utf-8"))
 
 
+def _resync_time(market: str, net: str, *, opener=None) -> None:
+    """Refresh the local↔server clock offset (Binance rejects requests >recvWindow out of sync, -1021)."""
+    host = (SPOT if market == "spot" else FAPI)[net]
+    path = "/api/v3/time" if market == "spot" else "/fapi/v1/time"
+    try:
+        req = urllib.request.Request(f"{host}{path}", headers={"User-Agent": _UA})
+        with (opener or urllib.request.urlopen)(req, timeout=5) as r:
+            srv = int(json.loads(r.read().decode("utf-8"))["serverTime"])
+        _TIME_OFFSET[net] = srv - int(time.time() * 1000)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _call(market: str, net: str, path: str, params: dict, *, key: str, secret: str, method: str = "GET",
+          opener=None, timeout: float = 6.0, retries: int = 1, now_ms=None):
+    """Signed request with host fail-over + bounded retry — moves to the next base host immediately on a
+    network error / 5xx / 429 (low latency), resyncs the clock on -1021, and surfaces auth/4xx errors at
+    once. ``timeout`` is short so a stalled host fails fast; this is what keeps 下单/平仓 from hanging."""
+    hosts = (SPOT_HOSTS if market == "spot" else FAPI_HOSTS).get(net) or [(SPOT if market == "spot" else FAPI)[net]]
+    last = None
+    for rnd in range(retries + 1):
+        for host in hosts:
+            ts = now_ms if now_ms is not None else int(time.time() * 1000) + _TIME_OFFSET.get(net, 0)
+            try:
+                return _signed(host, path, params, key=key, secret=secret, method=method, opener=opener,
+                               timeout=timeout, now_ms=ts)
+            except urllib.error.HTTPError as e:
+                try:
+                    txt = e.read().decode("utf-8")
+                except Exception:  # noqa: BLE001
+                    txt = ""
+                last = RuntimeError(f"HTTP {e.code}: {txt[:160]}")
+                if "-1021" in txt:                       # clock drift -> resync, try next host
+                    _resync_time(market, net, opener=opener)
+                    continue
+                if e.code in (408, 418, 429) or 500 <= e.code < 600:
+                    continue                             # transient -> next host
+                raise last                               # auth / bad request -> surface immediately
+            except (urllib.error.URLError, TimeoutError, OSError) as e:
+                last = RuntimeError(f"net: {e}")
+                continue                                 # unreachable host -> next host
+        if rnd < retries:
+            time.sleep(0.2 * (rnd + 1))                  # brief backoff before re-looping the hosts
+    raise last or RuntimeError(f"all hosts failed for {path}")
+
+
 # ---------------------------------------------------------------- READ side
 def read_balance(*, market: str = "futures", net: str = "testnet", key_env: str = "BINANCE_KEY",
                  secret_env: str = "BINANCE_SECRET", opener=None, now_ms=None) -> dict:
@@ -131,13 +185,13 @@ def read_balance(*, market: str = "futures", net: str = "testnet", key_env: str 
     READ-only (a read key suffices). Returns ``{equity, available, asset, market, net}`` (futures)."""
     key, secret = _creds(key_env, secret_env)
     if market == "futures":                                  # account-level totals (no per-asset row ambiguity)
-        data = _signed(FAPI[net], "/fapi/v2/account", {}, key=key, secret=secret, opener=opener, now_ms=now_ms)
+        data = _call("futures", net, "/fapi/v2/account", {}, key=key, secret=secret, opener=opener, now_ms=now_ms)
         return {"equity": float(data.get("totalMarginBalance", 0) or 0),
                 "available": float(data.get("availableBalance", 0) or 0),
                 "wallet": float(data.get("totalWalletBalance", 0) or 0),
                 "upnl": float(data.get("totalUnrealizedProfit", 0) or 0),
                 "asset": "USDT", "market": "futures", "net": net}
-    data = _signed(SPOT[net], "/api/v3/account", {}, key=key, secret=secret, opener=opener, now_ms=now_ms)
+    data = _call("spot", net, "/api/v3/account", {}, key=key, secret=secret, opener=opener, now_ms=now_ms)
     bals = {b["asset"]: float(b["free"]) for b in data.get("balances", []) if float(b.get("free", 0)) > 0}
     return {"balances": bals, "market": "spot", "net": net}
 
@@ -146,7 +200,7 @@ def read_positions(*, net: str = "testnet", key_env: str = "BINANCE_KEY", secret
                    opener=None, now_ms=None) -> list:
     """Open futures positions (nonzero positionAmt). Returns ``[{symbol, qty, entry, mark, uPnl, leverage}]``."""
     key, secret = _creds(key_env, secret_env)
-    data = _signed(FAPI[net], "/fapi/v2/positionRisk", {}, key=key, secret=secret, opener=opener, now_ms=now_ms)
+    data = _call("futures", net, "/fapi/v2/positionRisk", {}, key=key, secret=secret, opener=opener, now_ms=now_ms)
     out = []
     for p in data:
         amt = float(p.get("positionAmt", 0) or 0)
@@ -162,7 +216,7 @@ def read_open_orders(symbol=None, *, net: str = "testnet", key_env: str = "BINAN
                      secret_env: str = "BINANCE_SECRET", opener=None, now_ms=None) -> list:
     key, secret = _creds(key_env, secret_env)
     params = {"symbol": symbol} if symbol else {}
-    data = _signed(FAPI[net], "/fapi/v1/openOrders", params, key=key, secret=secret, opener=opener, now_ms=now_ms)
+    data = _call("futures", net, "/fapi/v1/openOrders", params, key=key, secret=secret, opener=opener, now_ms=now_ms)
     return [{"symbol": o.get("symbol"), "side": o.get("side"), "type": o.get("type"),
              "price": float(o.get("price", 0) or 0), "qty": float(o.get("origQty", 0) or 0),
              "orderId": o.get("orderId"), "clientOrderId": o.get("clientOrderId")} for o in data]
@@ -184,8 +238,8 @@ def place_order(*, symbol: str, side: str, otype: str, quantity: float, price=No
         params["reduceOnly"] = "true"
     if client_order_id:
         params["newClientOrderId"] = client_order_id
-    return _signed(FAPI[net], "/fapi/v1/order", params, key=key, secret=secret, method="POST",
-                   opener=opener, now_ms=now_ms)
+    return _call("futures", net, "/fapi/v1/order", params, key=key, secret=secret, method="POST",
+                 opener=opener, now_ms=now_ms, timeout=8.0)
 
 
 def maker_follow(*, symbol: str, side: str, quantity: float, net: str = "testnet", max_repegs: int = 5,
@@ -203,16 +257,17 @@ def maker_follow(*, symbol: str, side: str, quantity: float, net: str = "testnet
     def best():
         if price_fn:
             return price_fn()
-        d = _signed(FAPI[net], "/fapi/v1/ticker/bookTicker", {"symbol": symbol}, key=key, secret=secret, opener=opener)
+        d = _call("futures", net, "/fapi/v1/ticker/bookTicker", {"symbol": symbol}, key=key, secret=secret,
+                  opener=opener)
         return float(d["bidPrice"]), float(d["askPrice"])
 
     def status(oid):
-        return _signed(FAPI[net], "/fapi/v1/order", {"symbol": symbol, "orderId": oid}, key=key, secret=secret,
-                       opener=opener)
+        return _call("futures", net, "/fapi/v1/order", {"symbol": symbol, "orderId": oid}, key=key, secret=secret,
+                     opener=opener)
 
     def cancel(oid):
-        _signed(FAPI[net], "/fapi/v1/order", {"symbol": symbol, "orderId": oid}, key=key, secret=secret,
-                method="DELETE", opener=opener)
+        _call("futures", net, "/fapi/v1/order", {"symbol": symbol, "orderId": oid}, key=key, secret=secret,
+              method="DELETE", opener=opener)
 
     oid = None
     for i in range(max_repegs):
@@ -237,8 +292,42 @@ def maker_follow(*, symbol: str, side: str, quantity: float, net: str = "testnet
 def cancel_all(symbol: str, *, net: str = "testnet", key_env: str = "BINANCE_KEY",
                secret_env: str = "BINANCE_SECRET", opener=None, now_ms=None) -> dict:
     key, secret = _creds(key_env, secret_env)
-    return _signed(FAPI[net], "/fapi/v1/allOpenOrders", {"symbol": symbol}, key=key, secret=secret,
-                   method="DELETE", opener=opener, now_ms=now_ms)
+    return _call("futures", net, "/fapi/v1/allOpenOrders", {"symbol": symbol}, key=key, secret=secret,
+                 method="DELETE", opener=opener, now_ms=now_ms)
+
+
+def set_leverage(symbol: str, leverage: int, *, net: str = "testnet", key_env: str = "BINANCE_KEY",
+                 secret_env: str = "BINANCE_SECRET", opener=None, now_ms=None) -> dict:
+    """Set the futures leverage for a symbol (POST /fapi/v1/leverage)."""
+    key, secret = _creds(key_env, secret_env)
+    return _call("futures", net, "/fapi/v1/leverage", {"symbol": symbol, "leverage": int(leverage)},
+                 key=key, secret=secret, method="POST", opener=opener, now_ms=now_ms)
+
+
+def close_position(symbol: str, *, net: str = "testnet", key_env: str = "BINANCE_KEY",
+                   secret_env: str = "BINANCE_SECRET", opener=None, retries: int = 3) -> dict:
+    """GUARANTEE the symbol is flat: read the live position; if nonzero, fire a MARKET reduceOnly order
+    for the full size on the opposite side; re-check and retry up to ``retries``. Also cancels resting
+    orders so no stray stop/TP remains. Returns ``{closed, remaining, attempts}``. This is 平仓 that
+    does not silently half-fail."""
+    def _pos():
+        return next((p for p in read_positions(net=net, key_env=key_env, secret_env=secret_env, opener=opener)
+                     if p["symbol"] == symbol), None)
+
+    attempts = 0
+    for attempts in range(1, retries + 1):
+        p = _pos()
+        if not p or p["qty"] == 0:
+            try:
+                cancel_all(symbol, net=net, key_env=key_env, secret_env=secret_env, opener=opener)
+            except Exception:  # noqa: BLE001
+                pass
+            return {"closed": True, "remaining": 0.0, "attempts": attempts - 1}
+        place_order(symbol=symbol, side=("SELL" if p["qty"] > 0 else "BUY"), otype="MARKET",
+                    quantity=abs(p["qty"]), reduce_only=True, net=net, key_env=key_env,
+                    secret_env=secret_env, opener=opener)
+    p = _pos()
+    return {"closed": bool(not p or p["qty"] == 0), "remaining": (p["qty"] if p else 0.0), "attempts": attempts}
 
 
 def build_orders(intent: dict, equity: float) -> list:
@@ -293,13 +382,14 @@ def main(argv=None):
     import sys
 
     p = argparse.ArgumentParser(prog="quant.broker", description=__doc__)
-    p.add_argument("command", choices=["balance", "positions", "orders", "preview", "execute"])
+    p.add_argument("command", choices=["balance", "positions", "orders", "preview", "execute", "close", "leverage"])
     p.add_argument("--net", default="testnet", choices=["testnet", "mainnet"])
     p.add_argument("--market", default="futures", choices=["futures", "spot"])
     p.add_argument("--symbol", default=None)
     p.add_argument("--intent", default=None, help="path to an approved order_intent JSON (preview/execute)")
     p.add_argument("--equity", type=float, default=None, help="override equity for sizing (else live balance)")
-    p.add_argument("--yes", action="store_true", help="REQUIRED to actually place orders (execute)")
+    p.add_argument("--leverage", type=int, default=None, help="leverage to set (leverage command)")
+    p.add_argument("--yes", action="store_true", help="REQUIRED to actually place orders (execute/close)")
     args = p.parse_args(argv)
 
     def emit(o):
@@ -312,6 +402,12 @@ def main(argv=None):
         emit(read_positions(net=args.net))
     elif args.command == "orders":
         emit(read_open_orders(args.symbol, net=args.net))
+    elif args.command == "leverage":
+        emit(set_leverage(args.symbol, args.leverage, net=args.net))
+    elif args.command == "close":
+        if not args.yes:
+            raise SystemExit("close refuses without --yes (it places a real market reduceOnly order)")
+        emit(close_position(args.symbol, net=args.net))
     else:
         intent = json.load(open(args.intent))
         eq = args.equity if args.equity is not None else read_balance(net=args.net).get("equity", 0)

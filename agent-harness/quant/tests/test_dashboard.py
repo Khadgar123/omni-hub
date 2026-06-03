@@ -86,9 +86,10 @@ def test_render_full_board():
                                                           "label": "T"}], "size_cap_frac": 0.2}},
                          "remaining_sec": 300}]
     html = dashboard.render_panels(state)
-    assert "待批准" in html and "批准" in html and "卖×5墙" in html   # pending intent panel + approve
+    assert "⏳" in html and "批准" in html and "卖×5墙" in html       # pending intent panel + approve
     assert "execCmd('intent-1')" in html and "execbox_intent-1" in html   # 🔴 generate-broker-command button + box
-    assert "一键实盘下单" not in html                                # disarmed state (no live_armed) -> no live button
+    assert "e_lev_intent-1" in html                                  # leverage editable on the pending order
+    assert "一键下单" not in html                                    # disarmed state (no live_armed) -> no live button
     assert "真实账户 · 未连接" in html                                # account hint when no key set
     assert "更新" in html and "e_stop_" in html                      # inline-editable values before approve
     assert "净值" in html and "$10,100" in html
@@ -99,9 +100,8 @@ def test_render_full_board():
     assert "资金费" in html and "买墙" in html               # per-symbol auxiliary board
     assert "若做多" in html and "若做空" in html             # both execution scenarios
     assert "止损" in html and "硬顶" in html                 # stop + disaster cap shown
-    assert "持仓(已成交)" in html and "委托(挂单)" in html              # 持仓+委托 split
-    assert "开仓均价" in html and "浮盈" in html                       # Binance-style position panel
-    assert "止损→保本" in html and "立即平仓" in html and "更新止盈止损" in html   # dynamic TP/SL + close
+    assert "保本" in html and "平仓" in html and "改" in html          # compact dynamic TP/SL + close buttons
+    assert "m_stop_BTCUSDC-5m-1" in html and "m_lev_BTCUSDC-5m-1" in html   # editable stop + leverage on position
     assert "pnl_BTCUSDC-5m-1" in html                                # 1s live-PnL element hook
 
 
@@ -121,6 +121,6 @@ def _pending_state(**extra):
 
 def test_live_fire_button_only_when_armed():
     armed = dashboard.render_panels(_pending_state(live_armed=True, broker_net="mainnet"))
-    assert "实盘已武装" in armed and "一键实盘下单(mainnet)" in armed     # armed banner + live button present
+    assert "实盘已武装" in armed and "一键下单(mainnet)" in armed         # armed banner + live button present
     safe = dashboard.render_panels(_pending_state(live_armed=False, broker_net="mainnet"))
-    assert "实盘已武装" not in safe and "一键实盘下单" not in safe         # disarmed -> NO live button, command-only
+    assert "实盘已武装" not in safe and "一键下单" not in safe             # disarmed -> NO live button, command-only
