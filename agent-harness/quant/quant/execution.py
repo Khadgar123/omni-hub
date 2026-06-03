@@ -459,6 +459,17 @@ def plan_from_live(symbol: str, direction: str, conviction: float, *, venue: str
     return build_order_plan(symbol, direction, conviction, bars, walls=walls, **kw)
 
 
+def plan_from_dict(d: dict) -> OrderPlan:
+    """Reconstruct an OrderPlan (+ its OrderLegs) from ``to_dict`` output — so a live
+    discretionary trade can be persisted and re-evaluated with ``simulate_plan`` each tick."""
+    d = dict(d)
+    d["entries"] = [OrderLeg(price=e["price"], size_frac=e["size_frac"], role=e["role"], label=e["label"])
+                    for e in d.get("entries", [])]
+    d["targets"] = [OrderLeg(price=t["price"], size_frac=t["size_frac"], role=t["role"], label=t["label"])
+                    for t in d.get("targets", [])]
+    return OrderPlan(**{k: v for k, v in d.items() if k in OrderPlan.__slots__})
+
+
 def render_plan(plan: OrderPlan) -> str:
     """Human-readable review surface (交互友好) — levels with %/distance, the R map,
     sizes, and the mandatory rules. Not a raw dict."""

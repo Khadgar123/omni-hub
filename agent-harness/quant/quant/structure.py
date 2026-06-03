@@ -235,6 +235,53 @@ def exhaustion(bars: Sequence[dict], *, core: int = 4, qual: int = 6, length: in
     return out
 
 
+def double_top(bars: Sequence[dict], *, left: int = 2, right: int = 2, tol: float = 0.005) -> dict | None:
+    """Double-top (M): the last two confirmed swing HIGHS sit within ``tol`` of each other,
+    with a trough (neckline) between them. Bearish — a close below the neckline confirms it;
+    the measured-move target = ``neckline - (top - neckline)``. Returns
+    ``{top, neckline, h1_idx, h2_idx, neck_idx, measured_target, confirmed}`` or None.
+
+    Causal: uses only confirmed swings (a pivot at i is known at i+right). A LEADING signal —
+    low-timeframe double-tops fail often; confirm with the neckline break + higher-TF context."""
+    sw = swings(bars, left, right)
+    highs = [s for s in sw if s["kind"] == "high"]
+    lows = [s for s in sw if s["kind"] == "low"]
+    if len(highs) < 2:
+        return None
+    h1, h2 = highs[-2], highs[-1]
+    if abs(h1["price"] - h2["price"]) > tol * h2["price"]:
+        return None
+    between = [low for low in lows if h1["idx"] < low["idx"] < h2["idx"]]
+    if not between:
+        return None
+    neck = min(between, key=lambda x: x["price"])
+    top = max(h1["price"], h2["price"])
+    return {"top": top, "neckline": neck["price"], "h1_idx": h1["idx"], "h2_idx": h2["idx"],
+            "neck_idx": neck["idx"], "measured_target": neck["price"] - (top - neck["price"]),
+            "confirmed": float(bars[-1]["close"]) < neck["price"]}
+
+
+def double_bottom(bars: Sequence[dict], *, left: int = 2, right: int = 2, tol: float = 0.005) -> dict | None:
+    """Double-bottom (W): mirror of ``double_top`` — two equal lows + a neckline; bullish,
+    measured-move target = ``neckline + (neckline - bottom)``."""
+    sw = swings(bars, left, right)
+    lows = [s for s in sw if s["kind"] == "low"]
+    highs = [s for s in sw if s["kind"] == "high"]
+    if len(lows) < 2:
+        return None
+    l1, l2 = lows[-2], lows[-1]
+    if abs(l1["price"] - l2["price"]) > tol * l2["price"]:
+        return None
+    between = [h for h in highs if l1["idx"] < h["idx"] < l2["idx"]]
+    if not between:
+        return None
+    neck = max(between, key=lambda x: x["price"])
+    bot = min(l1["price"], l2["price"])
+    return {"bottom": bot, "neckline": neck["price"], "l1_idx": l1["idx"], "l2_idx": l2["idx"],
+            "neck_idx": neck["idx"], "measured_target": neck["price"] + (neck["price"] - bot),
+            "confirmed": float(bars[-1]["close"]) > neck["price"]}
+
+
 def order_blocks(bars: Sequence[dict], *, left: int = 2, right: int = 2, lookback: int = 12,
                  merge_pct: float = 0.004) -> list[dict]:
     """Demand / supply zones (SMC "order blocks") — the candle ORIGIN of a structure

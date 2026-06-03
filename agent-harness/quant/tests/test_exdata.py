@@ -78,6 +78,18 @@ def test_dashboard_resilient_to_field_failure():
     assert d["order_walls"] is not None                         # other fields survived
 
 
+def test_round_trip_cost_uses_taker():
+    depth = {"bids": [["100.00", "1"]], "asks": [["100.20", "1"]]}     # spread 0.20, mid 100.10
+    c = exdata.round_trip_cost("BTCUSDC", opener=_router({"/depth": depth}))
+    assert c["maker_bps"] == 0.0 and c["taker_bps"] == 10.0            # USDC: 0 maker, taker standard 0.1%
+    assert abs(c["taker_leg_usd"] - 0.10) < 0.01                       # 10bp × 100.1 ≈ 0.10/unit
+    assert abs(c["cost_taker_both"] - 0.40) < 0.01                     # spread + 2 taker legs
+    assert c["cost_taker_both"] > c["cost_maker_in_taker_out"]         # market-both > limit-in/stop-out
+    # custom VIP rate override (e.g. 7.5bp with BNB)
+    c2 = exdata.round_trip_cost("BTCUSDC", opener=_router({"/depth": depth}), maker_taker=(0.0, 7.5))
+    assert c2["taker_bps"] == 7.5 and c2["cost_taker_both"] < c["cost_taker_both"]
+
+
 def test_deep_walls_reads_usdt_sibling_book():
     # gap-2: a BTCUSDC plan reads walls from the deep BTCUSDT book (prices transfer 1:1)
     w = exdata.deep_walls("BTCUSDC", opener=_router({"symbol=BTCUSDT": _DEPTH}))

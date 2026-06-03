@@ -42,6 +42,26 @@ def test_zone_is_causal_not_emitted_before_break():
     assert not [z for z in zones if z["kind"] == "demand"]
 
 
+def test_double_top_detection():
+    bars = [
+        _b(100, 101, 99, 100, 0), _b(100, 104, 102, 103, 1), _b(103, 107, 105, 106, 2),
+        _b(106, 110, 108, 109, 3),       # high 110
+        _b(109, 108, 105, 106, 4), _b(106, 106, 103, 104, 5),   # neckline low 103
+        _b(104, 108, 105, 107, 6),
+        _b(107, 110.2, 108, 109, 7),     # high 110.2 (≈ equal)
+        _b(109, 107, 104, 105, 8), _b(105, 104, 101, 102, 9),
+        _b(102, 102, 99, 100, 10), _b(100, 101, 98, 98.5, 11),  # close 98.5 < neckline = confirmed
+    ]
+    dt = structure.double_top(bars, left=2, right=2)
+    assert dt is not None
+    assert dt["top"] == 110.2 and dt["neckline"] == 103.0
+    assert dt["confirmed"] is True                       # last close < neckline
+    assert abs(dt["measured_target"] - 95.8) < 0.01      # neckline - (top - neckline)
+    # a clean uptrend has no double top
+    up = [_b(100 + i, 101 + i, 99 + i, 100 + i, i) for i in range(12)]
+    assert structure.double_top(up, left=2, right=2) is None
+
+
 def test_supply_zone_mirror():
     # fall to a swing low, pull up with up candles, then a strong down candle breaks it.
     bars = [

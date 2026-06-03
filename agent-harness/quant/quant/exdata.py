@@ -70,6 +70,37 @@ def order_walls(depth: dict, *, top=4, merge_pct=0.0008) -> dict:
 
 
 # ---------------------------------------------------------- futures positioning
+# spot fees in bps (maker, taker). USDC pairs: 0 MAKER (Binance promo) but TAKER is standard ~0.1%
+# (the promo zeroes maker only) — and a STOP exits as taker (market), so taker is the real cost.
+# Override via maker_taker=(mk,tk) with your actual VIP rate (e.g. 7.5 with BNB discount).
+SPOT_FEES = {"BTCUSDC": (0.0, 10.0), "ETHUSDC": (0.0, 10.0), "SOLUSDC": (0.0, 10.0),
+             "BTCUSDT": (10.0, 10.0), "ETHUSDT": (10.0, 10.0)}
+
+
+def round_trip_cost(symbol, *, opener=None, timeout=12.0, maker_taker=None) -> dict:
+    """PRECISE live round-trip cost of one trade. Maker/spread is ~0 on 0-fee USDC, so the real
+    cost is the TAKER fee (a stop exits as a market/taker order). One taker leg = ``taker × notional``;
+    a trade pays at least one (stop exit), often two (market in + market out). Reads the live
+    top-of-book. Returns ``{mid, spread, maker_bps, taker_bps, taker_leg_usd, cost_maker_in_taker_out,
+    cost_taker_both, cost_bps_taker_both}``. Use ``cost_taker_both`` (or _maker_in_taker_out for a
+    limit-in/stop-out trade) as the MIN ambush spacing — a tranche must beat it to be worth a fill.
+    ``cost_bps`` is symbol-agnostic so BTC and ETH share one rule, $-spacing scales by price."""
+    d = fetch_depth(symbol, limit=5, opener=opener, timeout=timeout)
+    if not d["bids"] or not d["asks"]:
+        return {"mid": None, "spread": None, "taker_bps": None, "cost_taker_both": None}
+    bid, ask = d["bids"][0][0], d["asks"][0][0]
+    mid = (bid + ask) / 2
+    spread = ask - bid
+    mk, tk = maker_taker or SPOT_FEES.get(symbol.upper(), (10.0, 10.0))
+    taker_leg = tk / 1e4 * mid                                   # $ per unit, one taker fill
+    mito = 0.5 * spread + taker_leg                              # limit in (~free), stop市价 out
+    tboth = spread + 2 * taker_leg                               # 市价 in + 市价 out
+    return {"mid": round(mid, 2), "spread": round(spread, 2), "spread_bps": round(spread / mid * 1e4, 3),
+            "maker_bps": mk, "taker_bps": tk, "taker_leg_usd": round(taker_leg, 2),
+            "cost_maker_in_taker_out": round(mito, 2), "cost_taker_both": round(tboth, 2),
+            "cost_bps_taker_both": round(tboth / mid * 1e4, 3)}
+
+
 def deep_walls(symbol, *, top=4, limit=1000, opener=None, timeout=12.0) -> dict:
     """Order-book walls from the DEEP sibling book. Gap-2 fix: BTCUSDC's own book is
     thin (~45 BTC), so we read walls from BTCUSDT (deep liquidity) — prices transfer

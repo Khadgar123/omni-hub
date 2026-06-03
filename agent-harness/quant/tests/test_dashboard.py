@@ -14,9 +14,13 @@ def _bars(n=80, base=67000.0):
     return out
 
 
-def test_render_loading_state():
-    html = dashboard.render_html({"ready": False, "error": None})
-    assert "启动中" in html and "<html" in html
+def test_render_loading_and_shell():
+    assert "启动中" in dashboard.render_panels({"ready": False, "error": None})
+    shell = dashboard.render_shell(10)                       # the SPA chart shell
+    assert "<html" in shell and "addCandlestickSeries" in shell    # TradingView chart present
+    assert "data-tf=1m" in shell and "data-tf=5m" in shell        # 1m/5m switches
+    assert "data-tf=1h" not in shell                              # 1h dropped
+    assert "非投资建议" in shell
 
 
 def test_render_full_board():
@@ -53,7 +57,21 @@ def test_render_full_board():
                     "alignment": {"score": -0.6, "direction": "空", "agree": 1, "n": 1, "label": "多数一致"},
                     "board": board, "plan_long": plan_long, "plan_short": plan_short},
     }
-    html = dashboard.render_html(state, refresh=10)
+    state["trades"] = [{
+        "trade": {"id": "BTCUSDC-5m-1", "symbol": "BTCUSDC", "tf": "5m", "note": "5min双头做空",
+                  "breakeven_at_r": 1.0,
+                  "plan": {"direction": "short", "stop": 67312.0, "disaster_stop": 67547.0,
+                           "final_target": 66139.0, "rr": 3.0,
+                           "entries": [{"price": 66955.0, "size_frac": 0.4, "role": "entry", "label": "now"},
+                                       {"price": 67034.0, "size_frac": 0.35, "role": "entry", "label": "埋伏"}],
+                           "targets": [{"price": 66139.0, "size_frac": 1.0, "role": "final", "label": "T"}]}},
+        "state": {"status": "active", "total_r": 0.35, "avg": 66992.0, "active_stop": 67312.0,
+                  "be_done": False, "filled": [0], "hit": []},
+        "breakdown": [{"price": 66955.0, "size_frac": 0.4, "label": "now", "filled": True},
+                      {"price": 67034.0, "size_frac": 0.35, "label": "埋伏", "filled": False}],
+        "mark": 66888.0,
+    }]
+    html = dashboard.render_panels(state)
     assert "净值" in html and "$10,100" in html
     assert "BNBUSDT" in html and "UNIUSDT" in html          # basket
     assert "BTCUSDC" in html and "ETHUSDC" in html          # both symbols analyzed
@@ -62,4 +80,5 @@ def test_render_full_board():
     assert "资金费" in html and "买墙" in html               # per-symbol auxiliary board
     assert "若做多" in html and "若做空" in html             # both execution scenarios
     assert "止损" in html and "硬顶" in html                 # stop + disaster cap shown
-    assert "非投资建议" in html                              # disclaimer present
+    assert "持仓(已成交)" in html and "委托(挂单待成交)" in html and "5min双头做空" in html   # 持仓+委托 split
+    assert "止损→保本" in html and "立即平仓" in html and "持仓中" in html                  # quick TP/SL edit + status
