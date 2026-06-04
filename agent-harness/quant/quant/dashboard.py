@@ -58,7 +58,7 @@ def tf_analysis(symbol, tfs=("1m", "5m", "30m", "4h", "1d"), *, venue="binance",
         tfw = {"1m": 0.4, "5m": 0.6, "30m": 1.0, "4h": 1.5, "1d": 2.0}
         zones = levels.confluence(by_tf, tf_weight=tfw, merge_pct=0.0035)
         near = [z for z in zones if abs(z["price"] / ref - 1) <= 0.045 and abs(z["price"] - ref) > 1e-6]
-        for z in sorted(near, key=lambda x: -x["confluence_score"])[:6]:
+        for z in sorted(near, key=lambda x: -x["confluence_score"])[:10]:
             conf.append({"price": round(z["price"], 2), "n_tf": z["n_tf"], "tfs": z["tfs"],
                          "score": round(z["confluence_score"], 2),
                          "side": "res" if z["price"] > ref else "sup", "key": z["n_tf"] >= 2})
@@ -946,9 +946,9 @@ let sym='BTCUSDC',tf='5m',lines=[],lastState={},inited=false;
 function clearLines(){lines.forEach(l=>candle.removePriceLine(l));lines=[];}
 function drawLevels(){clearLines();const leg=[];
  const sd=(lastState.symbols||{})[sym];
- if(sd&&sd.key_levels&&document.getElementById('cb_sr').checked){sd.key_levels.filter(z=>z.key).slice(0,4).forEach(z=>{
+ if(sd&&sd.key_levels&&document.getElementById('cb_sr').checked){sd.key_levels.slice(0,8).forEach(z=>{
   lines.push(candle.createPriceLine({price:z.price,color:z.side==='sup'?'#2a9d8f':'#e9a23b',
-   lineWidth:2,lineStyle:0,axisLabelVisible:true,title:(z.side==='sup'?'撑':'压')+'×'+z.n_tf}));});}
+   lineWidth:z.n_tf>=4?2:1,lineStyle:z.n_tf>=2?0:2,axisLabelVisible:true,title:(z.side==='sup'?'撑':'压')}));});}
  (lastState.trades||[]).filter(t=>t.trade.symbol===sym&&(!t.state||t.state.status==='active')).forEach(t=>{const p=t.trade.plan;
   (t.breakdown||[]).forEach(e=>lines.push(candle.createPriceLine({price:e.price,color:e.filled?'#d29922':'#8b949e',lineWidth:1,lineStyle:e.filled?0:2,axisLabelVisible:true,title:(e.filled?'持仓':'委托')+Math.round(e.size_frac*100)+'%'})));
   lines.push(candle.createPriceLine({price:p.stop,color:'#f85149',lineWidth:2,axisLabelVisible:true,title:'止损'}));
