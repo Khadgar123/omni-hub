@@ -948,7 +948,7 @@ function drawLevels(){clearLines();const leg=[];
  const sd=(lastState.symbols||{})[sym];
  if(sd&&sd.key_levels&&document.getElementById('cb_sr').checked){sd.key_levels.slice(0,8).forEach(z=>{
   lines.push(candle.createPriceLine({price:z.price,color:z.side==='sup'?'#2a9d8f':'#e9a23b',
-   lineWidth:z.n_tf>=4?2:1,lineStyle:z.n_tf>=2?0:2,axisLabelVisible:true,title:(z.side==='sup'?'撑':'压')}));});}
+   lineWidth:z.n_tf>=4?2:1,lineStyle:z.n_tf>=2?0:2,axisLabelVisible:true,title:(z.side==='sup'?'撑':'压')+'×'+z.n_tf}));});}
  (lastState.trades||[]).filter(t=>t.trade.symbol===sym&&(!t.state||t.state.status==='active')).forEach(t=>{const p=t.trade.plan;
   (t.breakdown||[]).forEach(e=>lines.push(candle.createPriceLine({price:e.price,color:e.filled?'#d29922':'#8b949e',lineWidth:1,lineStyle:e.filled?0:2,axisLabelVisible:true,title:(e.filled?'持仓':'委托')+Math.round(e.size_frac*100)+'%'})));
   lines.push(candle.createPriceLine({price:p.stop,color:'#f85149',lineWidth:2,axisLabelVisible:true,title:'止损'}));
