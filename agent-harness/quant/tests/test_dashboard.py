@@ -141,3 +141,18 @@ def test_live_fire_button_only_when_armed():
     assert "🔴武装" in armed and "一键下单(mainnet)" in armed             # compact armed indicator + live button
     safe = dashboard.render_panels(_pending_state(live_armed=False, broker_net="mainnet"))
     assert "🔴武装" not in safe and "一键下单" not in safe                 # disarmed -> NO live button, command-only
+
+
+def test_levels_table_shows_depth_and_marks_round_filler():
+    lv = {
+        "4h": {"trend": "up", "ref": 65000.0, "bars": 1600,                # deep history scored
+               "supports": [{"p": 64237.0, "m": ""}, {"p": 64000.0, "m": "°"}],
+               "resistances": [{"p": 66841.0, "m": ""}, {"p": 67000.0, "m": "°"}]},
+        "1d": {"trend": "down", "ref": 65000.0,                            # legacy float entries (back-compat)
+               "supports": [63000.0], "resistances": [70000.0]},
+    }
+    html = dashboard._levels_table(lv)
+    assert "64,237" in html and "64,000°" in html                          # swing plain; round filler marked °
+    assert "267d" in html                                                  # 4h depth (1600×4h) surfaced
+    assert "63,000" in html                                                # legacy float entry still renders
+    assert "整数心理位" in html                                              # legend present

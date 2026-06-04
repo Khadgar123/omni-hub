@@ -24,32 +24,104 @@ _LOCK = threading.Lock()
 _BOOK_LOCK = threading.Lock()    # serialize trade-book read/advance/save vs /modify edits
 
 
+# S/R for STRUCTURAL TFs is scored over DEEP history (swing is halflife-decayed, so a big
+# level from months ago surfaces without old levels dominating); VP stays on the recent window
+# so it isn't smeared into mush. ``bars_4h`` stays the RECENT slice → order plans / chart unchanged.
+# Live path (opener=None) caches ~90s — S/R barely moves intraday and the deep fetch must not
+# block every page render (it is NOT on the order/close latency path).
+_SR_DEEP = {"4h": 1600, "1d": 1500}            # the deep TFs; values = pure-API last-resort cap (store is primary)
+_SR_RECENT = 300                               # recent slice for ref/atr/trend/plan (was the whole fetch)
+_SR_VP_LOOKBACK = 400                          # VP window stays sharp even when swing sees thousands
+_SR_CACHE: dict = {}                           # (symbol, tfs) -> (mono_ts, result); opener=None only
+_SR_TTL = 90.0
+
+
+def _sr_lvl(L: dict) -> dict:
+    """Compact S/R entry for the panel. ``m='°'`` flags a round-only psychological level (no
+    real swing/VP structure behind it) so the table visibly separates STRUCTURE from filler —
+    the integers you asked about are exactly the ``°`` ones."""
+    mark = "" if ("swing" in L["kind"] or "vp" in L["kind"]) else "°"
+    return {"p": round(L["price"], 2), "m": mark}
+
+
+_STORE_SYM = {"BTCUSDC": "BTCUSDT", "ETHUSDC": "ETHUSDT"}   # local store is USDT-margined; price ≈ USDC for S/R
+_SR_STORE_START = {"4h": "2022-01-01", "1d": "2019-01-01"}  # how far back to read from the Parquet store
+
+
+def _load_sr_bars(symbol, tf, *, venue="binance", opener=None, timeout=10.0):
+    """Deep S/R history, STORE-FIRST: read YEARS from the LOCAL Parquet store (~/quant/market,
+    zero-latency) and stitch a live API tail over the top (covers the store's staleness gap +
+    intraday; dedup by bucket_ts, µs). Falls back to pure-API paging if the store is unavailable.
+    The store is USDT-margined (BTCUSDT/ETHUSDT) — price ≈ USDC, fine for levels."""
+    from quant import live
+    sym = _STORE_SYM.get(symbol, symbol)
+    merged: dict = {}
+    try:
+        from quant import market_store as ms
+        for b in ms.bars(sym, tf, _SR_STORE_START.get(tf, "2019-01-01"), "2100-01-01"):
+            merged[b["bucket_ts"]] = b
+    except Exception:
+        pass
+    try:                                                   # live tail overlaps store-end → now
+        for b in live.fetch_candles(sym, tf, venue=venue, opener=opener, timeout=timeout, limit=300):
+            merged[b["bucket_ts"]] = b
+    except Exception:
+        pass
+    if merged:
+        return [merged[t] for t in sorted(merged)]
+    return live.fetch_history(symbol, tf, venue=venue, max_bars=_SR_DEEP.get(tf, 1500),
+                              opener=opener, timeout=max(timeout, 15.0))   # last-resort: pure API
+
+
 def tf_analysis(symbol, tfs=("1m", "5m", "30m", "4h", "1d"), *, venue="binance", opener=None, timeout=10.0):
-    """Per-timeframe TREND (regime label) + 3-tier S/R (nearest 3 supports below / 3
-    resistances above current price, from scored_levels). Returns (dict_by_tf, bars_4h)."""
+    """Per-timeframe TREND (regime label) + 3-tier S/R (nearest 3 supports below / 3 resistances
+    above current price, from scored_levels). STRUCTURAL TFs (4h/1d) score levels over DEEP
+    history from the LOCAL Parquet store + a live API tail (see ``_load_sr_bars``); swing's
+    halflife decay fades stale pivots so months-old
+    structure surfaces without clutter, and VP is held to the last ``_SR_VP_LOOKBACK`` bars so it
+    stays sharp. ``bars_4h`` is the RECENT slice (order plan / chart unchanged). Live path
+    (opener=None) caches ~90s. ``out[tf]['bars']`` exposes the lookback depth actually used.
+    Returns (dict_by_tf, bars_4h, confluence)."""
+    import time
     from quant import levels, live, regime
     from quant.features import atr as _atr
+
+    ckey = (symbol, tuple(tfs))
+    if opener is None:
+        hit = _SR_CACHE.get(ckey)
+        if hit and (time.monotonic() - hit[0]) < _SR_TTL:
+            return hit[1]
 
     out, bars_4h, by_tf, ref = {}, None, {}, 0.0
     for tf in tfs:
         try:
-            bars = live.fetch_candles(symbol, tf, venue=venue, opener=opener, timeout=timeout)
+            if tf in _SR_DEEP:                              # 4h/1d: local store (years) + live API tail
+                bars_all = _load_sr_bars(symbol, tf, venue=venue, opener=opener, timeout=timeout)
+                bars = bars_all[-_SR_RECENT:]
+            else:                                           # 1m/5m/30m: recent API only (intraday, recency)
+                bars = bars_all = live.fetch_candles(symbol, tf, venue=venue, opener=opener, timeout=timeout)
         except Exception:
             continue
+        if not bars:
+            continue
         if tf == "4h":
-            bars_4h = bars
+            bars_4h = bars                                       # recent slice — plan/chart unchanged
         a = next((x for x in reversed(_atr(bars, 14)) if x), None) or 0.0
         ref = float(bars[-1]["close"])
         try:
             trend = regime.classify(bars).label
         except Exception:
             trend = "?"
-        scored = levels.scored_levels(bars, atr=a) if len(bars) > 20 else []
+        scored = (levels.scored_levels(bars_all, atr=a, vp_lookback=_SR_VP_LOOKBACK)
+                  if len(bars_all) > 20 else [])
         by_tf[tf] = scored
-        sup = sorted((L["price"] for L in scored if L["price"] < ref), reverse=True)[:3]
-        res = sorted(L["price"] for L in scored if L["price"] > ref)[:3]
+        sup = [_sr_lvl(L) for L in sorted((x for x in scored if x["price"] < ref),
+                                          key=lambda x: -x["price"])[:3]]
+        res = [_sr_lvl(L) for L in sorted((x for x in scored if x["price"] > ref),
+                                          key=lambda x: x["price"])[:3]]
         out[tf] = {"trend": trend, "ref": round(ref, 2), "atr": round(a, 2),
-                   "supports": [round(x, 2) for x in sup], "resistances": [round(x, 2) for x in res]}
+                   "supports": sup, "resistances": res,
+                   "bars": len(bars_all)}                        # depth used → you can SEE the lookback
     # cross-TF confluence: merge levels that OVERLAP across timeframes -> one line, scored by
     # Σ tf_weight·strength. n_tf≥2 = a key level (multiple levels agree); keep the few strongest
     # near price so the chart isn't dense.
@@ -62,7 +134,10 @@ def tf_analysis(symbol, tfs=("1m", "5m", "30m", "4h", "1d"), *, venue="binance",
             conf.append({"price": round(z["price"], 2), "n_tf": z["n_tf"], "tfs": z["tfs"],
                          "score": round(z["confluence_score"], 2),
                          "side": "res" if z["price"] > ref else "sup", "key": z["n_tf"] >= 2})
-    return out, bars_4h, conf
+    result = (out, bars_4h, conf)
+    if opener is None:
+        _SR_CACHE[ckey] = (time.monotonic(), result)
+    return result
 
 
 def mtf_alignment(levels: dict) -> dict:
@@ -467,6 +542,25 @@ def _board_html(b):
             f"<ul class=note>{notes}</ul>")
 
 
+_TF_SECS = {"1m": 60, "5m": 300, "30m": 1800, "4h": 14400, "1d": 86400}
+
+
+def _tf_span(tf, bars):
+    """Human label for the history depth actually scored, e.g. 1600 bars × 4h -> '267d'."""
+    secs = _TF_SECS.get(tf, 0)
+    if not (bars and secs):
+        return ""
+    days = bars * secs / 86400
+    return f"{days/365:.1f}y" if days >= 365 else f"{days:.0f}d" if days >= 1 else f"{days*24:.0f}h"
+
+
+def _fmt_lvl(x):
+    """One S/R entry: dict ``{p, m}`` (``m='°'`` = round-only filler) or a bare float (legacy)."""
+    if isinstance(x, dict):
+        return f"{x['p']:,.0f}{x.get('m', '')}"
+    return f"{x:,.0f}"
+
+
 def _levels_table(lv):
     rows = ""
     for tf in ("1d", "4h", "30m", "5m", "1m"):
@@ -475,12 +569,15 @@ def _levels_table(lv):
             continue
         t = d["trend"]
         tcls = "pos" if "up" in t else "neg" if "down" in t else ""
-        sup = " · ".join(f"{x:,.0f}" for x in d["supports"]) or "—"
-        res = " · ".join(f"{x:,.0f}" for x in d["resistances"]) or "—"
-        rows += _row([tf, f"<span class={tcls}>{t}</span>", f"<span class=pos>{sup}</span>",
+        sup = " · ".join(_fmt_lvl(x) for x in d["supports"]) or "—"
+        res = " · ".join(_fmt_lvl(x) for x in d["resistances"]) or "—"
+        span = _tf_span(tf, d.get("bars"))
+        tf_lbl = f"{tf}<small style='opacity:.5'> ·{span}</small>" if span else tf
+        rows += _row([tf_lbl, f"<span class={tcls}>{t}</span>", f"<span class=pos>{sup}</span>",
                       f"<span class=neg>{res}</span>"])
-    return ("<table><tr><th>级别</th><th>趋势</th><th>支撑(近→远)</th><th>压力(近→远)</th></tr>"
-            + rows + "</table>")
+    return ("<table><tr><th>级别·历史</th><th>趋势</th><th>支撑(近→远)</th><th>压力(近→远)</th></tr>"
+            + rows + "</table><div style='opacity:.6;font-size:11px;margin-top:3px'>"
+            "° = 整数心理位(兜底·无真实结构);其余 = swing/VP 历史结构</div>")
 
 
 def _plan_col(title, p, cls):

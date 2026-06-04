@@ -23,6 +23,7 @@ Pure stdlib — agglomerative clustering is a 1-D sorted-merge (no numpy/sklearn
 
 from __future__ import annotations
 
+import math
 from typing import Sequence
 
 from quant import structure
@@ -118,6 +119,80 @@ def swing_levels(bars: Sequence[dict], *, left: int = 3, right: int = 3,
         })
     out.sort(key=lambda x: x["price"])
     return out
+
+
+def round_levels(price: float, *, atr: float | None = None, span_atr: float = 8.0,
+                 pct_span: float = 0.06) -> list[dict]:
+    """Psychological round-number levels near ``price`` (a peer-reviewed barrier:
+    BTC closes within 2% of each $10k 15-30× before breaching). Grid auto-tiers to
+    price magnitude (≥10k→1000, ≥1k→500, ≥100→50, else 10); a multiple of 10×grid
+    (e.g. 70000) gets ``tier=2`` vs 1. Bidirectional — these are magnets, not
+    signed. Returns ``[{price, tier}]`` within ±``span_atr·atr`` (or ±``pct_span``)."""
+    if price <= 0:
+        return []
+    major = 1000.0 if price >= 10000 else 500.0 if price >= 1000 else 50.0 if price >= 100 else 10.0
+    span = (span_atr * atr) if atr else (pct_span * price)
+    lo, hi = price - span, price + span
+    out = []
+    for k in range(int(math.floor(lo / major)), int(math.ceil(hi / major)) + 1):
+        p = k * major
+        if lo <= p <= hi and p > 0:
+            out.append({"price": p, "tier": 2.0 if (p % (major * 10) == 0) else 1.0})
+    return out
+
+
+def scored_levels(bars: Sequence[dict], *, left: int = 3, right: int = 3,
+                  merge_pct: float = 0.005, atr: float | None = None,
+                  vp_bins: int = 48, vp_lookback: int | None = None) -> list[dict]:
+    """One SYMMETRIC S/R map: swing-pivot clusters are the backbone; a level's
+    strength is BOOSTED by confluence with volume-profile nodes (×1.5) and round
+    numbers (×(1+0.5·tier)) — fixed economic weights, NOT tunable parameters.
+    VP/round nodes with no nearby swing are added as weaker standalone levels so
+    an untested wall (e.g. a fresh round number) still appears. Direction is NOT
+    stored: a level is bidirectional and the caller decides long/short by
+    side-of-approach. Returns levels sorted by price, each
+    ``{price, strength, kind, touches}``.
+
+    Swing uses the FULL ``bars`` (its halflife decay fades old pivots, so feeding
+    deep history sharpens structure rather than cluttering it); VP uses only the
+    last ``vp_lookback`` bars when set, so deep history does NOT smear the volume
+    profile into mush."""
+    levels = swing_levels(bars, left=left, right=right, merge_pct=merge_pct)
+    for L in levels:
+        L["kind"] = "swing"
+    vp = volume_profile(bars[-vp_lookback:] if vp_lookback else bars, n_bins=vp_bins)
+    vp_nodes = [(vp["poc"], 1.0), (vp["vah"], 0.7), (vp["val"], 0.7)]
+    vp_nodes += [(h, 0.5) for h in vp.get("hvn", [])]
+    price_ref = float(bars[-1]["close"]) if bars else 0.0
+    rounds = round_levels(price_ref, atr=atr)
+
+    def near(a: float, b: float) -> bool:
+        return b > 0 and abs(a - b) <= merge_pct * b
+
+    for L in levels:                                   # confluence boosts the backbone
+        if any(p is not None and near(L["price"], p) for p, _ in vp_nodes):
+            L["strength"] *= 1.5
+            L["kind"] += "+vp"
+        for r in rounds:
+            if near(L["price"], r["price"]):
+                L["strength"] *= (1.0 + 0.5 * r["tier"])
+                L["kind"] += "+round"
+                break
+    base = (sum(L["strength"] for L in levels) / len(levels)) if levels else 1.0
+
+    def covered(p: float) -> bool:
+        return any(near(L["price"], p) for L in levels)
+
+    for p, wfrac in vp_nodes:                          # standalone VP nodes
+        if p is not None and not covered(p):
+            levels.append({"price": float(p), "strength": base * wfrac * 0.5,
+                           "kind": "vp", "touches": 0})
+    for r in rounds:                                   # standalone round walls
+        if not covered(r["price"]):
+            levels.append({"price": r["price"], "strength": base * 0.25 * r["tier"],
+                           "kind": "round", "touches": 0})
+    levels.sort(key=lambda x: x["price"])
+    return levels
 
 
 def confluence(levels_by_tf: dict, *, tf_weight: dict, merge_pct: float = 0.005) -> list[dict]:
