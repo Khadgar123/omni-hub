@@ -97,7 +97,8 @@ def binance_klines(raw) -> list[dict]:
     return out
 
 
-def fetch_candles(symbol, interval, *, venue="coinbase", opener=None, timeout=15.0) -> list[dict]:
+def fetch_candles(symbol, interval, *, venue="coinbase", limit=300, end=None, opener=None,
+                  timeout=15.0) -> list[dict]:
     product = _product(symbol, venue)
     if venue == "coinbase":
         g = _COINBASE_GRAN.get(interval)
@@ -116,7 +117,9 @@ def fetch_candles(symbol, interval, *, venue="coinbase", opener=None, timeout=15
         if iv is None:
             raise ValueError(f"binance has no {interval} interval")
         url = (f"https://fapi.binance.com/fapi/v1/klines?symbol={product}"
-               f"&interval={iv}&limit=300")
+               f"&interval={iv}&limit={int(limit)}")
+        if end:                                          # endTime -> older history (lazy-load on pan-left)
+            url += f"&endTime={int(end)}"
         return binance_klines(_get_json(url, opener=opener, timeout=timeout))
     raise ValueError(f"unknown venue {venue!r}")
 

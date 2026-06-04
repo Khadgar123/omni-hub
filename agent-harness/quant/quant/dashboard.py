@@ -536,9 +536,12 @@ class _Handler(BaseHTTPRequestHandler):
             q = parse_qs(u.query)
             sym = q.get("symbol", ["BTCUSDC"])[0]
             tf = q.get("tf", ["5m"])[0]
+            limit = min(int(q.get("limit", ["300"])[0] or 300), 1000)
+            end = q.get("end", [None])[0]
             try:
                 from quant import live as _live
-                bars = _live.fetch_candles(sym, tf, venue="binance", timeout=10.0)
+                bars = _live.fetch_candles(sym, tf, venue="binance", limit=limit,
+                                           end=(int(end) if end else None), timeout=10.0)
                 seen, out = set(), []
                 for b in bars:
                     tsec = int(b["bucket_ts"] // 1_000_000)
@@ -959,14 +962,21 @@ function drawLevels(){clearLines();const leg=[];
   leg.push('⏳待批'+(p.direction==='short'?'空':'多'));});
  document.getElementById('legend').textContent=leg.join('   |   ')||(sym.replace('USDC','')+' 当前无单');}
 function setActive(a,v){document.querySelectorAll('[data-'+a+']').forEach(b=>b.classList.toggle('on',b.dataset[a]===v));}
+const SHOWN=160;                                  // candles shown on a TF/symbol switch (CONSISTENT count)
+let barsData=[],loadingOld=false;
+function showLast(){var n=barsData.length;if(n>1)chart.timeScale().setVisibleLogicalRange({from:Math.max(0,n-SHOWN),to:n+1});}
 function loadBars(keep){const r=(keep&&inited)?chart.timeScale().getVisibleRange():null;
- return fetch('/api/bars?symbol='+sym+'&tf='+tf).then(x=>x.json()).then(d=>{var b=d.bars||[];candle.setData(b);
-  if(b.length)window._lastClose=b[b.length-1].close;
-  if(r){try{chart.timeScale().setVisibleRange(r);}catch(e){}}else{chart.timeScale().fitContent();}inited=true;drawLevels();livePnl();});}
-function updateLast(){return fetch('/api/bars?symbol='+sym+'&tf='+tf).then(x=>x.json()).then(d=>{var b=d.bars||[];if(b.length&&inited){candle.update(b[b.length-1]);window._lastClose=b[b.length-1].close;livePnl();}});}
+ return fetch('/api/bars?symbol='+sym+'&tf='+tf).then(x=>x.json()).then(d=>{barsData=d.bars||[];candle.setData(barsData);
+  if(barsData.length)window._lastClose=barsData[barsData.length-1].close;
+  if(r){try{chart.timeScale().setVisibleRange(r);}catch(e){}}else{showLast();}inited=true;drawLevels();livePnl();});}
+function updateLast(){return fetch('/api/bars?symbol='+sym+'&tf='+tf).then(x=>x.json()).then(d=>{var b=d.bars||[];if(b.length&&inited){var last=b[b.length-1];candle.update(last);if(barsData.length){var lb=barsData[barsData.length-1];if(last.time>lb.time)barsData.push(last);else barsData[barsData.length-1]=last;}window._lastClose=last.close;livePnl();}});}
+function loadOlder(){if(loadingOld||barsData.length<2)return;loadingOld=true;var first=barsData[0].time;
+ fetch('/api/bars?symbol='+sym+'&tf='+tf+'&end='+(first*1000-1)).then(x=>x.json()).then(d=>{var old=(d.bars||[]).filter(b=>b.time<first);
+  if(old.length){var lr=chart.timeScale().getVisibleLogicalRange();barsData=old.concat(barsData);candle.setData(barsData);
+   if(lr){try{chart.timeScale().setVisibleLogicalRange({from:lr.from+old.length,to:lr.to+old.length});}catch(e){}}}loadingOld=false;}).catch(()=>{loadingOld=false;});}
+chart.timeScale().subscribeVisibleLogicalRangeChange(function(lr){if(lr&&lr.from<12)loadOlder();});  // pan-left -> auto-load older
 document.querySelectorAll('[data-sym]').forEach(b=>b.onclick=()=>{sym=b.dataset.sym;setActive('sym',sym);inited=false;loadBars(false);});
-document.querySelectorAll('[data-tf]').forEach(b=>b.onclick=()=>{const r=inited?chart.timeScale().getVisibleRange():null;tf=b.dataset.tf;setActive('tf',tf);
- fetch('/api/bars?symbol='+sym+'&tf='+tf).then(x=>x.json()).then(d=>{candle.setData(d.bars||[]);if(r){try{chart.timeScale().setVisibleRange(r);}catch(e){}}drawLevels();});});
+document.querySelectorAll('[data-tf]').forEach(b=>b.onclick=()=>{tf=b.dataset.tf;setActive('tf',tf);inited=false;loadBars(false);});  // switch -> SHOWN bars (same count)
 function tick(keep){fetch('/api/state').then(x=>x.json()).then(s=>{lastState=s;drawLevels();
   if(s.ts)document.getElementById('meta').textContent='· '+new Date(s.ts*1000).toLocaleTimeString()+' · 自动__REFRESH__s · 余额0/模拟/不下实盘';});
  fetch('/panels').then(x=>x.text()).then(h=>{document.getElementById('panels').innerHTML=h;});}
