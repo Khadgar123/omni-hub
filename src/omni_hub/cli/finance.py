@@ -65,6 +65,15 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     order.add_argument("--estimated-price", type=float, default=None)
     order.add_argument("--rationale", default="")
 
+    market_bars = subparsers.add_parser(
+        "market-bars",
+        help="Read OHLCV bars from the quant store (read-only; shells out to the quant CLI seam).",
+    )
+    market_bars.add_argument("--symbol", required=True)
+    market_bars.add_argument("--freq", default="1d")
+    market_bars.add_argument("--start", required=True)
+    market_bars.add_argument("--end", required=True)
+
 
 def _finance_screen(args, *, runner, workspace) -> int:
     return run_and_print(
@@ -140,10 +149,26 @@ def _order_propose(args, *, runner, workspace) -> int:
     )
 
 
+def _market_bars(args, *, runner, workspace) -> int:
+    """Read-only market data via the quant CLI seam (HR#1: read ops may call directly).
+
+    Stays graceful when quant is absent — prints ``status: not_installed`` instead of raising,
+    so the core never hard-depends on the quant package being present."""
+    import json
+
+    from ..connectors import quant_bridge
+
+    rows, status = quant_bridge.market_bars(args.symbol, args.freq, args.start, args.end)
+    print(json.dumps({"ok": status == "ok", "status": status, "symbol": args.symbol,
+                      "freq": args.freq, "count": len(rows), "rows": rows}, ensure_ascii=False))
+    return 0 if status == "ok" else 1
+
+
 COMMANDS = {
     "finance-screen": _finance_screen,
     "finance-watch-create": _finance_watch_create,
     "finance-watch-list": _finance_watch_list,
     "finance-portfolio-stats": _finance_portfolio,
     "order-propose": _order_propose,
+    "market-bars": _market_bars,
 }
