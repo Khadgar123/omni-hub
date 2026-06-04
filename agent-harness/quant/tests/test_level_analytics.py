@@ -42,6 +42,26 @@ def test_reversal_clustering_returns_coverage_and_base():
     assert 0 <= r["coverage"] <= 1 and 0 <= r["base"] <= 1
 
 
+def test_regime4_splits_range_by_prior_leg():
+    up_then_flat = [100 + i for i in range(60)] + [160.0] * 60
+    assert la.regime4_at(up_then_flat, 110, 2.0, window=30) == "range_up"
+    down_then_flat = [160 - i for i in range(60)] + [100.0] * 60
+    assert la.regime4_at(down_then_flat, 110, 2.0, window=30) == "range_down"
+    assert la.regime4_at([100 + i for i in range(120)], 110, 2.0, window=30) == "up"
+    assert la.regime4_at([160 - i for i in range(120)], 110, 2.0, window=30) == "down"
+
+
+def test_level_reaction_structure():
+    closes = [100 + 12 * math.sin(i / 7.0) + 0.02 * i for i in range(800)]
+    bars = _bars(closes)
+    a = list(atr(bars, 14))
+    r = la.level_reaction(bars, atr_series=a, level_window=200, level_stride=5)
+    for v in r.values():
+        assert set(v) >= {"n", "hold_rate", "pen_p50", "pen_p90"}
+        assert 0 <= v["hold_rate"] <= 1
+        assert v["pen_p90"] is None or v["pen_p90"] >= 0
+
+
 def test_run_structure_with_injected_fetch():
     closes = [100 + 10 * math.sin(i / 5.0) + 0.05 * i for i in range(600)]
     bars = _bars(closes)

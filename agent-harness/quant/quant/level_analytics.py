@@ -56,6 +56,85 @@ def regime_at(closes: Sequence[float], i: int, atr_val: float, *, window: int = 
     return "up" if slope > flat else "down" if slope < -flat else "range"
 
 
+def regime4_at(closes: Sequence[float], i: int, atr_val: float, *, window: int = 30, flat: float = 0.06) -> str:
+    """4-way: down / up / range_up (chop after a rise) / range_down (chop after a fall) — splits the
+    flat regime by the PRIOR leg's direction, the user's four scenarios."""
+    if i < 2 * window or not atr_val:
+        return "range_up"
+    cur = (closes[i] - closes[i - window]) / (window * atr_val)
+    pre = (closes[i - window] - closes[i - 2 * window]) / (window * atr_val)
+    if cur > flat:
+        return "up"
+    if cur < -flat:
+        return "down"
+    return "range_up" if pre >= 0 else "range_down"
+
+
+def level_reaction(bars: Sequence[dict], *, atr_series: Sequence, tol_atr: float = 0.25, react_atr: float = 1.0,
+                   topk: int = 8, level_window: int = 250, horizon: int = 48, level_stride: int = 3,
+                   cooldown: int = 12) -> dict:
+    """At each FRESH touch of a strong level: first-passage HOLD (price reverses ``react_atr`` the right
+    way) vs BREAK (continues ``react_atr`` through), AND the max PENETRATION past the level on holds —
+    the wick depth = the disturbance zone = the 误杀 band. The stop buffer that survives noise without
+    being fooled ≈ the 90th-pctile hold-penetration (below it you get falsely stopped; the break
+    threshold ``react_atr`` is where a real break is confirmed, so any buffer in between is safe).
+    Split by regime(4) × side(sup/res). Returns per-cell ``{n, hold_rate, pen_p50, pen_p90}``."""
+    closes = [float(b["close"]) for b in bars]
+    high = [float(b["high"]) for b in bars]
+    low = [float(b["low"]) for b in bars]
+    cells: dict = {}
+    last = {"sup": -10 ** 9, "res": -10 ** 9}
+    lv: list[dict] = []
+    for i in range(level_window, len(bars) - horizon):
+        a = atr_series[i]
+        if not a:
+            continue
+        if (i - level_window) % level_stride == 0 or not lv:
+            lv = _strong_levels(bars[i - level_window:i], atr_val=a, topk=topk)
+        p = closes[i]
+        below = [x["price"] for x in lv if x["price"] < p]
+        above = [x["price"] for x in lv if x["price"] > p]
+        reg = regime4_at(closes, i, a)
+        for side in ("sup", "res"):
+            lvl = (max(below) if below else None) if side == "sup" else (min(above) if above else None)
+            if lvl is None or i - last[side] < cooldown:
+                continue
+            touched = (low[i] <= lvl + tol_atr * a) if side == "sup" else (high[i] >= lvl - tol_atr * a)
+            if not touched:
+                continue
+            last[side] = i
+            pen, res = 0.0, None
+            for j in range(i, min(i + horizon, len(bars))):
+                if side == "sup":
+                    pen = max(pen, (lvl - low[j]) / a)
+                    if high[j] >= lvl + react_atr * a:
+                        res = "hold"; break
+                    if low[j] <= lvl - react_atr * a:
+                        res = "break"; break
+                else:
+                    pen = max(pen, (high[j] - lvl) / a)
+                    if low[j] <= lvl - react_atr * a:
+                        res = "hold"; break
+                    if high[j] >= lvl + react_atr * a:
+                        res = "break"; break
+            if res is None:
+                continue
+            c = cells.setdefault((reg, side), {"hold": 0, "break": 0, "pen": []})
+            c[res] += 1
+            if res == "hold":
+                c["pen"].append(pen)
+    out = {}
+    for key, c in cells.items():
+        n = c["hold"] + c["break"]
+        if n < 12:
+            continue
+        ph = sorted(c["pen"])
+        out[key] = {"n": n, "hold_rate": round(c["hold"] / n, 2),
+                    "pen_p50": round(ph[len(ph) // 2], 2) if ph else None,
+                    "pen_p90": round(ph[min(len(ph) - 1, int(len(ph) * 0.9))], 2) if ph else None}
+    return out
+
+
 def _strong_levels(window_bars: Sequence[dict], *, atr_val: float, topk: int) -> list[dict]:
     lv = levels.scored_levels(window_bars, atr=atr_val)
     return sorted(lv, key=lambda x: -x.get("strength", 0.0))[:topk]
