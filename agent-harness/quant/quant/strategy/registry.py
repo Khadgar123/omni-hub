@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from quant.strategy.base import Strategy
 from quant.strategy.divergence_reversal import DivergenceReversal
+from quant.strategy.level_fade_v1 import LevelFadeV1
 from quant.strategy.ma_cross import MACross
+from quant.strategy.momentum_pullback_v1 import MomentumPullbackV1
+from quant.strategy.phase_trend_v1 import PhaseTrendV1
 from quant.strategy.range_bb_revert import RangeBBRevert
 from quant.strategy.squeeze_breakout import SqueezeBreakout
 from quant.strategy.structure_reversal import StructureReversal
@@ -22,7 +25,7 @@ def default_strategies() -> list[Strategy]:
     return [TrendDonchian(), TSMomentum(), MACross(), RangeBBRevert(), ZScoreRevert(),
             DivergenceReversal(), SqueezeBreakout(), StructureReversal(),
             StructureReversal(id="structure_reversal_mtf_v1", require_nested=True),
-            StructureReversalV2()]
+            StructureReversalV2(), LevelFadeV1(), PhaseTrendV1(), MomentumPullbackV1()]
 
 
 def by_id(strategy_id: str) -> Strategy:

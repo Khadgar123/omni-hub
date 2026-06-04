@@ -6,7 +6,8 @@ Composes the angles that actually carry information (react-not-predict; no LLM; 
   regime    — vol+trend committee (``quant.regime``) across MTF live klines + composite bias
   carry     — funding (rate / annualized / 30d percentile / 7d trend), basis, open interest, crowding
   orderflow — REAL taker-delta / CVD + S/R absorption (``quant.orderflow``): who is aggressing
-  etf       — spot-ETF flow trend (slow institutional counterparty); a maintained JSON input
+  etf       — spot-ETF daily net flow (slow institutional counterparty); LIVE via ``quant.etf``
+              (Farside, T+1 daily) — auto-fetched for BTC/ETH/SOL; ``--etf-json`` overrides
   macro     — best-effort risk-on/off dashboard (NASDAQ / VIX / VIX-term / DXY / HYG)
   synthesis — the EDGE AUDIT: marginal counterparty, fragility flags, triggers to watch
   narrative — a 4-sentence human read (so you don't have to parse a pile of indicators)
@@ -24,6 +25,7 @@ import sys
 import urllib.request
 from pathlib import Path
 
+from quant import etf as etf_mod
 from quant import orderflow, regime, structure
 from quant import live as live_mod
 from quant.market_state import _compose_bias
@@ -194,13 +196,35 @@ def macro(*, opener=None) -> dict:
 
 
 def load_etf(path) -> dict:
-    """Load a maintained spot-ETF flow file: ``{trend: inflow|outflow|flat, net_recent_musd, note, as_of}``.
-    (No reliable free real-time ETF-flow API; this is a small file a fetcher or human updates.)"""
+    """Load a hand-maintained spot-ETF flow OVERRIDE file: ``{trend, net_usd_m, note, asof}``.
+    Normally empty — the live ``quant.etf`` (Farside) auto-fetch is the default; this file only
+    overrides it (e.g. to pin a value, or when Farside is down)."""
     try:
         p = Path(path).expanduser()
         return json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
     except Exception:
         return {}
+
+
+def _etf_asset(symbol: str):
+    """Map a perp symbol to a Farside ETF asset (``btc``/``eth``/``sol``) or ``None`` (no spot ETF)."""
+    s = (symbol or "").upper()
+    for pre, asset in (("BTC", "btc"), ("XBT", "btc"), ("ETH", "eth"), ("SOL", "sol")):
+        if s.startswith(pre):
+            return asset
+    return None
+
+
+def _auto_etf(symbol, opener) -> dict:
+    """Live Farside ETF flow for the symbol's asset — LIVE MODE ONLY (``opener is None``).
+    When an opener is injected (tests) we never hit the network.  ``{}`` when unavailable."""
+    if opener is not None:                       # injected/test opener → no network
+        return {}
+    asset = _etf_asset(symbol)
+    if not asset:
+        return {}
+    e = etf_mod.fetch(asset)
+    return e if e.get("available") else {}
 
 
 def synthesize(reg, car, ofl, mac, levels, etf=None, absorption=None) -> dict:
@@ -216,10 +240,11 @@ def synthesize(reg, car, ofl, mac, levels, etf=None, absorption=None) -> dict:
         cp = "杠杆空头拥挤 / capitulation → 潜在轧空(偏底部上下文)"
     else:
         cp = "杠杆持仓中性"
-    if etf.get("trend") == "outflow":
-        flags.append("ETF 持续流出(慢机构在卖)")
-    elif etf.get("trend") == "inflow":
-        flags.append("ETF 在流入(慢机构在买)")
+    if etf.get("trend") in ("outflow", "inflow"):
+        base = "ETF 持续流出(慢机构在卖)" if etf["trend"] == "outflow" else "ETF 在流入(慢机构在买)"
+        if etf.get("net_usd_m") is not None:
+            base += f",净 {etf['net_usd_m']:+,.0f}M/日" + (f"·连{etf['streak']}日" if etf.get("streak", 0) > 1 else "")
+        flags.append(base)
     if car.get("basis_pct", 0) < 0:
         flags.append("basis 微负(永续≤现货,持仓偏空)")
     if ofl.get("flow") == "sell":
@@ -271,9 +296,9 @@ def narrate(r: dict) -> str:
           else "对手盘是拥挤的杠杆空头(偏底部、潜在轧空)" if c["crowd"] == "short" else "杠杆持仓中性")
     extra = []
     if etf.get("trend") == "outflow":
-        extra.append("ETF 在持续流出(慢机构在卖)")
+        extra.append("ETF 在持续流出(慢机构在卖" + (f",净 {etf['net_usd_m']:+,.0f}M/日" if etf.get("net_usd_m") is not None else "") + ")")
     elif etf.get("trend") == "inflow":
-        extra.append("ETF 在流入")
+        extra.append("ETF 在流入" + (f"(净 {etf['net_usd_m']:+,.0f}M/日)" if etf.get("net_usd_m") is not None else ""))
     if c["basis_pct"] < 0:
         extra.append("basis 微负")
     if ab == "broke_down" and lv.get("sup"):
@@ -418,7 +443,7 @@ def read(symbol: str = "BTCUSDT", venue: str = "binance", *, opener=None, with_m
     if b4 and len(b4) > 21:
         levels = {"res": max(x["high"] for x in b4[-21:-1]), "sup": min(x["low"] for x in b4[-21:-1])}
         absorption = orderflow.absorption_at(b4, levels["sup"])    # is the 4h support holding or broken?
-    etf = etf if etf is not None else {}
+    etf = etf if etf is not None else _auto_etf(symbol, opener)
     sr = _sr_by_tf(bars)
     struct = _structure_by_tf(bars)
     flow_by_tf = _flow_by_tf(bars)
@@ -454,14 +479,15 @@ def main(argv=None) -> int:
     p.add_argument("--symbol", default="BTCUSDT")
     p.add_argument("--venue", default="binance", choices=["binance", "coinbase", "kraken"])
     p.add_argument("--no-macro", action="store_true")
-    p.add_argument("--etf-json", default=str(Path("~/quant/etf_flow.json").expanduser()),
-                   help="maintained ETF-flow JSON (trend/net_recent_musd/note)")
+    p.add_argument("--etf-json", default="",
+                   help="OPTIONAL override file; default (empty) = live quant.etf (Farside) auto-fetch")
     g = p.add_mutually_exclusive_group()
     g.add_argument("--full", action="store_true", help="detailed multi-section report (S/R per level, ladder, etc.)")
     g.add_argument("--metrics", action="store_true", help="print the raw layers instead of the narrative")
     g.add_argument("--json", action="store_true", help="emit the full dict as JSON")
     a = p.parse_args(argv)
-    r = read(a.symbol, a.venue, with_macro=not a.no_macro, etf=load_etf(a.etf_json))
+    r = read(a.symbol, a.venue, with_macro=not a.no_macro,
+             etf=(load_etf(a.etf_json) or None) if a.etf_json else None)
     if a.json:
         json.dump(r, sys.stdout, ensure_ascii=False, default=str, indent=2); sys.stdout.write("\n")
     elif a.full:

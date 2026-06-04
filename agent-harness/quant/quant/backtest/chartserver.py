@@ -46,12 +46,21 @@ def _vols(bars):
 
 
 def _trades_js(trades):
-    return [{"i": k, "e0": _sec(t.entry_ts), "e1": _sec(t.exit_ts),
-             "e0iso": _iso(_sec(t.entry_ts)), "e1iso": _iso(_sec(t.exit_ts)),
-             "entry": round(float(t.entry), 2), "exit": round(float(t.exit), 2),
-             "pnl": round(float(t.pnl), 2), "ret": float(t.return_pct),
-             "bars": int(t.bars_held), "reason": t.exit_reason,
-             "rationale": getattr(t, "entry_rationale", "") or ""} for k, t in enumerate(trades)]
+    out = []
+    for k, t in enumerate(trades):
+        cost = float(getattr(t, "cost", 0.0))
+        notional = abs(float(t.qty)) * float(t.entry)
+        costbps = round(cost / notional * 1e4, 1) if notional else 0.0
+        out.append({"i": k, "e0": _sec(t.entry_ts), "e1": _sec(t.exit_ts),
+                    "e0iso": _iso(_sec(t.entry_ts)), "e1iso": _iso(_sec(t.exit_ts)),
+                    "dir": getattr(t, "direction", "long"),
+                    "entry": round(float(t.entry), 2), "exit": round(float(t.exit), 2),
+                    "pnl": round(float(t.pnl), 2), "ret": float(t.return_pct),
+                    "cost": round(cost, 2), "costbps": costbps,
+                    "gross": round(float(t.pnl) + cost, 2),   # net + friction = what it'd be at zero cost
+                    "bars": int(t.bars_held), "reason": t.exit_reason,
+                    "rationale": getattr(t, "entry_rationale", "") or ""})
+    return out
 
 
 def bars_payload(symbol, tf, from_us, to_us, *, root, max_bars=6000):
@@ -81,7 +90,7 @@ tr.L{background:#fdecea} tr.W{background:#e8f5e9} .wrap{max-height:300px;overflo
 <div id="bar">timeframe: __TFBTNS__ <span id="span" style="color:#1565c0;font-weight:600"></span><span id="info"> — scroll left to lazy-load history; click a trade row to fetch its window</span></div>
 <div id="chart" style="height:560px"></div>
 <div class="wrap"><table id="ttab"><thead><tr>
-<th>#</th><th>entry (UTC)</th><th>exit (UTC)</th><th>bars</th><th>ret %</th><th>pnl</th><th>exit</th><th>trigger reason</th>
+<th>#</th><th>dir</th><th>entry (UTC)</th><th>exit (UTC)</th><th>bars</th><th>net %</th><th>net pnl</th><th>cost (bps)</th><th>gross</th><th>exit</th><th>trigger reason</th>
 </tr></thead><tbody id="tbody"></tbody></table></div>
 <script>
 const META = __META__;
@@ -101,15 +110,17 @@ let curTf=null, cData=[], vData=[], loading=false, focus=null, suppress=false;
 const RLO=META.range[0], RHI=META.range[1];
 const LOAD_HALF=420, VIS_HALF=140, CHUNK=500;   // bars: load WIDE context, show a comfortable window
 function api(tf, from, to){ return fetch(`/api/bars?symbol=${META.symbol}&tf=${tf}&from=${Math.floor(from)}&to=${Math.ceil(to)}`).then(r=>r.json()); }
-function fmt(t){ return ` · <b>#${t.i}</b> ${t.e0iso} → ${t.e1iso} · pnl ${t.pnl.toFixed(2)} (${(t.ret*100).toFixed(2)}%) · exit:${t.reason} · <i>${t.rationale}</i>`; }
+function fmt(t){ const d=t.dir==='short'?'<span style="color:#ff6d00">SHORT</span>':'<span style="color:#00897b">LONG</span>'; return ` · <b>#${t.i} ${d}</b> ${t.e0iso} → ${t.e1iso} · net ${t.pnl.toFixed(2)} (${(t.ret*100).toFixed(2)}%) · <span style="color:#b71c1c">friction ${t.cost.toFixed(2)} (${t.costbps}bps)</span> · gross ${t.gross.toFixed(2)} · exit:${t.reason} · <i>${t.rationale}</i>`; }
 function clamp(t){ return Math.max(RLO, Math.min(RHI, t)); }
 function applyData(){
   candle.setData(cData); vol.setData(vData);
   if(!cData.length) return;
   const lo=cData[0].time, hi=cData[cData.length-1].time, s=META.tfsec[curTf];
   const mk=[]; META.trades.forEach(t=>{ const e0=Math.floor(t.e0/s)*s, e1=Math.floor(t.e1/s)*s;
-    if(e0>=lo&&e0<=hi) mk.push({time:e0,position:'belowBar',color:'#00c853',shape:'arrowUp',text:'B'});
-    if(e1>=lo&&e1<=hi) mk.push({time:e1,position:'aboveBar',color:(t.reason==='stop'?'#d50000':'#1565c0'),shape:'arrowDown',text:'S'}); });
+    const isL=t.dir!=='short', xC=(t.reason==='stop'?'#d50000':'#1565c0');
+    // long: B(buy,up,below) -> S(sell,down,above).  short: S(sell,down,above) -> B(cover,up,below)
+    if(e0>=lo&&e0<=hi) mk.push({time:e0,position:isL?'belowBar':'aboveBar',color:isL?'#00c853':'#ff6d00',shape:isL?'arrowUp':'arrowDown',text:isL?'B':'S'});
+    if(e1>=lo&&e1<=hi) mk.push({time:e1,position:isL?'aboveBar':'belowBar',color:xC,shape:isL?'arrowDown':'arrowUp',text:isL?'S':'B'}); });
   mk.sort((a,b)=>a.time-b.time); candle.setMarkers(mk);
   document.getElementById('span').textContent = curTf+': '+fmtDate(lo)+' → '+fmtDate(hi);
 }
@@ -153,7 +164,7 @@ chart.timeScale().subscribeVisibleLogicalRangeChange(async lr=>{   // continuous
 chart.subscribeCrosshairMove(p=>{ if(!p||!p.time) return; const s=META.tfsec[curTf], f=Math.floor(p.time/s)*s;
   const t=META.trades.find(x=>Math.floor(x.e0/s)*s===f || Math.floor(x.e1/s)*s===f); if(t) document.getElementById('info').innerHTML=fmt(t); });
 document.getElementById('tbody').innerHTML = META.trades.map(t=>
-  `<tr class="${t.pnl<0?'L':'W'}" onclick="jump(${t.i})"><td>${t.i}</td><td>${t.e0iso}</td><td>${t.e1iso}</td><td>${t.bars}</td><td>${(t.ret*100).toFixed(2)}</td><td>${t.pnl.toFixed(2)}</td><td>${t.reason}</td><td>${t.rationale}</td></tr>`).join('');
+  `<tr class="${t.pnl<0?'L':'W'}" onclick="jump(${t.i})"><td>${t.i}</td><td style="color:${t.dir==='short'?'#ff6d00':'#00897b'};font-weight:600">${t.dir==='short'?'S':'L'}</td><td>${t.e0iso}</td><td>${t.e1iso}</td><td>${t.bars}</td><td>${(t.ret*100).toFixed(2)}</td><td>${t.pnl.toFixed(2)}</td><td style="color:#b71c1c">${t.cost.toFixed(2)} (${t.costbps})</td><td>${t.gross.toFixed(2)}</td><td>${t.reason}</td><td>${t.rationale}</td></tr>`).join('');
 setTf('__DEFTF__');
 </script></body></html>"""
 
