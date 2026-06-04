@@ -72,7 +72,7 @@ def regime4_at(closes: Sequence[float], i: int, atr_val: float, *, window: int =
 
 def level_reaction(bars: Sequence[dict], *, atr_series: Sequence, tol_atr: float = 0.25, react_atr: float = 1.0,
                    topk: int = 8, level_window: int = 250, horizon: int = 48, level_stride: int = 3,
-                   cooldown: int = 12) -> dict:
+                   cooldown: int = 12, method: str = "combined") -> dict:
     """At each FRESH touch of a strong level: first-passage HOLD (price reverses ``react_atr`` the right
     way) vs BREAK (continues ``react_atr`` through), AND the max PENETRATION past the level on holds —
     the wick depth = the disturbance zone = the 误杀 band. The stop buffer that survives noise without
@@ -90,7 +90,7 @@ def level_reaction(bars: Sequence[dict], *, atr_series: Sequence, tol_atr: float
         if not a:
             continue
         if (i - level_window) % level_stride == 0 or not lv:
-            lv = _strong_levels(bars[i - level_window:i], atr_val=a, topk=topk)
+            lv = _strong_levels(bars[i - level_window:i], atr_val=a, topk=topk, method=method)
         p = closes[i]
         below = [x["price"] for x in lv if x["price"] < p]
         above = [x["price"] for x in lv if x["price"] > p]
@@ -119,10 +119,11 @@ def level_reaction(bars: Sequence[dict], *, atr_series: Sequence, tol_atr: float
                         res = "break"; break
             if res is None:
                 continue
-            c = cells.setdefault((reg, side), {"hold": 0, "break": 0, "pen": []})
-            c[res] += 1
-            if res == "hold":
-                c["pen"].append(pen)
+            for ckey in ((reg, side), ("ALL", "ALL")):           # also keep a pooled cell for method compare
+                c = cells.setdefault(ckey, {"hold": 0, "break": 0, "pen": []})
+                c[res] += 1
+                if res == "hold":
+                    c["pen"].append(pen)
     out = {}
     for key, c in cells.items():
         n = c["hold"] + c["break"]
@@ -135,8 +136,25 @@ def level_reaction(bars: Sequence[dict], *, atr_series: Sequence, tol_atr: float
     return out
 
 
-def _strong_levels(window_bars: Sequence[dict], *, atr_val: float, topk: int) -> list[dict]:
-    lv = levels.scored_levels(window_bars, atr=atr_val)
+def _levels_by_method(window_bars: Sequence[dict], *, atr_val: float, method: str) -> list[dict]:
+    """S/R levels from ONE construction method, so we can compare which is cleanest:
+    'swing' (pivot clusters) | 'vp' (volume-profile nodes) | 'round' (psychological) | 'combined' (all)."""
+    if method == "swing":
+        return [{"price": x["price"], "strength": x.get("strength", 1.0)} for x in levels.swing_levels(window_bars)]
+    if method == "vp":
+        vp = levels.volume_profile(window_bars)
+        out = [{"price": float(vp[k]), "strength": w} for k, w in (("poc", 1.0), ("vah", 0.7), ("val", 0.7))
+               if vp.get(k)]
+        out += [{"price": float(h), "strength": 0.5} for h in vp.get("hvn", [])]
+        return out
+    if method == "round":
+        ref = float(window_bars[-1]["close"]) if window_bars else 0.0
+        return [{"price": r["price"], "strength": r["tier"]} for r in levels.round_levels(ref, atr=atr_val)]
+    return levels.scored_levels(window_bars, atr=atr_val)            # 'combined' (default)
+
+
+def _strong_levels(window_bars: Sequence[dict], *, atr_val: float, topk: int, method: str = "combined") -> list[dict]:
+    lv = _levels_by_method(window_bars, atr_val=atr_val, method=method)
     return sorted(lv, key=lambda x: -x.get("strength", 0.0))[:topk]
 
 

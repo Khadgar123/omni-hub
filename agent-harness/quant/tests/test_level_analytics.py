@@ -62,6 +62,15 @@ def test_level_reaction_structure():
         assert v["pen_p90"] is None or v["pen_p90"] >= 0
 
 
+def test_level_reaction_method_pluggable():
+    closes = [100 + 12 * math.sin(i / 7.0) + 0.02 * i for i in range(800)]
+    bars = _bars(closes)
+    a = list(atr(bars, 14))
+    for m in ("swing", "vp", "round", "combined"):
+        r = la.level_reaction(bars, atr_series=a, level_window=200, level_stride=5, method=m)
+        assert isinstance(r, dict)                                    # each S/R construction runs
+
+
 def test_run_structure_with_injected_fetch():
     closes = [100 + 10 * math.sin(i / 5.0) + 0.05 * i for i in range(600)]
     bars = _bars(closes)
