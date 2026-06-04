@@ -112,51 +112,63 @@ def reversal_clustering(bars: Sequence[dict], *, atr_series: Sequence, tol_atr: 
 
 
 def regime_edge(bars: Sequence[dict], *, atr_series: Sequence, tol_atr: float = 0.3, horizon: int = 12,
-                topk: int = 8, level_window: int = 250) -> dict:
+                topk: int = 8, level_window: int = 250, level_stride: int = 1, raw: bool = False) -> dict:
     """Forward ``horizon``-bar return (ATR units) after touching support / resistance, by regime.
-    Positive = price rose. {regime: {sup:{mean,n,ci}, res:{mean,n,ci}}}."""
+    Positive = price rose. ``level_stride`` recomputes the level map every N bars (speed on long
+    history; levels barely move bar-to-bar). ``raw=True`` also returns the pooled return lists."""
     closes = [float(b["close"]) for b in bars]
     buckets = {r: {"sup": [], "res": []} for r in ("up", "down", "range")}
+    lv: list[dict] = []
     for i in range(level_window, len(bars) - horizon):
         a = atr_series[i]
         if not a:
             continue
+        if (i - level_window) % level_stride == 0 or not lv:
+            lv = _strong_levels(bars[i - level_window:i], atr_val=a, topk=topk)
         p = closes[i]
         fwd = (closes[i + horizon] - p) / a
         reg = regime_at(closes, i, a)
-        lv = _strong_levels(bars[i - level_window:i], atr_val=a, topk=topk)
         below = [x["price"] for x in lv if x["price"] < p]
         above = [x["price"] for x in lv if x["price"] > p]
         if below and (p - max(below)) <= tol_atr * a:
             buckets[reg]["sup"].append(fwd)
         if above and (min(above) - p) <= tol_atr * a:
             buckets[reg]["res"].append(fwd)
-    return {r: {"sup": _mean_ci(b["sup"]), "res": _mean_ci(b["res"])} for r, b in buckets.items()}
+    out = {r: {"sup": _mean_ci(b["sup"]), "res": _mean_ci(b["res"])} for r, b in buckets.items()}
+    if raw:
+        out["_raw"] = buckets
+    return out
 
 
-def analyze(symbol: str, tf: str, *, fetch, limit: int = 1000, defs=((2.0, (3, 3)),)) -> dict:
+def analyze(symbol: str, tf: str, *, fetch, limit: int = 1000, defs=((2.0, (3, 3)),),
+            level_stride: int = 1) -> dict:
     """Full analysis for one (symbol, tf): clustering (over several reversal definitions) + regime edge."""
     bars = fetch(symbol, tf, limit=limit)
     a = list(_atr(bars, 14))
     clustering = [{"min_move_atr": mm, "swing": sw,
                    **reversal_clustering(bars, atr_series=a, min_move_atr=mm)}
                   for (mm, sw) in defs]
-    return {"symbol": symbol, "tf": tf, "bars": len(bars),
-            "clustering": clustering, "regime_edge": regime_edge(bars, atr_series=a)}
+    return {"symbol": symbol, "tf": tf, "bars": len(bars), "clustering": clustering,
+            "regime_edge": regime_edge(bars, atr_series=a, level_stride=level_stride)}
 
 
-def run(symbols, tfs, *, fetch=None, limit: int = 1000) -> list[dict]:
-    """Comprehensive sweep over symbols × timeframes. ``fetch(symbol, tf, limit=)`` is injectable."""
+def run(symbols, tfs, *, fetch=None, limit: int = 1000, max_bars=None, level_stride: int = 1) -> list[dict]:
+    """Comprehensive sweep over symbols × timeframes. ``fetch(symbol, tf, limit=)`` is injectable; if
+    omitted and ``max_bars`` is set, pages full history via ``live.fetch_history``."""
     if fetch is None:
         from quant import live
 
-        def fetch(sym, tf, *, limit):  # noqa: E306
-            return live.fetch_candles(sym, tf, venue="binance", limit=limit)
+        if max_bars:
+            def fetch(sym, tf, *, limit):  # noqa: E306
+                return live.fetch_history(sym, tf, venue="binance", max_bars=max_bars)
+        else:
+            def fetch(sym, tf, *, limit):  # noqa: E306
+                return live.fetch_candles(sym, tf, venue="binance", limit=limit)
     out = []
     for sym in symbols:
         for tf in tfs:
             try:
-                out.append(analyze(sym, tf, fetch=fetch, limit=limit))
+                out.append(analyze(sym, tf, fetch=fetch, limit=(max_bars or limit), level_stride=level_stride))
             except Exception as e:  # noqa: BLE001
                 out.append({"symbol": sym, "tf": tf, "error": str(e)})
     return out

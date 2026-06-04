@@ -124,6 +124,27 @@ def fetch_candles(symbol, interval, *, venue="coinbase", limit=300, end=None, op
     raise ValueError(f"unknown venue {venue!r}")
 
 
+def fetch_history(symbol, interval, *, venue="binance", max_bars=8000, opener=None, timeout=15.0) -> list[dict]:
+    """Page BACK through klines (via endTime) and concatenate up to ``max_bars`` of history — Binance
+    caps a single call at ~1000, so full-history studies need this. Dedupes by bucket_ts, ascending."""
+    if venue != "binance":
+        return fetch_candles(symbol, interval, venue=venue, opener=opener, timeout=timeout)
+    by_ts: dict = {}
+    end = None
+    for _ in range(max_bars // 900 + 3):                 # bounded page count
+        chunk = fetch_candles(symbol, interval, venue="binance", limit=1000, end=end,
+                              opener=opener, timeout=timeout)
+        if not chunk:
+            break
+        added = sum(1 for b in chunk if b["bucket_ts"] not in by_ts)
+        for b in chunk:
+            by_ts[b["bucket_ts"]] = b
+        if added == 0 or len(by_ts) >= max_bars:
+            break
+        end = min(b["bucket_ts"] for b in chunk) // 1000 - 1   # ms just before the oldest bar (bucket_ts=µs)
+    return [by_ts[t] for t in sorted(by_ts)][-max_bars:]
+
+
 def live_market_state(symbol, *, venue="coinbase", htf="1d", confirm=None, opener=None):
     """Assemble the top-down MarketState from live candles (no store needed)."""
     if confirm is None:
