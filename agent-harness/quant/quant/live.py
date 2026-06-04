@@ -30,7 +30,8 @@ SYMBOL_MAP = {
 # so it is tried FIRST by the scheduled indicator (quant_daily _SOURCES).
 _COINBASE_GRAN = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600, "6h": 21600, "1d": 86400}
 _KRAKEN_INT = {"1m": 1, "5m": 5, "15m": 15, "30m": 30, "1h": 60, "4h": 240, "1d": 1440}
-_BINANCE_INT = {"1m": "1m", "5m": "5m", "15m": "15m", "30m": "30m", "1h": "1h", "4h": "4h", "6h": "6h", "1d": "1d"}
+_BINANCE_INT = {"1m": "1m", "5m": "5m", "15m": "15m", "30m": "30m", "1h": "1h", "2h": "2h",
+                "4h": "4h", "6h": "6h", "12h": "12h", "1d": "1d"}
 # venue-appropriate mid "confirm" timeframe (Coinbase lacks 4h -> use 6h; Kraken/Binance have 4h)
 _CONFIRM_TF = {"coinbase": "6h", "kraken": "4h", "binance": "4h"}
 _UA = "omni-hub-quant-live/0.1"

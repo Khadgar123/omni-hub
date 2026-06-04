@@ -54,6 +54,10 @@ REFERENCE_DIRNAME = "_reference"
 # (in the PATH) and are intentionally NOT payload columns.
 # --------------------------------------------------------------------------
 
+# Frozen seam version — bump on ANY column add/rename/retype; SCHEMA.md §8 must agree
+# (tests/test_schema_doc.py asserts code ↔ doc stay in sync).
+SCHEMA_VERSION = 1
+
 # (name, logical-type, default)
 TRADE_FIELDS: list[tuple[str, str, object]] = [
     ("exchange_ts", "int64", 0),     # event time at the exchange (epoch micros, UTC)
