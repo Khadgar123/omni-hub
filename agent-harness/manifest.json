@@ -59,6 +59,16 @@
   ],
   "pending_forks": [
     {
+      "id": "quant",
+      "path": "agent-harness/quant",
+      "upstream": "(local-first; promote to a personal fork when externalized)",
+      "branch": "main",
+      "role": "market-data store (Hive-partitioned Parquet + DuckDB), reproducible API ingest + compaction, PIT-correct backtest bars, regime/levels, and a live broker — exposed to the stdlib core ONLY via the frozen SCHEMA.md CLI/JSON seam (never imported)",
+      "decision": "fork-pending-personal-clone",
+      "promotion_reason": "Tier-0 market_store + SCHEMA.md (SCHEMA_VERSION=1) complete; reproducible ingest.py + compact.py added. Ready to pin as a submodule once externalized.",
+      "next_step": "Externalize agent-harness/quant to a personal clone, then run scripts/add_pending_harness_forks.sh quant"
+    },
+    {
       "id": "dspy",
       "path": "agent-harness/dspy",
       "upstream": "https://github.com/stanfordnlp/dspy.git",
