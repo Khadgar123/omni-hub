@@ -61,7 +61,8 @@ class ReportTests(unittest.TestCase):
     def test_weekly_report_covers_last_seven_days(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = self._build_workspace(Path(tmp))
-            text, ctx = build_weekly(anchor=date.today(), workspace=root)
+            utc_today = datetime.now(timezone.utc).date()
+            text, ctx = build_weekly(anchor=utc_today, workspace=root)
             self.assertIn("Weekly Review", text)
             self.assertIn("Today doc", text)
             # yesterday should also appear in weekly window

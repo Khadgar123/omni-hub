@@ -99,7 +99,8 @@ def test_emit_basket_intent_jsonl(tmp_path):
     import json as _json
     dec = baseline.daily_decision(_prices(), BaselineConfig(k=2))
     path = baseline.emit_basket_intent(dec, 10000.0, tmp_path / "b.jsonl")
-    rec = _json.loads(open(path).read().splitlines()[-1])
+    with open(path, encoding="utf-8") as stream:
+        rec = _json.loads(stream.read().splitlines()[-1])
     assert rec["kind"] == "order_intent" and rec["strategy"] == "baseline_xsect"
     assert len(rec["legs"]) == 4                         # 2 long + 2 short
 

@@ -199,7 +199,8 @@ def test_emit_intent_writes_proposal_jsonl(tmp_path):
     import json as _json
     plan = build_order_plan("BTCUSDC", "long", 0.6, _bars(_wave()))
     path = execution.emit_intent(plan, tmp_path / "intents.jsonl")
-    rec = _json.loads(open(path).read().splitlines()[-1])
+    with open(path, encoding="utf-8") as stream:
+        rec = _json.loads(stream.read().splitlines()[-1])
     assert rec["kind"] == "order_intent" and rec["plan"]["direction"] == "long"
     assert rec["plan"]["schema_version"] == "orderplan-v2"
 

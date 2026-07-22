@@ -2088,6 +2088,840 @@ def make_argilla_sync_feedback(workspace: Path):
     return argilla_sync_feedback
 
 
+def _discord_snowflake(value: object, field: str) -> str:
+    normalized = str(value or "").strip()
+    if not normalized.isdigit():
+        raise ValueError(f"Discord {field} must be a snowflake string")
+    return normalized
+
+
+def _discord_preflight_path(
+    workspace: Path,
+    value: object,
+    field: str,
+    *,
+    require_regular_file: bool,
+) -> Path:
+    """Reject non-relative paths and every existing symbolic-link component."""
+
+    import stat
+
+    raw = str(value or "")
+    if not raw:
+        raise ValueError(f"Discord {field} path is required")
+    relative = Path(raw)
+    if relative.is_absolute() or ".." in relative.parts:
+        raise ValueError(f"Discord {field} path must be a contained relative path")
+
+    current = workspace
+    components = [part for part in relative.parts if part not in ("", ".")]
+    for index, component in enumerate(components):
+        current = current / component
+        try:
+            mode = current.lstat().st_mode
+        except FileNotFoundError:
+            if require_regular_file:
+                raise ValueError(
+                    f"Discord {field} path must be an existing regular file"
+                ) from None
+            break
+        if stat.S_ISLNK(mode):
+            raise ValueError(f"Discord {field} path contains a symbolic link")
+        is_final = index == len(components) - 1
+        if require_regular_file and is_final:
+            if not stat.S_ISREG(mode):
+                raise ValueError(f"Discord {field} path must be a regular file")
+        elif not stat.S_ISDIR(mode):
+            raise ValueError(f"Discord {field} path component must be a directory")
+
+    if require_regular_file and not components:
+        raise ValueError(f"Discord {field} path must be a regular file")
+    return workspace.joinpath(relative)
+
+
+def _raise_discord_redacted(exc: Exception, token: str) -> None:
+    """Preserve assertion failures while keeping credentials out of runner output."""
+
+    message = str(exc).replace(token, "[REDACTED]") if token else str(exc)
+    if isinstance(exc, AssertionError):
+        raise AssertionError(message) from None
+    raise RuntimeError(message) from None
+
+
+def make_discord_probe(workspace: Path):
+    del workspace
+
+    def discord_probe(spec: OperationSpec) -> dict[str, object]:
+        from .connectors.discord import (
+            DiscordHTTPTransport,
+            iter_message_pages,
+            iter_pin_pages,
+            read_bot_token,
+        )
+
+        guild_id = _discord_snowflake(spec.payload.get("guild_id"), "guild_id")
+        channel_raw = spec.payload.get("channel_id")
+        channel_id = (
+            _discord_snowflake(channel_raw, "channel_id")
+            if channel_raw is not None
+            else None
+        )
+        token_file = Path(str(spec.payload.get("token_file", ""))).expanduser()
+        token = ""
+        transport = None
+        try:
+            token = read_bot_token(token_file)
+            transport = DiscordHTTPTransport(token)
+            identity = transport.get_json("/users/@me")
+            guild = transport.get_json(f"/guilds/{guild_id}")
+            channels = transport.get_json(f"/guilds/{guild_id}/channels")
+            active = transport.get_json(f"/guilds/{guild_id}/threads/active")
+
+            if not isinstance(identity, dict):
+                raise ValueError("Discord identity payload must be an object")
+            identity_id = _discord_snowflake(identity.get("id"), "identity id")
+            if not isinstance(guild, dict) or guild.get("id") != guild_id:
+                raise ValueError("Discord guild payload does not match guild_id")
+            if not isinstance(channels, list):
+                raise ValueError("Discord channel graph payload must be a list")
+            if not isinstance(active, dict) or not isinstance(active.get("threads"), list):
+                raise ValueError("Discord active threads payload must contain a threads list")
+
+            summary: dict[str, object] = {
+                "status": "ok",
+                "identity_id": identity_id,
+                "guild_id": guild_id,
+                "guild_accessible": True,
+                "channel_count": len(channels),
+                "active_thread_count": len(active["threads"]),
+            }
+            if channel_id is not None:
+                channel_ids = {
+                    item["id"]
+                    for item in channels
+                    if isinstance(item, dict)
+                    and isinstance(item.get("id"), str)
+                    and item["id"].isdigit()
+                    and item.get("guild_id", guild_id) == guild_id
+                }
+                active_thread_ids = {
+                    item["id"]
+                    for item in active["threads"]
+                    if isinstance(item, dict)
+                    and isinstance(item.get("id"), str)
+                    and item["id"].isdigit()
+                    and item.get("type") in {10, 11, 12}
+                    and item.get("guild_id") == guild_id
+                    and item.get("parent_id") in channel_ids
+                }
+                channel_found = channel_id in channel_ids | active_thread_ids
+                if not channel_found:
+                    raise ValueError(
+                        "Discord channel_id was not found in the requested guild graph"
+                    )
+                message_page = next(
+                    iter_message_pages(transport, channel_id, max_pages=1)
+                )
+                pin_page = next(iter_pin_pages(transport, channel_id, max_pages=1))
+                messages = (
+                    message_page.raw_payload
+                    if isinstance(message_page.raw_payload, list)
+                    else []
+                )
+                pins_payload = pin_page.raw_payload
+                pins_shape_valid = (
+                    isinstance(pins_payload, dict)
+                    and isinstance(pins_payload.get("items"), list)
+                    and isinstance(pins_payload.get("has_more"), bool)
+                    and pin_page.diagnostic is None
+                )
+                pin_items = pins_payload.get("items", []) if pins_shape_valid else []
+                summary.update(
+                    {
+                        "channel_id": channel_id,
+                        "channel_found": channel_found,
+                        "message_count": len(messages),
+                        "message_body_visible": any(
+                            isinstance(message, dict)
+                            and isinstance(message.get("content"), str)
+                            and bool(message["content"])
+                            for message in messages
+                        ),
+                        "pins_shape_valid": pins_shape_valid,
+                        "pin_count": len(pin_items),
+                    }
+                )
+            return summary
+        except Exception as exc:
+            _raise_discord_redacted(exc, token)
+        finally:
+            transport = None
+            token = ""
+
+    return discord_probe
+
+
+def make_discord_collect(workspace: Path):
+    workspace_root = workspace.absolute().resolve(strict=True)
+
+    def discord_collect(spec: OperationSpec) -> dict[str, object]:
+        from datetime import UTC, datetime
+        import secrets
+
+        from .connectors.discord import (
+            DiscordHTTPTransport,
+            read_bot_token,
+            rfc2544_fake_ip_media_policy_descriptor,
+        )
+        from .discord_collector import DiscordEvidenceCollector
+
+        payload = spec.payload
+        allow_rfc2544_fake_ip = payload.get("allow_rfc2544_fake_ip", False)
+        if not isinstance(allow_rfc2544_fake_ip, bool):
+            raise ValueError("Discord RFC2544 fake-IP option must be a boolean")
+        recorded_fake_ip_policy = payload.get("rfc2544_fake_ip_policy")
+        expected_fake_ip_policy = rfc2544_fake_ip_media_policy_descriptor()
+        if allow_rfc2544_fake_ip:
+            if recorded_fake_ip_policy != expected_fake_ip_policy:
+                raise ValueError("Discord RFC2544 fake-IP policy identity mismatch")
+        elif recorded_fake_ip_policy is not None:
+            raise ValueError("Discord RFC2544 fake-IP policy requires explicit opt-in")
+        max_asset_bytes = payload.get("max_asset_bytes", 512 * 1024 * 1024)
+        if (
+            isinstance(max_asset_bytes, bool)
+            or not isinstance(max_asset_bytes, int)
+            or max_asset_bytes <= 0
+        ):
+            raise ValueError("Discord max_asset_bytes must be a positive integer")
+        token_file = Path(str(payload.get("token_file", ""))).expanduser()
+        run_id_raw = payload.get("run_id")
+        run_id = str(run_id_raw).strip() if run_id_raw is not None else ""
+        if not run_id:
+            timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
+            run_id = f"{timestamp}-{secrets.token_hex(8)}"
+
+        targets = str(payload.get("targets", ""))
+        output_dir = str(payload.get("output_dir", ""))
+        _discord_preflight_path(
+            workspace_root,
+            targets,
+            "target snapshot",
+            require_regular_file=True,
+        )
+        _discord_preflight_path(
+            workspace_root,
+            output_dir,
+            "output directory",
+            require_regular_file=False,
+        )
+
+        token = ""
+        transport = None
+        collector = None
+        try:
+            token = read_bot_token(token_file)
+            transport = DiscordHTTPTransport(
+                token,
+                allow_rfc2544_fake_ip=allow_rfc2544_fake_ip,
+            )
+            collector = DiscordEvidenceCollector(
+                transport,
+                byte_transport=transport,
+                max_asset_bytes=max_asset_bytes,
+                chunk_size=int(payload.get("chunk_size", 64 * 1024)),
+                allow_rfc2544_fake_ip=allow_rfc2544_fake_ip,
+            )
+            result = collector.collect(
+                workspace=workspace_root,
+                output_dir=output_dir,
+                targets=targets,
+                run_id=run_id,
+                max_pages=(
+                    int(payload["max_pages"])
+                    if payload.get("max_pages") is not None
+                    else None
+                ),
+                download_assets=bool(payload.get("download_assets", True)),
+            )
+            run_root = result.run_root.resolve(strict=True)
+            relative_root = run_root.relative_to(workspace_root)
+            manifest = result.manifest
+            streams = manifest.get("streams", {})
+            media = manifest.get("media", {})
+            if not isinstance(streams, dict) or not isinstance(media, dict):
+                raise ValueError("Discord collector returned an invalid manifest summary")
+            return {
+                "run_root": relative_root.as_posix(),
+                "manifest_path": (relative_root / "manifest.json").as_posix(),
+                "checkpoint_path": (relative_root / "checkpoint.json").as_posix(),
+                "status": str(manifest.get("status", "partial")),
+                "stream_count": len(streams),
+                "stream_complete_count": sum(
+                    isinstance(state, dict) and state.get("status") == "complete"
+                    for state in streams.values()
+                ),
+                "media_count": int(media.get("records", 0)),
+                "media_complete_count": int(media.get("complete", 0)),
+                "media_failed_count": int(media.get("failed", 0)),
+                "error_count": int(manifest.get("errors", 0)),
+            }
+        except Exception as exc:
+            _raise_discord_redacted(exc, token)
+        finally:
+            collector = None
+            transport = None
+            token = ""
+
+    return discord_collect
+
+
+def make_discord_shard_plan(workspace: Path):
+    workspace_root = workspace.absolute().resolve(strict=True)
+
+    def discord_shard_plan(spec: OperationSpec) -> dict[str, object]:
+        from .discord_sharding import write_parent_family_plan
+
+        payload = spec.payload
+        shard_count = payload.get("shard_count", 4)
+        if isinstance(shard_count, bool) or not isinstance(shard_count, int):
+            raise ValueError("Discord shard_count must be a positive integer")
+        return write_parent_family_plan(
+            workspace=workspace_root,
+            targets_path=str(payload.get("targets", "")),
+            output_dir=str(payload.get("output_dir", "")),
+            shard_count=shard_count,
+            weights_path=(
+                str(payload["weights"])
+                if payload.get("weights") is not None
+                else None
+            ),
+        )
+
+    return discord_shard_plan
+
+
+def make_discord_shard_merge_audit(workspace: Path):
+    workspace_root = workspace.absolute().resolve(strict=True)
+
+    def discord_shard_merge_audit(spec: OperationSpec) -> dict[str, object]:
+        from .discord_sharding import write_merged_shard_audit
+
+        payload = spec.payload
+        result = write_merged_shard_audit(
+            workspace=workspace_root,
+            targets_path=str(payload.get("targets", "")),
+            plan_path=str(payload.get("plan", "")),
+            merge_request_path=str(payload.get("merge_request", "")),
+            output_path=str(payload.get("output", "")),
+        )
+        if result.get("status") == "failed":
+            raise ValueError(
+                "Discord shard merge audit failed; evidence written to "
+                f"{result.get('output_path')}"
+            )
+        return result
+
+    return discord_shard_merge_audit
+
+
+def make_discord_shard_closure_audit(workspace: Path):
+    workspace_root = workspace.absolute().resolve(strict=True)
+
+    def discord_shard_closure_audit(spec: OperationSpec) -> dict[str, object]:
+        from .discord_sharding import write_closure_audit
+
+        payload = spec.payload
+        result = write_closure_audit(
+            workspace=workspace_root,
+            merge_audit_path=str(payload.get("merge_audit", "")),
+            census_path=str(payload.get("census", "")),
+            head_catchup_path=str(payload.get("head_catchup", "")),
+            output_path=str(payload.get("output", "")),
+            t_close=str(payload.get("t_close", "")),
+        )
+        if result.get("status") == "incomplete":
+            raise ValueError(
+                "Discord shard closure audit incomplete; evidence written to "
+                f"{result.get('output_path')}"
+            )
+        return result
+
+    return discord_shard_closure_audit
+
+
+def make_discord_shard_closure_capture(workspace: Path):
+    workspace_root = workspace.absolute().resolve(strict=True)
+
+    def discord_shard_closure_capture(spec: OperationSpec) -> dict[str, object]:
+        from .connectors.discord import DiscordHTTPTransport, read_bot_token
+        from .discord_sharding import capture_closure_evidence
+
+        payload = spec.payload
+        targets = str(payload.get("targets", ""))
+        merge_audit = str(payload.get("merge_audit", ""))
+        output_dir = str(payload.get("output_dir", ""))
+        _discord_preflight_path(
+            workspace_root,
+            targets,
+            "target snapshot",
+            require_regular_file=True,
+        )
+        _discord_preflight_path(
+            workspace_root,
+            merge_audit,
+            "merge audit",
+            require_regular_file=True,
+        )
+        _discord_preflight_path(
+            workspace_root,
+            output_dir,
+            "closure capture output directory",
+            require_regular_file=False,
+        )
+
+        token_file = Path(str(payload.get("token_file", ""))).expanduser()
+        token = ""
+        transport = None
+        try:
+            token = read_bot_token(token_file)
+            transport = DiscordHTTPTransport(token)
+            return capture_closure_evidence(
+                workspace=workspace_root,
+                targets_path=targets,
+                merge_audit_path=merge_audit,
+                output_dir=output_dir,
+                t_close=str(payload.get("t_close", "")),
+                t_close_source_sha256=str(
+                    payload.get("t_close_source_sha256", "")
+                ),
+                transport=transport,
+            )
+        except Exception as exc:
+            _raise_discord_redacted(exc, token)
+        finally:
+            transport = None
+            token = ""
+
+    return discord_shard_closure_capture
+
+
+def make_discord_blogger_events_build(workspace: Path):
+    """Build redacted blogger derivatives from already verified local evidence."""
+
+    workspace_root = workspace.absolute().resolve(strict=True)
+
+    def discord_blogger_events_build(spec: OperationSpec) -> dict[str, object]:
+        from datetime import UTC, datetime
+        import hashlib
+        import json
+
+        from .discord_blogger_corpus import (
+            iter_verified_blogger_messages,
+            read_blogger_closure_bytes,
+        )
+        from .discord_blogger_results import (
+            build_latest_calls_report,
+            publish_blogger_event_artifacts,
+            validated_closure_input_bindings,
+        )
+        from .discord_trade_events import (
+            PROFILE_CHANNELS,
+            PROFILE_CONFIG_SHA256,
+            PARSER_IMPLEMENTATION_SHA256,
+            link_trade_lifecycles,
+            parse_message,
+        )
+
+        payload = spec.payload
+        export_relative = str(payload.get("export_root", ""))
+        export_root = _discord_preflight_path(
+            workspace_root, export_relative, "blogger export root", require_regular_file=False
+        )
+        if not export_root.is_dir():
+            raise ValueError("Discord blogger export root must be an existing directory")
+        closure_relative = str(payload.get("closure_audit", ""))
+        closure_path = _discord_preflight_path(
+            workspace_root, closure_relative, "blogger closure audit", require_regular_file=True
+        )
+        try:
+            closure_for_corpus = closure_path.relative_to(export_root)
+        except ValueError as exc:
+            raise ValueError("Discord blogger closure audit must be inside export root") from exc
+        closure_bytes, closure_sha = read_blogger_closure_bytes(
+            export_root=export_root,
+            closure_audit_path=closure_for_corpus,
+        )
+        output_dir = str(payload.get("output_dir", ""))
+        _discord_preflight_path(
+            workspace_root, output_dir, "blogger output directory", require_regular_file=False
+        )
+        asof_raw = payload.get("asof")
+        if asof_raw is None:
+            raise ValueError("Discord blogger asof is required")
+        try:
+            asof = datetime.fromisoformat(str(asof_raw).replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError("Discord blogger asof is invalid") from exc
+        if asof.tzinfo is None or asof.utcoffset() is None:
+            raise ValueError("Discord blogger asof must be timezone-aware")
+        asof = asof.astimezone(UTC)
+        channel_to_profile = {channel: profile for profile, channel in PROFILE_CHANNELS.items()}
+        decisions = tuple(
+            parse_message(channel_to_profile[message.channel_id], message)
+            for message in iter_verified_blogger_messages(
+                export_root=export_root,
+                closure_audit_path=closure_for_corpus,
+                target_ids=tuple(channel_to_profile),
+                expected_closure_sha256=closure_sha,
+            )
+        )
+        try:
+            closure_after, closure_after_sha = read_blogger_closure_bytes(
+                export_root=export_root,
+                closure_audit_path=closure_for_corpus,
+            )
+            if closure_after_sha != closure_sha or closure_after != closure_bytes:
+                raise ValueError("Discord blogger closure audit changed during iteration")
+            closure = json.loads(closure_bytes)
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError("Discord blogger closure audit is unreadable") from exc
+        try:
+            bindings = validated_closure_input_bindings(
+                closure.get("input_file_sha256") if isinstance(closure, dict) else None
+            )
+        except ValueError as exc:
+            raise ValueError("Discord blogger closure audit provenance is invalid") from exc
+        corpus_rows = sorted(
+            (
+                decision.message_id,
+                decision.channel_id,
+                decision.author_id,
+                decision.snapshot_sha256,
+                decision.decision_id,
+            )
+            for decision in decisions
+        )
+        source_manifest = {
+            "provenance": {
+                "closure_audit": {
+                    "path": closure_for_corpus.as_posix(),
+                    "sha256": hashlib.sha256(closure_bytes).hexdigest(),
+                    "input_file_sha256": bindings,
+                },
+                "asof": asof.isoformat(),
+                "parser_implementation_sha256": PARSER_IMPLEMENTATION_SHA256,
+                "profiles": [
+                    {
+                        "profile": profile,
+                        "version": "v1",
+                        "channel_id": channel,
+                        "config_sha256": PROFILE_CONFIG_SHA256[profile],
+                    }
+                    for channel, profile in sorted(channel_to_profile.items())
+                ],
+                "corpus_message_count": len(decisions),
+                "corpus_commitment": hashlib.sha256(
+                    json.dumps(corpus_rows, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+                ).hexdigest(),
+            },
+            "decisions": [decision.to_dict() for decision in decisions],
+            "lifecycles": [lifecycle.to_dict() for lifecycle in link_trade_lifecycles(decisions)],
+            "latest_calls": build_latest_calls_report(decisions=decisions, asof=asof),
+        }
+        return publish_blogger_event_artifacts(
+            workspace=workspace_root,
+            output_dir=Path(output_dir),
+            source_manifest=source_manifest,
+            closure_audit_path=closure_for_corpus,
+            closure_audit_bytes=closure_bytes,
+        )
+
+    return discord_blogger_events_build
+
+
+def make_discord_blogger_inventory_build(workspace: Path):
+    """Build a redacted dual-view inventory from verified local evidence."""
+
+    workspace_root = workspace.absolute().resolve(strict=True)
+
+    def discord_blogger_inventory_build(spec: OperationSpec) -> dict[str, object]:
+        import hashlib
+        import json
+        import re
+
+        from .discord_blogger_corpus import (
+            authorized_blogger_message_target_ids,
+            iter_verified_blogger_messages,
+            read_blogger_closure_bytes,
+        )
+        from .discord_blogger_inventory import (
+            build_blogger_target_inventory,
+            publish_blogger_target_inventory,
+        )
+        from .discord_sharding import (
+            _read_regular_file_bytes,
+            canonical_json_sha256,
+        )
+
+        payload = spec.payload
+        export_root = _discord_preflight_path(
+            workspace_root,
+            payload.get("export_root"),
+            "blogger inventory export root",
+            require_regular_file=False,
+        )
+        if not export_root.is_dir():
+            raise ValueError("Discord blogger inventory export root must be a directory")
+        closure_path = _discord_preflight_path(
+            workspace_root,
+            payload.get("closure_audit"),
+            "blogger inventory closure audit",
+            require_regular_file=True,
+        )
+        targets_path = _discord_preflight_path(
+            workspace_root,
+            payload.get("targets"),
+            "blogger inventory targets",
+            require_regular_file=True,
+        )
+        output_raw = str(payload.get("output", ""))
+        _discord_preflight_path(
+            workspace_root,
+            output_raw,
+            "blogger inventory output",
+            require_regular_file=False,
+        )
+        try:
+            closure_relative = closure_path.relative_to(export_root)
+            targets_relative = targets_path.relative_to(export_root)
+        except ValueError as exc:
+            raise ValueError(
+                "Discord blogger inventory inputs must be inside export root"
+            ) from exc
+        if closure_relative.parent.name != "capture":
+            raise ValueError("Discord blogger inventory closure namespace is invalid")
+        merge_relative = closure_relative.parent.parent / "merge-audit.json"
+
+        closure_bytes, closure_sha = read_blogger_closure_bytes(
+            export_root=export_root,
+            closure_audit_path=closure_relative,
+        )
+        merge_bytes = _read_regular_file_bytes(
+            export_root, merge_relative, "blogger inventory merge audit"
+        )
+        targets_bytes = _read_regular_file_bytes(
+            export_root, targets_relative, "blogger inventory targets"
+        )
+        try:
+            closure = json.loads(closure_bytes)
+            merge = json.loads(merge_bytes)
+            target_snapshot = json.loads(targets_bytes)
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError("Discord blogger inventory input JSON is invalid") from exc
+        if (
+            not isinstance(closure, dict)
+            or closure.get("audit_kind") != "discord-parent-family-closure-v1"
+            or not isinstance(merge, dict)
+            or merge.get("audit_kind") != "discord-parent-family-merge-v1"
+            or not isinstance(target_snapshot, dict)
+        ):
+            raise ValueError("Discord blogger inventory inputs are invalid")
+        merge_sha = hashlib.sha256(merge_bytes).hexdigest()
+        targets_sha = hashlib.sha256(targets_bytes).hexdigest()
+        closure_inputs = closure.get("input_file_sha256")
+        if (
+            not isinstance(closure_inputs, dict)
+            or closure_inputs.get("merge_audit") != merge_sha
+            or merge.get("parent_snapshot_file_sha256") != targets_sha
+            or merge.get("parent_snapshot_sha256")
+            != canonical_json_sha256(target_snapshot)
+            or merge.get("parent_target_set_sha256")
+            != target_snapshot.get("target_set_sha256")
+            or set(merge.get("static_target_ids", []))
+            != {
+                row.get("id")
+                for row in target_snapshot.get("targets", [])
+                if isinstance(row, dict)
+            }
+        ):
+            raise ValueError("Discord blogger inventory source binding is invalid")
+        authorized_ids = authorized_blogger_message_target_ids(merge)
+        discovered_threads = merge.get("discovered_threads")
+        family_parent_ids = merge.get("thread_parent_static_target_ids")
+        private_blockers = merge.get("private_archived_blocked_streams")
+        private_incomplete = merge.get("private_archived_incomplete_streams")
+        if (
+            not isinstance(discovered_threads, list)
+            or not isinstance(family_parent_ids, list)
+            or len(family_parent_ids) != len(set(family_parent_ids))
+            or any(
+                not isinstance(value, str) or not value.isdigit()
+                for value in family_parent_ids
+            )
+            or not isinstance(private_blockers, list)
+            or not isinstance(private_incomplete, list)
+        ):
+            raise ValueError("Discord blogger inventory scope metadata is invalid")
+        def private_403_parent_ids(
+            rows: list[object], label: str
+        ) -> list[str]:
+            parent_ids: list[str] = []
+            for row in rows:
+                stream = row.get("stream") if isinstance(row, dict) else None
+                match = (
+                    re.fullmatch(
+                        r"threads_([0-9]+)_private_archived", stream
+                    )
+                    if isinstance(stream, str)
+                    else None
+                )
+                if (
+                    not isinstance(row, dict)
+                    or row.get("status") != "blocked"
+                    or row.get("terminal_reason") != "http_403"
+                    or match is None
+                ):
+                    raise ValueError(
+                        f"Discord private archived {label} is invalid"
+                    )
+                parent_ids.append(match.group(1))
+            if len(parent_ids) != len(set(parent_ids)):
+                raise ValueError(
+                    f"Discord private archived {label} is invalid"
+                )
+            return parent_ids
+
+        private_blocked_parent_ids = private_403_parent_ids(
+            private_blockers, "blocker"
+        )
+        private_incomplete_parent_ids = private_403_parent_ids(
+            private_incomplete, "incomplete stream"
+        )
+        limitations = closure.get("limitations")
+        census_private_blocked_parent_ids = (
+            limitations.get("census_private_archived_403_parent_ids")
+            if isinstance(limitations, dict)
+            else None
+        )
+        if (
+            set(private_incomplete_parent_ids)
+            != set(private_blocked_parent_ids)
+            or not isinstance(census_private_blocked_parent_ids, list)
+            or len(census_private_blocked_parent_ids)
+            != len(set(census_private_blocked_parent_ids))
+            or any(
+                not isinstance(value, str) or not value.isdigit()
+                for value in census_private_blocked_parent_ids
+            )
+            or closure.get("private_archived_incomplete_count")
+            != len(private_incomplete_parent_ids)
+            or closure.get("private_archived_blocked_count")
+            != len(private_blocked_parent_ids)
+            + len(census_private_blocked_parent_ids)
+        ):
+            raise ValueError("Discord private archived scope summary is inconsistent")
+        all_private_blocked_parent_ids = sorted(
+            set(private_blocked_parent_ids)
+            | set(census_private_blocked_parent_ids),
+            key=int,
+        )
+        if closure.get("full_private_scope_point_in_time_complete") is not (
+            not all_private_blocked_parent_ids
+        ):
+            raise ValueError("Discord private archived scope summary is inconsistent")
+
+        provenance = {
+            "closure_audit_path": closure_relative.as_posix(),
+            "closure_audit_sha256": closure_sha,
+            "merge_audit_path": merge_relative.as_posix(),
+            "merge_audit_sha256": merge_sha,
+            "target_snapshot_path": targets_relative.as_posix(),
+            "target_snapshot_sha256": targets_sha,
+            "target_snapshot_canonical_sha256": canonical_json_sha256(
+                target_snapshot
+            ),
+            "authorized_scope_point_in_time_complete": closure.get(
+                "authorized_scope_point_in_time_complete"
+            ),
+            "full_private_scope_complete": closure.get(
+                "full_private_scope_point_in_time_complete"
+            ),
+            "private_archived_parent_blocker_count": len(
+                all_private_blocked_parent_ids
+            ),
+            "family_parent_target_count": len(family_parent_ids),
+        }
+        inventory = build_blogger_target_inventory(
+            messages=iter_verified_blogger_messages(
+                export_root=export_root,
+                closure_audit_path=closure_relative,
+                target_ids=authorized_ids,
+                expected_closure_sha256=closure_sha,
+                scope="authorized_messages",
+            ),
+            target_snapshot=target_snapshot,
+            discovered_threads=discovered_threads,
+            provenance=provenance,
+            private_archived_blocked_parent_ids=all_private_blocked_parent_ids,
+            family_parent_target_ids=family_parent_ids,
+        )
+        closure_after, closure_after_sha = read_blogger_closure_bytes(
+            export_root=export_root,
+            closure_audit_path=closure_relative,
+        )
+        if (
+            closure_after != closure_bytes
+            or closure_after_sha != closure_sha
+            or _read_regular_file_bytes(
+                export_root, merge_relative, "blogger inventory merge audit"
+            )
+            != merge_bytes
+            or _read_regular_file_bytes(
+                export_root, targets_relative, "blogger inventory targets"
+            )
+            != targets_bytes
+        ):
+            raise ValueError("Discord blogger inventory input changed during build")
+        return publish_blogger_target_inventory(
+            workspace=workspace_root,
+            output_path=Path(output_raw),
+            inventory=inventory,
+        )
+
+    return discord_blogger_inventory_build
+
+
+def make_discord_blogger_backtest_run(workspace: Path):
+    """Run the reviewed curation through the isolated quant subprocess seam."""
+
+    workspace_root = workspace.absolute().resolve(strict=True)
+
+    def discord_blogger_backtest_run(spec: OperationSpec) -> dict[str, object]:
+        from .discord_backtest import run_quant_blogger_backtest
+
+        payload = spec.payload
+
+        def bound_path(key: str) -> Path:
+            raw = payload.get(key)
+            if not isinstance(raw, str) or not raw or "\x00" in raw:
+                raise ValueError(f"Discord blogger backtest {key} path is invalid")
+            value = Path(raw).expanduser()
+            return value if value.is_absolute() else workspace_root / value
+
+        return run_quant_blogger_backtest(
+            curation_manifest=bound_path("curation_manifest"),
+            curation_manifest_sha256=str(payload.get("curation_manifest_sha256", "")),
+            market_root=bound_path("market_root"),
+            output_dir=bound_path("output_dir"),
+            fee_bps=payload.get("fee_bps"),
+            slippage_bps=payload.get("slippage_bps"),
+            max_entry_wait_minutes=payload.get("max_entry_wait_minutes", 1440),
+            timeout_seconds=payload.get("timeout_seconds", 300),
+        )
+
+    return discord_blogger_backtest_run
+
+
 def build_default_registry(workspace: Path | str = ".") -> OperationRegistry:
     workspace_path = Path(workspace)
     registry = OperationRegistry()
@@ -2107,6 +2941,33 @@ def build_default_registry(workspace: Path | str = ".") -> OperationRegistry:
     registry.register("recommend_skills", make_recommend_skills(workspace_path))
     registry.register("analyze_skills", make_analyze_skills(workspace_path))
     registry.register("api_management_status", make_api_management_status(workspace_path))
+    registry.register("discord_probe", make_discord_probe(workspace_path))
+    registry.register("discord_collect", make_discord_collect(workspace_path))
+    registry.register("discord_shard_plan", make_discord_shard_plan(workspace_path))
+    registry.register(
+        "discord_shard_merge_audit",
+        make_discord_shard_merge_audit(workspace_path),
+    )
+    registry.register(
+        "discord_shard_closure_audit",
+        make_discord_shard_closure_audit(workspace_path),
+    )
+    registry.register(
+        "discord_shard_closure_capture",
+        make_discord_shard_closure_capture(workspace_path),
+    )
+    registry.register(
+        "discord_blogger_events_build",
+        make_discord_blogger_events_build(workspace_path),
+    )
+    registry.register(
+        "discord_blogger_inventory_build",
+        make_discord_blogger_inventory_build(workspace_path),
+    )
+    registry.register(
+        "discord_blogger_backtest_run",
+        make_discord_blogger_backtest_run(workspace_path),
+    )
     registry.register("harness_preference_add", make_harness_preference_add(workspace_path))
     registry.register("harness_compile", make_harness_compile(workspace_path))
     registry.register("harness_compile_skill", make_harness_compile_skill(workspace_path))
