@@ -3,9 +3,11 @@ from __future__ import annotations
 from dataclasses import replace
 import hashlib
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from omni_hub.discord_blogger_contract import (
     canonical_json_bytes,
@@ -293,6 +295,38 @@ class IdentityReviewPackTests(unittest.TestCase):
                     output_path=private / "reviewed.json",
                 )
 
+    def test_freeze_forces_mode_0600_under_restrictive_umask(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            private = Path(directory) / ".omni/private/discord-blogger/identity"
+            private.mkdir(parents=True)
+            candidate = _candidate_pack()
+            labels = _labels(candidate)
+            candidate_path = private / "candidate.json"
+            labels_path = private / "labels.json"
+            output_path = private / "reviewed.json"
+            candidate_path.write_bytes(canonical_json_bytes(candidate))
+            labels_path.write_bytes(canonical_json_bytes(labels))
+            candidate_path.chmod(0o600)
+            labels_path.chmod(0o600)
+
+            previous_umask = os.umask(0o777)
+            try:
+                first = freeze_identity_review_pack(
+                    candidate_pack=candidate_path,
+                    reviewed_labels=labels_path,
+                    output_path=output_path,
+                )
+                second = freeze_identity_review_pack(
+                    candidate_pack=candidate_path,
+                    reviewed_labels=labels_path,
+                    output_path=output_path,
+                )
+            finally:
+                os.umask(previous_umask)
+
+            self.assertEqual(first, second)
+            self.assertEqual(output_path.stat().st_mode & 0o777, 0o600)
+
     def test_freeze_rejects_a_symlinked_private_parent(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -318,6 +352,110 @@ class IdentityReviewPackTests(unittest.TestCase):
                     reviewed_labels=private / "identity/labels.json",
                     output_path=private / "identity/reviewed.json",
                 )
+
+    def test_freeze_rejects_lexical_private_prefix_escape(self) -> None:
+        for escaped_field in ("candidate", "labels", "output"):
+            with self.subTest(escaped_field=escaped_field):
+                with tempfile.TemporaryDirectory() as directory:
+                    root = Path(directory)
+                    private = (
+                        root / ".omni/private/discord-blogger/identity"
+                    )
+                    outside = root / "outside"
+                    private.mkdir(parents=True)
+                    outside.mkdir()
+                    candidate = _candidate_pack()
+                    labels = _labels(candidate)
+                    candidate_path = private / "candidate.json"
+                    labels_path = private / "labels.json"
+                    output_path = private / "reviewed.json"
+                    candidate_path.write_bytes(canonical_json_bytes(candidate))
+                    labels_path.write_bytes(canonical_json_bytes(labels))
+                    candidate_path.chmod(0o600)
+                    labels_path.chmod(0o600)
+                    escaped = (
+                        root
+                        / ".omni/private/../../outside"
+                        / {
+                            "candidate": "candidate.json",
+                            "labels": "labels.json",
+                            "output": "reviewed.json",
+                        }[escaped_field]
+                    )
+                    if escaped_field == "candidate":
+                        escaped.resolve().write_bytes(
+                            canonical_json_bytes(candidate)
+                        )
+                        escaped.resolve().chmod(0o600)
+                        candidate_path = escaped
+                    elif escaped_field == "labels":
+                        escaped.resolve().write_bytes(
+                            canonical_json_bytes(labels)
+                        )
+                        escaped.resolve().chmod(0o600)
+                        labels_path = escaped
+                    else:
+                        output_path = escaped
+
+                    with self.assertRaisesRegex(
+                        ValueError, "escape|unsafe"
+                    ):
+                        freeze_identity_review_pack(
+                            candidate_pack=candidate_path,
+                            reviewed_labels=labels_path,
+                            output_path=output_path,
+                        )
+
+                    self.assertFalse((outside / "reviewed.json").exists())
+
+    def test_freeze_rejects_parent_swap_after_path_validation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            identity = root / ".omni/private/discord-blogger/identity"
+            outside = root / "outside"
+            identity.mkdir(parents=True)
+            outside.mkdir()
+            candidate = _candidate_pack()
+            labels = _labels(candidate)
+            candidate_path = identity / "candidate.json"
+            labels_path = identity / "labels.json"
+            output_path = identity / "reviewed.json"
+            candidate_path.write_bytes(canonical_json_bytes(candidate))
+            labels_path.write_bytes(canonical_json_bytes(labels))
+            candidate_path.chmod(0o600)
+            labels_path.chmod(0o600)
+
+            from omni_hub import discord_blogger_identity_review as review_module
+
+            original = review_module._private_path
+            calls = 0
+
+            def swap_after_validation(
+                value: Path, label: str, *, must_exist: bool = True
+            ) -> Path:
+                nonlocal calls
+                result = original(value, label, must_exist=must_exist)
+                calls += 1
+                if calls == 3:
+                    identity.rename(root / "retained")
+                    identity.symlink_to(outside, target_is_directory=True)
+                return result
+
+            with patch.object(
+                review_module,
+                "_private_path",
+                side_effect=swap_after_validation,
+            ):
+                with self.assertRaisesRegex(
+                    ValueError, "symbolic link|unsafe"
+                ):
+                    freeze_identity_review_pack(
+                        candidate_pack=candidate_path,
+                        reviewed_labels=labels_path,
+                        output_path=output_path,
+                    )
+
+            self.assertFalse((outside / "reviewed.json").exists())
 
 
 if __name__ == "__main__":

@@ -8,8 +8,8 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import secrets
 import stat
-import tempfile
 from typing import Iterable, Mapping, Protocol
 
 from .discord_blogger_contract import (
@@ -447,7 +447,10 @@ def _validate_decision(
 def _private_path(
     value: Path, label: str, *, must_exist: bool = True
 ) -> Path:
-    path = Path(value).absolute()
+    raw = Path(value)
+    if ".." in raw.parts:
+        raise ValueError(f"Discord identity {label} path escape is unsafe")
+    path = raw if raw.is_absolute() else Path.cwd() / raw
     parts = path.parts
     private_indexes = [
         index
@@ -457,40 +460,54 @@ def _private_path(
     if not private_indexes:
         raise ValueError(f"Discord identity {label} must be under .omni/private")
     private_index = private_indexes[-1]
-    current = Path(*parts[:private_index]).resolve(strict=True)
-    for part in parts[private_index:-1]:
-        current /= part
+    try:
+        anchor = Path(*parts[:private_index]).resolve(strict=True)
+    except OSError as exc:
+        raise ValueError(
+            f"Discord identity {label} path anchor is unsafe"
+        ) from exc
+    path = anchor.joinpath(*parts[private_index:])
+    parent_fd = _open_private_parent(path, label)
+    try:
         try:
-            mode = current.lstat().st_mode
+            mode = os.stat(
+                path.name,
+                dir_fd=parent_fd,
+                follow_symlinks=False,
+            ).st_mode
         except FileNotFoundError:
             if must_exist:
-                raise ValueError(
-                    f"Discord identity {label} parent is missing"
-                ) from None
-            break
+                raise ValueError(f"Discord identity {label} is missing") from None
+            return path
         if stat.S_ISLNK(mode):
             raise ValueError(
                 f"Discord identity {label} path contains a symbolic link"
             )
-        if not stat.S_ISDIR(mode):
-            raise ValueError(
-                f"Discord identity {label} parent is not a directory"
-            )
-    if must_exist:
-        try:
-            mode = path.lstat().st_mode
-        except FileNotFoundError:
-            raise ValueError(f"Discord identity {label} is missing") from None
-        if stat.S_ISLNK(mode) or not stat.S_ISREG(mode):
+        if not stat.S_ISREG(mode):
             raise ValueError(f"Discord identity {label} is not a regular file")
-        if stat.S_IMODE(mode) != 0o600:
+        if must_exist and stat.S_IMODE(mode) != 0o600:
             raise ValueError(f"Discord identity {label} must use mode 0600")
+    finally:
+        os.close(parent_fd)
     return path
 
 
 def _read_canonical(path: Path, label: str) -> bytes:
+    parent_fd = _open_private_parent(path, label)
     flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
-    descriptor = os.open(path, flags)
+    try:
+        try:
+            descriptor = os.open(path.name, flags, dir_fd=parent_fd)
+        except OSError as exc:
+            raise ValueError(
+                f"Discord identity {label} path is unsafe"
+            ) from exc
+        return _read_canonical_descriptor(descriptor, label)
+    finally:
+        os.close(parent_fd)
+
+
+def _read_canonical_descriptor(descriptor: int, label: str) -> bytes:
     try:
         before = os.fstat(descriptor)
         content = b""
@@ -504,6 +521,7 @@ def _read_canonical(path: Path, label: str) -> bytes:
         os.close(descriptor)
     if (
         not stat.S_ISREG(before.st_mode)
+        or stat.S_IMODE(before.st_mode) != 0o600
         or (before.st_dev, before.st_ino, before.st_size)
         != (after.st_dev, after.st_ino, after.st_size)
     ):
@@ -518,42 +536,153 @@ def _read_canonical(path: Path, label: str) -> bytes:
 
 
 def _write_private_no_clobber(path: Path, content: bytes) -> None:
-    parent = path.parent
-    if not parent.is_dir() or parent.is_symlink():
-        raise ValueError("Discord identity review output parent is unsafe")
-    if path.exists():
-        existing = _read_canonical(path, "review output")
-        if existing == content:
-            if stat.S_IMODE(path.stat().st_mode) != 0o600:
-                raise ValueError("Discord identity review output mode changed")
-            return
-        raise FileExistsError("Discord identity review output already exists")
-    descriptor, stage_name = tempfile.mkstemp(
-        prefix=f".{path.name}.",
-        dir=parent,
-    )
-    stage = Path(stage_name)
+    parent_fd = _open_private_parent(path, "review output")
+    read_flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    stage_name = f".{path.name}.{secrets.token_hex(16)}"
+    descriptor = -1
     try:
+        try:
+            existing_fd = os.open(
+                path.name,
+                read_flags,
+                dir_fd=parent_fd,
+            )
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            raise ValueError(
+                "Discord identity review output path is unsafe"
+            ) from exc
+        else:
+            existing = _read_canonical_descriptor(
+                existing_fd, "review output"
+            )
+            if existing == content:
+                return
+            raise FileExistsError(
+                "Discord identity review output already exists"
+            )
+        create_flags = (
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_EXCL
+            | getattr(os, "O_NOFOLLOW", 0)
+        )
+        descriptor = os.open(
+            stage_name,
+            create_flags,
+            0o600,
+            dir_fd=parent_fd,
+        )
         os.fchmod(descriptor, 0o600)
+        stage_stat = os.fstat(descriptor)
         written = 0
         while written < len(content):
             written += os.write(descriptor, content[written:])
         os.fsync(descriptor)
         os.close(descriptor)
         descriptor = -1
-        os.link(stage, path, follow_symlinks=False)
-        directory_fd = os.open(parent, os.O_RDONLY)
         try:
-            os.fsync(directory_fd)
-        finally:
-            os.close(directory_fd)
+            os.link(
+                stage_name,
+                path.name,
+                src_dir_fd=parent_fd,
+                dst_dir_fd=parent_fd,
+                follow_symlinks=False,
+            )
+        except FileExistsError:
+            try:
+                existing_fd = os.open(
+                    path.name,
+                    read_flags,
+                    dir_fd=parent_fd,
+                )
+            except OSError as exc:
+                raise ValueError(
+                    "Discord identity review output path changed"
+                ) from exc
+            existing = _read_canonical_descriptor(
+                existing_fd, "review output"
+            )
+            if existing == content:
+                return
+            raise FileExistsError(
+                "Discord identity review output already exists"
+            ) from None
+        output_stat = os.stat(
+            path.name,
+            dir_fd=parent_fd,
+            follow_symlinks=False,
+        )
+        if (
+            not stat.S_ISREG(output_stat.st_mode)
+            or stat.S_IMODE(output_stat.st_mode) != 0o600
+            or (output_stat.st_dev, output_stat.st_ino)
+            != (stage_stat.st_dev, stage_stat.st_ino)
+        ):
+            raise ValueError("Discord identity review output changed")
+        os.fsync(parent_fd)
     finally:
         if descriptor >= 0:
             os.close(descriptor)
-        stage.unlink(missing_ok=True)
-    mode = path.lstat().st_mode
-    if not stat.S_ISREG(mode) or stat.S_IMODE(mode) != 0o600:
-        raise ValueError("Discord identity review output mode changed")
+        try:
+            os.unlink(stage_name, dir_fd=parent_fd)
+        except FileNotFoundError:
+            pass
+        os.close(parent_fd)
+
+
+def _open_private_parent(path: Path, label: str) -> int:
+    parts = path.parts
+    private_indexes = [
+        index
+        for index in range(len(parts) - 1)
+        if parts[index : index + 2] == _PRIVATE_PREFIX
+    ]
+    if not path.is_absolute() or not private_indexes or ".." in parts:
+        raise ValueError(f"Discord identity {label} path is unsafe")
+    private_index = private_indexes[-1]
+    anchor = Path(*parts[:private_index])
+    directory_flags = (
+        os.O_RDONLY
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    try:
+        current_fd = _open_absolute_directory(anchor, directory_flags)
+    except OSError as exc:
+        raise ValueError(
+            f"Discord identity {label} path anchor is unsafe"
+        ) from exc
+    try:
+        for part in parts[private_index:-1]:
+            next_fd = os.open(part, directory_flags, dir_fd=current_fd)
+            os.close(current_fd)
+            current_fd = next_fd
+    except OSError as exc:
+        os.close(current_fd)
+        raise ValueError(
+            f"Discord identity {label} path contains a symbolic link "
+            "or unsafe directory"
+        ) from exc
+    return current_fd
+
+
+def _open_absolute_directory(path: Path, flags: int) -> int:
+    """Open one canonical absolute directory without following any component."""
+
+    if not path.is_absolute() or ".." in path.parts:
+        raise OSError("unsafe absolute directory")
+    current_fd = os.open(path.anchor, flags)
+    try:
+        for part in path.parts[1:]:
+            next_fd = os.open(part, flags, dir_fd=current_fd)
+            os.close(current_fd)
+            current_fd = next_fd
+    except OSError:
+        os.close(current_fd)
+        raise
+    return current_fd
 
 
 def _timestamp(value: object, label: str) -> datetime:

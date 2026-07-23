@@ -263,6 +263,72 @@ class TargetIdentityRegistryTests(unittest.TestCase):
             "team",
         )
 
+    def test_inactive_review_windows_never_leak_historical_target_type(
+        self,
+    ) -> None:
+        cases = (
+            (
+                "expired",
+                (_review(
+                    decision="accepted",
+                    identity_type="owner",
+                    valid_from="2026-07-01T00:00:00+00:00",
+                    valid_to="2026-07-10T00:00:00+00:00",
+                ),),
+                "2026-07-11T00:00:00+00:00",
+            ),
+            (
+                "future",
+                (_review(
+                    decision="accepted",
+                    identity_type="owner",
+                    valid_from="2026-07-20T00:00:00+00:00",
+                ),),
+                "2026-07-19T00:00:00+00:00",
+            ),
+            (
+                "mixed-gap",
+                (
+                    _review(
+                        decision="accepted",
+                        identity_type="owner",
+                        valid_from="2026-07-01T00:00:00+00:00",
+                        valid_to="2026-07-10T00:00:00+00:00",
+                    ),
+                    _review(
+                        decision="accepted",
+                        identity_type="team",
+                        valid_from="2026-07-20T00:00:00+00:00",
+                        target_type="multi_author_team",
+                        aggregation_scope="target_rollup_only",
+                        performance_owner_id=None,
+                        aggregation_owner_id=_AUTHOR,
+                    ),
+                ),
+                "2026-07-15T00:00:00+00:00",
+            ),
+        )
+        for label, reviews, timestamp in cases:
+            with self.subTest(label=label):
+                registry = _build_registry(
+                    messages=(_message(timestamp=timestamp),),
+                    inventory=_inventory(),
+                    reviewed_overrides=_frozen_pack(*reviews),
+                )
+                resolution = resolve_message_owner(
+                    message=_message(timestamp=timestamp),
+                    registry=registry,
+                )
+
+                self.assertEqual(resolution.identity_type, "unknown")
+                self.assertEqual(resolution.target_type, "unknown")
+                self.assertEqual(
+                    resolution.aggregation_scope, "no_performance"
+                )
+                self.assertFalse(resolution.verified)
+                self.assertIsNone(resolution.performance_owner_id)
+                self.assertIsNone(resolution.aggregation_owner_id)
+
     def test_single_observed_author_stays_unknown_and_author_eligible_without_review(self) -> None:
         registry = _build_registry(
             messages=(_message(),),

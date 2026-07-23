@@ -192,7 +192,7 @@ def resolve_message_owner(
     resolved_target_type = (
         next(iter(active_target_types))
         if len(active_target_types) == 1
-        else str(target["target_type"])
+        else "unknown"
     )
     active: list[Mapping[str, object]] = []
     if message.author_id is not None:
