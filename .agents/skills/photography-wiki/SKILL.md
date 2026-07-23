@@ -11,7 +11,7 @@ description: |
   - "how to expose for shadows in raw"
 
   Source corpus: vault/wiki/domains/photography/.  Authoritative
-  cascade: `unsplash`, `pexels`, `wikipedia`.  Stale threshold: 365 days.
+  cascade: `pexels`, `unsplash`, `wikipedia`.  Stale threshold: 365 days.
 
   Do NOT trigger for: queries that match a different domain's keywords
   (the task_router in src/omni_hub/app/task_router.py picks the right
@@ -30,8 +30,8 @@ omni_hub:
   risk_level: L0
   required_permissions: []
   connectors:
-    - unsplash
     - pexels
+    - unsplash
     - wikipedia
   tags:
     - wiki
@@ -68,7 +68,7 @@ PYTHONPATH=src python3 -m omni_hub.cli wiki-graph \
   --node <canonical_id_or_slug>
 ```
 
-Authoritative cascade: `unsplash`, `pexels`, `wikipedia`.  When in doubt, default to ``tier=standard``.
+Authoritative cascade: `pexels`, `unsplash`, `wikipedia`.  When in doubt, default to ``tier=standard``.
 
 ## 2. Apply Knowledge
 

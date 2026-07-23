@@ -9,7 +9,7 @@ from __future__ import annotations
 import urllib.parse
 import xml.etree.ElementTree as ET
 
-from .base import DEFAULT_TIMEOUT_SEC, RetrievalRecord, http_get_text
+from .base import DEFAULT_TIMEOUT_SEC, RetrievalError, RetrievalRecord, http_get_text
 
 
 QUERY_URL = "https://export.arxiv.org/api/query"
@@ -37,14 +37,24 @@ class ArxivSource:
         limit: int = 5,
         domain: str = "",
     ) -> list[RetrievalRecord]:
-        if not query.strip():
+        q = query.strip()
+        if not q:
             return []
         # arXiv accepts a free-form ``search_query=all:X`` plus category
-        # narrowing for the ``ai_progress`` domain.
-        if domain == "ai_progress":
-            search_query = f"(cat:cs.AI OR cat:cs.LG OR cat:cs.CL) AND all:{query}"
+        # narrowing for the ``ai_progress`` domain.  Callers may also
+        # pass a raw arXiv DSL clause like ``cat:cs.AI`` or
+        # ``ti:transformer`` — in those cases we honour it verbatim
+        # (v0.43.5 fix: previously got wrapped as ``all:cat:cs.AI``
+        # which always returned zero).
+        is_dsl = ":" in q.split(" ", 1)[0] and q.split(":", 1)[0] in {
+            "all", "ti", "abs", "au", "cat", "id", "co", "jr", "rn",
+        }
+        if is_dsl:
+            search_query = q
+        elif domain == "ai_progress":
+            search_query = f"(cat:cs.AI OR cat:cs.LG OR cat:cs.CL) AND all:{q}"
         else:
-            search_query = f"all:{query}"
+            search_query = f"all:{q}"
 
         params = {
             "search_query": search_query,
@@ -55,7 +65,13 @@ class ArxivSource:
         }
         url = f"{QUERY_URL}?{urllib.parse.urlencode(params)}"
         text, _ = http_get_text(url, timeout=self.timeout, accept="application/atom+xml")
-        root = ET.fromstring(text)
+        try:
+            root = ET.fromstring(text)
+        except ET.ParseError as exc:
+            # Malformed / empty feed (arXiv 5xx HTML error page, truncated
+            # body): fail soft as a source error the cascade catches, not a
+            # bare ParseError that crashes the whole retrieve.
+            raise RetrievalError(f"arxiv returned non-XML: {exc}") from exc
 
         records: list[RetrievalRecord] = []
         for entry in root.findall("atom:entry", ATOM_NS):
@@ -76,6 +92,22 @@ class ArxivSource:
             # arXiv IDs are versioned (2510.01234v1).  Strip the version
             # suffix so v1 and v2 of the same paper collapse to one record.
             base_id = arxiv_id.rsplit("v", 1)[0] if "v" in arxiv_id else arxiv_id
+            # v0.49: stop under-extraction (Q2/Q3) — the Atom feed carries the
+            # journal DOI, journal_ref, the free-text comment (often the
+            # acceptance venue, e.g. "Accepted at NeurIPS 2025"), the primary
+            # category, the updated timestamp, and per-author affiliations.
+            doi = (entry.findtext("arxiv:doi", default="", namespaces=ATOM_NS) or "").strip()
+            journal_ref = (entry.findtext("arxiv:journal_ref", default="", namespaces=ATOM_NS) or "").strip()
+            comment = (entry.findtext("arxiv:comment", default="", namespaces=ATOM_NS) or "").strip()
+            updated = entry.findtext("atom:updated", default="", namespaces=ATOM_NS) or ""
+            primary_el = entry.find("arxiv:primary_category", ATOM_NS)
+            primary_category = primary_el.attrib.get("term", "") if primary_el is not None else ""
+            authors_detailed = []
+            for author in entry.findall("atom:author", ATOM_NS):
+                nm = (author.findtext("atom:name", default="", namespaces=ATOM_NS) or "").strip()
+                aff = (author.findtext("arxiv:affiliation", default="", namespaces=ATOM_NS) or "").strip()
+                if nm:
+                    authors_detailed.append({"name": nm, "affiliation": aff})
             records.append(RetrievalRecord(
                 source=self.name,
                 title=title,
@@ -87,8 +119,14 @@ class ArxivSource:
                     "arxiv_id": arxiv_id,
                     "arxiv_base_id": base_id,
                     "authors": authors,
+                    "authors_detailed": authors_detailed,
                     "published": published,
+                    "updated": updated,
                     "categories": categories,
+                    "primary_category": primary_category,
+                    "doi": doi,
+                    "journal_ref": journal_ref,
+                    "comment": comment,
                     # arxiv.org/html/<id> renders the paper as accessible HTML —
                     # use this for cheaper extraction than the PDF.
                     "html_url": f"https://arxiv.org/html/{arxiv_id}",

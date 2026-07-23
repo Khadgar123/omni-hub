@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.omni-hub.daily-follow</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>{{PYTHON}}</string>
+        <string>{{WORKSPACE}}/scripts/daily_follow_brief.py</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>OPENALEX_MAILTO</key>
+        <string>namomo7881@outlook.com</string>
+    </dict>
+
+    <key>WorkingDirectory</key>
+    <string>{{WORKSPACE}}</string>
+
+    <!-- Daily 08:30 — late enough that the previous-day Dwarkesh /
+         Anthropic / OpenAI feeds have updated. -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key><integer>8</integer>
+        <key>Minute</key><integer>30</integer>
+    </dict>
+
+    <key>WakeSystem</key>
+    <true/>
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>{{WORKSPACE}}/.omni/launchd/daily-follow.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>{{WORKSPACE}}/.omni/launchd/daily-follow.err.log</string>
+</dict>
+</plist>

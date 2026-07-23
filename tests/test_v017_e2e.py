@@ -149,6 +149,7 @@ class WikiDoctorChecksTests(unittest.TestCase):
             self.assertEqual(names, {
                 "wiki_layout", "domain_schemas", "fts5_freshness",
                 "claims_jsonl", "supersede_graph", "index_md", "skill_registry",
+                "projection_integrity",
             })
 
     def test_doctor_detects_cycle_in_supersede_graph(self) -> None:

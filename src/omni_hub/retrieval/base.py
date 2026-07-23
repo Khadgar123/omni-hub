@@ -14,6 +14,8 @@ project — wrap the HTTP yourself, it's <120 LOC per source.
 from __future__ import annotations
 
 import json
+import random
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -90,6 +92,84 @@ class RetrievalSource(Protocol):
 # ---------------------------------------------------------------------------
 
 
+# Provenance: how a record was served. DESCRIPTIVE, kept separate from
+# MEASURED quality (source_quality.SourceQualityStore) — a 'fallback' or
+# 'cache' record is NOT assumed worse than a 'live'/'primary' one; that is
+# the reviewer's '降级源≠劣等' invariant. Values:
+#   live     - fetched fresh from the source's primary endpoint
+#   fallback - source's primary path failed; a secondary path produced this
+#   cache    - served from the local TTL cache, no network call
+SERVED_VIA_LIVE = "live"
+SERVED_VIA_FALLBACK = "fallback"
+SERVED_VIA_CACHE = "cache"
+
+
+def mark_served_via(records, served_via):
+    """Stamp ``metadata['served_via']`` on each record (in place) and return them.
+
+    Connectors with a genuine internal fallback path call this with
+    ``SERVED_VIA_FALLBACK`` when their primary path failed, so downstream
+    evidence + claims record *how* the data was obtained. The cascade stamps
+    'live'/'cache' itself; an explicit value set here is preserved (the
+    cascade uses ``setdefault``).
+    """
+    for rec in records:
+        if getattr(rec, "metadata", None) is None:
+            rec.metadata = {}
+        rec.metadata["served_via"] = served_via
+    return records
+
+
+_RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
+_MAX_RETRIES = 2
+_BACKOFF_BASE_SEC = 0.5
+_BACKOFF_CAP_SEC = 8.0
+
+
+def _retry_delay(exc: urllib.error.HTTPError, attempt: int) -> float:
+    """Seconds to wait before retrying a 429/5xx: honour ``Retry-After``
+    (capped) else exponential backoff with FULL JITTER (AWS-recommended)."""
+    try:
+        ra = exc.headers.get("Retry-After", "") if getattr(exc, "headers", None) else ""
+    except Exception:  # noqa: BLE001
+        ra = ""
+    if ra:
+        try:
+            return min(float(ra), _BACKOFF_CAP_SEC)
+        except (TypeError, ValueError):
+            pass
+    cap = min(_BACKOFF_CAP_SEC, _BACKOFF_BASE_SEC * (2 ** attempt))
+    return random.uniform(0.0, cap)
+
+
+def _urlopen_with_retry(request, timeout, *, reader, max_retries: int = _MAX_RETRIES,
+                        sleep=None):
+    """``urlopen`` + ``reader(resp)`` with bounded retry on 429/5xx only.
+
+    Rate-limit / transient-server errors are the one class worth retrying for
+    flaky public APIs (arXiv / Semantic Scholar / etc.).  Everything else --
+    non-retryable 4xx, and URLError (offline / timeout) -- propagates
+    immediately, so callers' fail-soft behaviour is unchanged.
+    """
+    _sleep = sleep or time.sleep
+    attempt = 0
+    while True:
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as resp:
+                return reader(resp)
+        except urllib.error.HTTPError as exc:
+            if exc.code in _RETRYABLE_STATUS and attempt < max_retries:
+                delay = _retry_delay(exc, attempt)
+                try:
+                    exc.close()
+                except Exception:  # noqa: BLE001
+                    pass
+                _sleep(delay)
+                attempt += 1
+                continue
+            raise
+
+
 def http_get_json(
     url: str,
     *,
@@ -121,14 +201,15 @@ def http_get_json(
 
     req = urllib.request.Request(url, headers=req_headers)
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            data = resp.read()
+        data = _urlopen_with_retry(req, timeout, reader=lambda r: r.read())
     except urllib.error.HTTPError as exc:
         body_preview = ""
         try:
             body_preview = exc.read().decode("utf-8", errors="replace")[:300]
         except Exception:  # pragma: no cover
             pass
+        finally:
+            exc.close()  # release the socket/tempfile fp (no ResourceWarning)
         raise RetrievalError(
             f"{url} returned HTTP {exc.code}: {body_preview}"
         ) from exc
@@ -160,10 +241,12 @@ def http_get_text(
         req_headers.update(headers)
     req = urllib.request.Request(url, headers=req_headers)
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            raw = resp.read()
-            response_headers = {k.lower(): v for k, v in resp.headers.items()}
+        raw, response_headers = _urlopen_with_retry(
+            req, timeout,
+            reader=lambda r: (r.read(), {k.lower(): v for k, v in r.headers.items()}),
+        )
     except urllib.error.HTTPError as exc:
+        exc.close()  # release the socket/tempfile fp (no ResourceWarning)
         raise RetrievalError(f"{url} returned HTTP {exc.code}") from exc
     except urllib.error.URLError as exc:
         raise RetrievalError(f"{url} unreachable: {exc.reason}") from exc
@@ -176,6 +259,66 @@ def http_get_text(
         return raw.decode(encoding, errors="replace"), response_headers
     except LookupError:
         return raw.decode("utf-8", errors="replace"), response_headers
+
+
+def http_post_json(
+    url: str,
+    *,
+    params: dict[str, Any] | None = None,
+    json_body: Any | None = None,
+    headers: dict[str, str] | None = None,
+    content_type: str = "application/json",
+    timeout: int = DEFAULT_TIMEOUT_SEC,
+) -> Any:
+    """POST and parse a JSON response with urllib.
+
+    Two body modes, picked by ``content_type``:
+    * ``application/x-www-form-urlencoded`` → ``params`` are form-encoded
+      (used for OAuth2 token grants, e.g. ACLED).
+    * ``application/json`` (default) → ``json_body`` (falling back to
+      ``params``) is JSON-encoded.
+
+    Raises :class:`RetrievalError` on any failure.
+    """
+
+    if content_type == "application/x-www-form-urlencoded":
+        body = urllib.parse.urlencode(
+            {k: v for k, v in (params or {}).items() if v is not None},
+        ).encode("ascii")
+    else:
+        payload = json_body if json_body is not None else (params or {})
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+
+    req_headers = {
+        "User-Agent": DEFAULT_USER_AGENT,
+        "Accept": "application/json",
+        "Content-Type": content_type,
+    }
+    if headers:
+        req_headers.update(headers)
+
+    req = urllib.request.Request(url, data=body, headers=req_headers, method="POST")
+    try:
+        data = _urlopen_with_retry(req, timeout, reader=lambda r: r.read())
+    except urllib.error.HTTPError as exc:
+        body_preview = ""
+        try:
+            body_preview = exc.read().decode("utf-8", errors="replace")[:300]
+        except Exception:  # pragma: no cover
+            pass
+        finally:
+            exc.close()  # release the socket/tempfile fp (no ResourceWarning)
+        raise RetrievalError(f"{url} returned HTTP {exc.code}: {body_preview}") from exc
+    except urllib.error.URLError as exc:
+        raise RetrievalError(f"{url} unreachable: {exc.reason}") from exc
+
+    text = data.decode("utf-8", errors="replace")
+    if not text.strip():
+        return {}
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise RetrievalError(f"{url} returned non-JSON: {exc}") from exc
 
 
 def normalize_records(

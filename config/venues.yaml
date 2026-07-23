@@ -1,0 +1,80 @@
+# Conference accepted-paper crawl config (v0.49) — ports the resmax
+# multi-source accepted-list logic into omni-hub.
+#
+# For each venue+year, scripts/crawl_accepted.py fetches the OFFICIAL accepted
+# list, then paper_identity.merge_papers folds it across sources AND against
+# any prior index, so a paper already in the repo as an arXiv preprint is
+# UPDATED (venue/accepted backfilled), never duplicated.
+#
+# method:
+#   openreview -> OpenReviewSource.venue_submissions(venueid_template.format(year=Y))
+#                 (full accepted list via content.venueid; no key)
+#   openalex   -> OpenAlexSource.venue_works(source_id|venue_name, year)
+#                 (non-OpenReview camera-ready venues: CVPR/AAAI/ACL/...)
+#
+# years: which already-public 2024-2026 editions to crawl.
+# openalex_source_id: stable OpenAlex venue id (api.openalex.org/sources?search=NAME);
+#   leave "" to fall back to a venue_name display-name search.
+
+version: 1
+
+venues:
+  # --- OpenReview venues: full accepted list, no key ---
+  iclr:
+    display: "ICLR"
+    method: openreview
+    venueid_template: "ICLR.cc/{year}/Conference"
+    years: [2024, 2025, 2026]
+  neurips:
+    display: "NeurIPS"
+    method: openreview
+    venueid_template: "NeurIPS.cc/{year}/Conference"
+    years: [2024, 2025]
+  icml:
+    display: "ICML"
+    method: openreview
+    venueid_template: "ICML.cc/{year}/Conference"
+    years: [2024, 2025]
+  colm:
+    display: "COLM"
+    method: openreview
+    venueid_template: "colmweb.org/COLM/{year}/Conference"
+    years: [2024, 2025]
+
+  # --- Non-OpenReview camera-ready venues via OpenAlex (venue+year filter) ---
+  cvpr:
+    display: "CVPR"
+    method: openalex
+    openalex_source_id: ""
+    venue_name: "IEEE/CVF Conference on Computer Vision and Pattern Recognition"
+    years: [2024, 2025]
+  iccv:
+    display: "ICCV"
+    method: openalex
+    openalex_source_id: ""
+    venue_name: "Proceedings of the IEEE/CVF International Conference on Computer Vision"
+    years: [2025]
+  aaai:
+    display: "AAAI"
+    method: openalex
+    openalex_source_id: ""
+    venue_name: "AAAI Conference on Artificial Intelligence"
+    years: [2024, 2025]
+  acl:
+    display: "ACL"
+    method: openalex
+    openalex_source_id: ""
+    venue_name: "Annual Meeting of the Association for Computational Linguistics"
+    years: [2024, 2025]
+  emnlp:
+    display: "EMNLP"
+    method: openalex
+    openalex_source_id: ""
+    venue_name: "Conference on Empirical Methods in Natural Language Processing"
+    years: [2024, 2025]
+  kdd:
+    display: "KDD"
+    method: openalex
+    openalex_source_id: ""
+    venue_name: "Knowledge Discovery and Data Mining"
+    years: [2024, 2025]

@@ -169,10 +169,74 @@ class FunctionalBuiltinsTests(unittest.TestCase):
         self.assertEqual(out["output"]["task_count"], 0)
 
     def test_finance_screen_registered(self) -> None:
-        # v0.36 stub returns [] until real screening lands.
+        # v0.43.4: finance_screen now actually hits EDGAR cascade,
+        # so count >= 0 (network-dependent; test only that operation
+        # registered and returned succeeded).
         out = self._run("finance_screen", {"tickers": ["NVDA"]})
         self.assertEqual(out["status"], "succeeded")
-        self.assertEqual(out["output"]["count"], 0)
+        self.assertIn("count", out["output"])
+        self.assertGreaterEqual(out["output"]["count"], 0)
+
+    def test_finance_screen_grounds_in_domain_context(self) -> None:
+        # R3 knowledge->productivity edge: composes:[retrieve, context-pack]
+        # now EXECUTES — the screen returns a domain knowledge pack, not just
+        # signals.  build_context_pack reads local vault/wiki+claims only, so
+        # this is deterministic and network-free.
+        out = self._run("finance_screen", {"tickers": ["NVDA"], "domain": "finance"})
+        self.assertEqual(out["status"], "succeeded")
+        pack = out["output"].get("context_pack")
+        self.assertIsInstance(pack, dict)
+        self.assertIn("grounded", pack)
+
+    def test_pptx_build_grounds_in_domain_context(self) -> None:
+        # R3: composes:[context-pack] now EXECUTES even on the broker-skipped
+        # path — the deck is grounded in domain knowledge before render.
+        out = self._run("pptx_build",
+                        {"outline": {"title": "ACE context engineering", "slides": []},
+                         "domain": "research"},
+                        risk="L1", approved=True)
+        self.assertEqual(out["status"], "succeeded")
+        pack = out["output"].get("context_pack")
+        self.assertIsInstance(pack, dict)
+        self.assertIn("grounded", pack)
+
+    def test_app_route_task_grounds_knowledge_query(self) -> None:
+        # R3: chat-route composes:[retrieve, context-pack] — a knowledge query
+        # (recommended op = context_pack_build) now returns an EXECUTED
+        # context_pack, not just a recommendation string.
+        out = self._run("app_route_task", {"query": "diffusion models overview"})
+        self.assertEqual(out["status"], "succeeded")
+        self.assertEqual(
+            out["output"]["decision"]["recommended_operation"],
+            "context_pack_build",
+        )
+        pack = out["output"].get("context_pack")
+        self.assertIsInstance(pack, dict)
+        self.assertIn("grounded", pack)
+
+    def test_app_route_task_ground_opt_out(self) -> None:
+        # Opt-out: {"ground": False} returns routing only, no context_pack.
+        out = self._run("app_route_task",
+                        {"query": "diffusion models overview", "ground": False})
+        self.assertEqual(out["status"], "succeeded")
+        self.assertNotIn("context_pack", out["output"])
+
+    def test_app_route_multi_grounds_each_domain(self) -> None:
+        # R3 multi-domain: a cross-domain query gets a grounded context_pack
+        # per retained domain (fan-out). route_multi always keeps >=1 domain.
+        out = self._run("app_route_multi", {"query": "diffusion models overview"})
+        self.assertEqual(out["status"], "succeeded")
+        packs = out["output"].get("context_packs")
+        self.assertIsInstance(packs, dict)
+        self.assertGreaterEqual(len(packs), 1)
+        for p in packs.values():
+            self.assertIn("grounded", p)
+
+    def test_app_route_multi_ground_opt_out(self) -> None:
+        out = self._run("app_route_multi",
+                        {"query": "diffusion models overview", "ground": False})
+        self.assertEqual(out["status"], "succeeded")
+        self.assertNotIn("context_packs", out["output"])
 
     def test_order_propose_lands_proposal(self) -> None:
         out = self._run("order_propose", {

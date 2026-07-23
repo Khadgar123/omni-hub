@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.omni-hub.quant</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>{{PYTHON}}</string>
+        <string>{{WORKSPACE}}/scripts/quant_daily.py</string>
+    </array>
+
+    <!-- QUANT_PY is the quant venv interpreter (has duckdb + the `quant`
+         package); quant_daily.py shells out to it for the regime read and is
+         fail-soft when it is missing.  DAILY_QUANT_SYMBOLS overrides the watch
+         list.  The QUANT_PY value is filled by scripts/install_launchd.py. -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>DAILY_QUANT_SYMBOLS</key>
+        <string>BTCUSDT,ETHUSDT</string>
+        <key>QUANT_PY</key>
+        <string>{{QUANT_PY}}</string>
+    </dict>
+
+    <key>WorkingDirectory</key>
+    <string>{{WORKSPACE}}</string>
+
+    <!-- Daily 09:00 — after the overnight bar close is materialized. -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key><integer>9</integer>
+        <key>Minute</key><integer>0</integer>
+    </dict>
+
+    <key>WakeSystem</key>
+    <true/>
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>{{WORKSPACE}}/.omni/launchd/quant.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>{{WORKSPACE}}/.omni/launchd/quant.err.log</string>
+</dict>
+</plist>

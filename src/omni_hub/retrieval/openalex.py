@@ -14,6 +14,23 @@ from .base import DEFAULT_TIMEOUT_SEC, RetrievalRecord, http_get_json
 
 
 WORKS_URL = "https://api.openalex.org/works"
+OPENALEX_SECRET_REF = "local:omni-hub/api/openalex/mailto"
+
+
+def _resolve_openalex_mailto() -> str:
+    env_v = os.environ.get("OPENALEX_MAILTO", "").strip()
+    if env_v:
+        return env_v
+    try:
+        from ..secrets import resolve_secret_ref, SecretStoreError
+    except ImportError:
+        return ""
+    try:
+        return resolve_secret_ref(OPENALEX_SECRET_REF) or ""
+    except SecretStoreError:
+        return ""
+    except Exception:                                            # noqa: BLE001
+        return ""
 
 
 class OpenAlexSource:
@@ -31,7 +48,7 @@ class OpenAlexSource:
         mailto: str | None = None,
         timeout: int = DEFAULT_TIMEOUT_SEC,
     ) -> None:
-        self.mailto = mailto or os.environ.get("OPENALEX_MAILTO", "")
+        self.mailto = mailto if mailto is not None else _resolve_openalex_mailto()
         self.timeout = timeout
 
     def check(self) -> tuple[str, str]:
@@ -56,7 +73,7 @@ class OpenAlexSource:
             params["mailto"] = self.mailto
 
         data = http_get_json(WORKS_URL, params=params, timeout=self.timeout)
-        results = data.get("results", []) if isinstance(data, dict) else []
+        results = (data.get("results") or []) if isinstance(data, dict) else []
 
         records: list[RetrievalRecord] = []
         for item in results[:limit]:
@@ -73,12 +90,71 @@ class OpenAlexSource:
                 item.get("abstract_inverted_index") or {}
             )
 
+            # v0.46: keep the API-native authorship structure (ORCID + ROR +
+            # affiliation + corresponding flag).  This is the recommended way
+            # to close the author / lab / ORCID gap — far cleaner and more
+            # reliable than parsing a PDF header.  `authors` (display names,
+            # capped at 5) stays for the snippet; `authors_detailed` carries
+            # the full structured list (uncapped at the connector, 50 max).
+            authors_detailed = []
+            for a in (item.get("authorships") or [])[:50]:
+                author = a.get("author") or {}
+                authors_detailed.append({
+                    "name": author.get("display_name", ""),
+                    "orcid": author.get("orcid") or "",
+                    "is_corresponding": bool(a.get("is_corresponding", False)),
+                    "institutions": [
+                        {
+                            "display_name": (inst or {}).get("display_name", ""),
+                            "ror": (inst or {}).get("ror", ""),
+                            "country_code": (inst or {}).get("country_code", ""),
+                        }
+                        for inst in (a.get("institutions") or [])
+                    ],
+                })
+            topics = [
+                (t or {}).get("display_name", "") for t in (item.get("topics") or [])
+            ]
+            topics = [t for t in topics if t][:8]
+            best_oa = item.get("best_oa_location") or {}
+            oa_pdf_url = (
+                best_oa.get("pdf_url", "")
+                or (item.get("open_access") or {}).get("oa_url", "")
+                or ""
+            )
+
             # DOI is the strongest canonical_id for scholarly works; fall
             # back to the openalex_id when DOI is missing (some grey lit).
             canonical = (
                 _normalise_doi(doi)
                 or (item.get("id", "") or "").replace("https://openalex.org/", "openalex:")
             )
+
+            # v0.49: stop under-extraction (Q2/Q3 review) — preserve the
+            # API-native citation graph + bibliographic detail so nothing the
+            # API offered is silently dropped before the raw layer.
+            biblio = item.get("biblio") or {}
+            concepts = [
+                {
+                    "display_name": (c or {}).get("display_name", ""),
+                    "score": (c or {}).get("score", 0.0),
+                    "level": (c or {}).get("level", 0),
+                    "wikidata": (c or {}).get("wikidata", ""),
+                }
+                for c in (item.get("concepts") or [])
+                if (c or {}).get("display_name")
+            ][:12]
+            keywords = [
+                (k or {}).get("display_name", "") for k in (item.get("keywords") or [])
+            ]
+            keywords = [k for k in keywords if k][:12]
+            grants = [
+                {
+                    "funder": (g or {}).get("funder_display_name", ""),
+                    "award_id": (g or {}).get("award_id", ""),
+                }
+                for g in (item.get("grants") or [])
+            ]
             records.append(RetrievalRecord(
                 source=self.name,
                 title=item.get("display_name", ""),
@@ -88,12 +164,95 @@ class OpenAlexSource:
                 canonical_id=canonical,
                 metadata={
                     "authors": [a for a in authors if a],
+                    "authors_detailed": authors_detailed,
+                    "topics": topics,
                     "year": year,
                     "venue": venue,
                     "doi": doi,
                     "openalex_id": item.get("id", ""),
                     "cited_by_count": item.get("cited_by_count", 0),
                     "open_access": (item.get("open_access") or {}).get("is_oa", False),
+                    "oa_pdf_url": oa_pdf_url,
+                    # v0.49: full-payload preservation (Q2/Q3)
+                    "referenced_works": list(item.get("referenced_works") or []),
+                    "related_works": list(item.get("related_works") or []),
+                    "concepts": concepts,
+                    "keywords": keywords,
+                    "biblio": {
+                        "volume": biblio.get("volume", "") or "",
+                        "issue": biblio.get("issue", "") or "",
+                        "first_page": biblio.get("first_page", "") or "",
+                        "last_page": biblio.get("last_page", "") or "",
+                    },
+                    "grants": grants,
+                    "is_retracted": bool(item.get("is_retracted", False)),
+                    "language": item.get("language", "") or "",
+                },
+            ))
+        return records
+
+    def venue_works(
+        self,
+        *,
+        source_id: str = "",
+        venue_name: str = "",
+        year: int | None = None,
+        limit: int = 200,
+    ) -> list[RetrievalRecord]:
+        """Accepted/published works for a VENUE + year — the non-OpenReview
+        accepted-list path (CVPR / AAAI / ACL / KDD / ...).
+
+        Prefer ``source_id`` (a stable OpenAlex venue id like ``S4306420609``,
+        from ``api.openalex.org/sources?search=NAME``); else fall back to a
+        venue display-name search.  Records are lightweight (title / doi /
+        venue / year / authors) — enough for the accepted index + the
+        ``paper_identity`` dedup; full enrichment is a later pass.
+        """
+        if source_id:
+            vfilter = f"primary_location.source.id:{source_id}"
+        elif venue_name:
+            vfilter = f"primary_location.source.display_name.search:{venue_name}"
+        else:
+            return []
+        filters = [vfilter] + ([f"publication_year:{year}"] if year else [])
+        params: dict[str, str] = {
+            "filter": ",".join(filters),
+            "per-page": str(min(max(limit, 1), 200)),
+        }
+        if self.mailto:
+            params["mailto"] = self.mailto
+        data = http_get_json(WORKS_URL, params=params, timeout=self.timeout)
+        results = (data.get("results") or []) if isinstance(data, dict) else []
+        records: list[RetrievalRecord] = []
+        for item in results[:limit]:
+            if not isinstance(item, dict):
+                continue
+            doi = item.get("doi", "") or ""
+            venue = (
+                (item.get("primary_location") or {}).get("source") or {}
+            ).get("display_name", "")
+            canonical = (
+                _normalise_doi(doi)
+                or (item.get("id", "") or "").replace("https://openalex.org/", "openalex:")
+            )
+            authors = [
+                (a.get("author") or {}).get("display_name", "")
+                for a in (item.get("authorships") or [])
+            ][:8]
+            records.append(RetrievalRecord(
+                source=self.name,
+                title=item.get("display_name", ""),
+                url=item.get("id", "") or doi,
+                snippet=venue,
+                score=float(item.get("cited_by_count", 0)),
+                canonical_id=canonical,
+                metadata={
+                    "doi": doi,
+                    "venue": venue,
+                    "year": item.get("publication_year"),
+                    "authors": [a for a in authors if a],
+                    "accepted": True,
+                    "openalex_id": item.get("id", ""),
                 },
             ))
         return records

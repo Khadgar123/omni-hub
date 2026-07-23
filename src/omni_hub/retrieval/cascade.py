@@ -10,9 +10,9 @@ cascade — we still return whatever the working sources gave us.
 
 Fusion strategies (`fusion=` kwarg on :meth:`Cascade.retrieve`):
 
-* ``"concat"`` (legacy default) — preserve per-source order, concatenate
+* ``"concat"`` (opt-in) — preserve per-source order, concatenate
   in cascade order, dedup. This is what omni-hub shipped in v0.9 part 1.
-* ``"rrf"`` (new, 2026 universal default) — Reciprocal Rank Fusion across
+* ``"rrf"`` (default since v0.46) — Reciprocal Rank Fusion across
   sources: ``score = Σ 1/(k + rank_i)`` with ``k=60``.  Cross-source
   comparable; a record appearing in 2 sources ranks above one in 1.
   Matches LangChain ``EnsembleRetriever`` and Perplexity stage-1 fusion.
@@ -33,6 +33,8 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable, Literal, TYPE_CHECKING
 
 from .base import RetrievalError, RetrievalRecord, RetrievalSource
+from .base import SERVED_VIA_CACHE, SERVED_VIA_LIVE
+from .source_policy import source_tier
 
 if TYPE_CHECKING:
     from .cache import TTLCache
@@ -50,16 +52,36 @@ DEFAULT_DOMAIN_CASCADES: dict[str, list[str]] = {
     # Papers, defuddle-pattern Tier 0/1 sources).  Sources requiring auth
     # are listed; the cascade fail-soft-skips when their env vars unset.
     "engineering": [
-        "brave_search", "crossref", "openalex", "arxiv", "wikidata", "wikipedia",
+        # brave_search head: engineering queries mostly hit blog / SO / docs,
+        # not papers.  Among academic sources, openalex > arxiv > crossref.
+        # tavily/exa parallel to brave for cleaned content + semantic fallback.
+        # hackernews surfaces dev-tool / OSS / founder-grade discussion.
+        "brave_search", "tavily", "exa", "hackernews", "github",
+        "openalex", "arxiv", "crossref", "wikidata", "wikipedia",
     ],
     "research": [
-        "crossref", "openalex", "semantic_scholar", "arxiv",
-        "europe_pmc", "pubmed", "wikidata", "wikipedia",
+        # All sources fan out in parallel; this order is the RRF tiebreak
+        # and concat-fallback precedence.  Rationale:
+        #   - openalex:  freshest metadata (Crossref-synced daily), 250M+ works,
+        #                key-less, no recycle risk → default main source
+        #   - arxiv:     primary PDF entry for preprints
+        #   - semantic_scholar: TLDR one-liner + influentialCitationCount +
+        #                reference edges (all now requested in _DEFAULT_FIELDS);
+        #                corpus refreshes monthly — used as deep-dive supplement
+        #   - europe_pmc / pubmed: biomedical fill-in
+        #   - crossref:  raw DOI fallback (OpenAlex already ingests it upstream)
+        #   - wikidata / wikipedia: concept / entity tail
+        "openalex", "arxiv", "semantic_scholar", "openreview",
+        "europe_pmc", "pubmed", "crossref",
+        "tavily", "exa",                              # AI-friendly + semantic-similar fallback
+        "wikidata", "wikipedia",
     ],
     "biomedical": [
-        "europe_pmc", "pubmed", "crossref", "openalex", "wikidata", "wikipedia",
+        # europe_pmc / pubmed are domain-specialised heads; openalex is the
+        # general-purpose head once those return; crossref tail for DOI lookup.
+        "europe_pmc", "pubmed", "openalex", "crossref", "wikidata", "wikipedia",
     ],
-    "photography":           ["unsplash", "pexels", "wikipedia"],
+    "photography":           ["pexels", "unsplash", "wikipedia"],   # pixabay dropped (key unobtainable); pexels+unsplash work
     "fashion":               ["wikipedia"],            # snapshot-only via vault
     "chat_relationships":    [],                       # purely reactive
     "finance": [
@@ -91,17 +113,36 @@ DEFAULT_DOMAIN_CASCADES: dict[str, list[str]] = {
     ],
     # Synthetic
     "ai_progress": [
-        "hf_daily_papers", "arxiv", "crossref", "openalex",
-        "brave_search", "wikidata", "wikipedia",
+        # hf_daily_papers head: AI Daily-Paper feed is the specialised source.
+        # openalex moved ahead of arxiv (broader coverage, fresher metadata).
+        # v0.46 paper-artifact layer: openreview (peer review + decision),
+        # hf_hub (released checkpoints/datasets), github (code).
+        "hf_daily_papers", "openalex", "arxiv", "openreview", "crossref",
+        "hf_hub", "github",
+        "brave_search", "tavily", "exa", "hackernews",
+        "wikidata", "wikipedia",
+    ],
+    "agent_systems": [
+        # Agent frameworks / SDKs / harness modules — a real vertical domain
+        # (DOMAIN_SCHEMAS["agent_systems"]).  Before v0.46 this key was
+        # MISSING here, so every agent_systems retrieval silently fell
+        # through to "default" and used the wrong sources.  Cascade:
+        # papers (openalex/arxiv) + code (github) + dev-grade discussion
+        # (hackernews) + entity/news tail.
+        "openalex", "arxiv", "github", "hackernews",
+        "brave_search", "tavily", "gdelt",
+        "wikidata", "wikipedia",
     ],
     "default": [
-        "wikidata", "wikipedia", "brave_search", "crossref", "openalex",
-        "gdelt", "internet_archive",
+        # Entity / concept queries lead with wikidata + wikipedia; openalex
+        # promoted above crossref for academic fallback.
+        "wikidata", "wikipedia", "brave_search", "tavily",
+        "openalex", "crossref", "gdelt", "internet_archive",
     ],
     # Tier-2 social-media domains (paid/broker/pinned-fork) — opt-in via
     # `--domain` rather than appearing in `default`, so casual queries
     # don't burn budget or hit Chinese platforms unintentionally.
-    "social_en":             ["x_twitter", "gdelt"],
+    "social_en":             ["bluesky", "mastodon", "hackernews", "x_twitter", "gdelt"],  # reddit dropped (data-access approval-gated)
     "social_zh":             ["xiaohongshu", "wechat_mp", "weibo", "bilibili"],
     # v0.19 new domain cascades — v0.20 fills in Bilibili (real, tier 0) +
     # Zhihu / Weibo (broker stubs, tier 2).  v0.22 adds Tushare / Crunchbase
@@ -124,9 +165,11 @@ DEFAULT_DOMAIN_CASCADES: dict[str, list[str]] = {
         "weibo", "brave_search", "gdelt", "zhihu", "wikidata", "wikipedia",
     ],
     "enterprise": [
-        "crunchbase",                                 # v0.22 head (paid key, ts2)
-        "edgar", "linkedin",                          # v0.22 (broker, ts2)
-        "crossref", "brave_search", "zhihu", "wikidata", "wikipedia",
+        # v0.48: crunchbase (sales-gated, no self-serve), opencorporates
+        # (£2250/yr or 200/mo anon only), and linkedin (no public API)
+        # dropped — none obtainable for a single user.  Free substitutes:
+        # EDGAR (US filings) + Crossref + web + Zhihu + Wikidata.
+        "edgar", "crossref", "brave_search", "zhihu", "wikidata", "wikipedia",
     ],
 }
 
@@ -192,9 +235,11 @@ class Cascade:
         per_source_limit: int = 5,
         total_limit: int = 20,
         sources: list[str] | None = None,
-        fusion: FusionMode = "concat",
+        fusion: FusionMode = "rrf",
         timeout: float = 15.0,
         grader: Grader | None = None,
+        quality_fn: Callable[[str], float] | None = None,
+        quality_weight: float = 0.0,
     ) -> CascadeResult:
         """Run the cascade for ``domain`` (or an explicit ``sources`` list).
 
@@ -235,15 +280,16 @@ class Cascade:
         # Cache hits short-circuit the source call entirely; only sources
         # without a fresh cache entry are dispatched to the pool.
         deferred: list[tuple[str, RetrievalSource]] = []
-        cache_hits = 0
+        cache_hit_names: set[str] = set()
         for name, adapter in runnable:
             cached = self.cache.get(name, query, domain) if self.cache else None
             if cached is not None:
                 per_source_records[name] = cached
                 result.sources_succeeded.append(name)
-                cache_hits += 1
+                cache_hit_names.add(name)
             else:
                 deferred.append((name, adapter))
+        cache_hits = len(cache_hit_names)
         if cache_hits:
             result.errors.append({
                 "source": "_cache",
@@ -330,12 +376,49 @@ class Cascade:
                 kept.append(rec)
             fused = kept
 
+        # v0.47 measured-quality rerank (opt-in) — the "降级不一定差" switch.
+        # quality_weight=0.0 (default) -> identity: RRF order is preserved, so
+        # existing behaviour and tests are unchanged.  When >0, blend each
+        # record's min-max-normalized RRF relevance with its SOURCE's measured
+        # quality (SourceQualityStore.quality_score) so a measured-good
+        # "fallback" can outrank a high-priority-but-stale "primary".  Unseen
+        # sources (quality 0) stay neutral (their own RRF position) to avoid a
+        # cold-start penalty.  Follows "measure first, then switch".
+        if quality_weight > 0.0 and quality_fn is not None and len(fused) > 1:
+            _scores = [r.score for r in fused]
+            _lo, _hi = min(_scores), max(_scores)
+            _span = (_hi - _lo) or 1.0
+            _w = min(max(quality_weight, 0.0), 1.0)
+
+            def _blended(rec: RetrievalRecord) -> float:
+                rrf_norm = (rec.score - _lo) / _span
+                q = quality_fn(rec.source)
+                qv = q if q > 0.0 else rrf_norm  # unseen -> neutral
+                return (1.0 - _w) * rrf_norm + _w * qv
+
+            fused = sorted(fused, key=_blended, reverse=True)
+
         if len(fused) > total_limit:
             fused = fused[:total_limit]
         result.records = fused
         # Stable id for citation rendering (R1, R2, …)
         for idx, rec in enumerate(result.records, start=1):
             rec.cite_id = f"R{idx}"
+        # v0.46 provenance: stamp HOW each surviving record was served, its
+        # cost/access tier, and its cascade rank.  These are DESCRIPTIVE
+        # (where did this come from) and kept deliberately separate from
+        # MEASURED quality (source_quality.SourceQualityStore) — a high-rank
+        # "primary" source is not assumed best, a fallback is not assumed
+        # worse.  served_via defaults to "live" unless a connector set it
+        # (e.g. a future hedge path); cache hits are marked "cache".
+        plan_rank = {name: i for i, name in enumerate(result.sources_tried)}
+        for rec in result.records:
+            rec.metadata.setdefault(
+                "served_via",
+                SERVED_VIA_CACHE if rec.source in cache_hit_names else SERVED_VIA_LIVE,
+            )
+            rec.metadata["source_tier"] = source_tier(rec.source)
+            rec.metadata["cascade_rank"] = plan_rank.get(rec.source, -1)
         return result
 
     # ------------------------------------------------------------------

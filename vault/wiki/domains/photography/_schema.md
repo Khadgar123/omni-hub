@@ -1,7 +1,7 @@
 ---
 omni_type: domain_schema
 domain: photography
-schema_version: v0.13
+schema_version: v0.21
 stale_after_days: 365
 ---
 

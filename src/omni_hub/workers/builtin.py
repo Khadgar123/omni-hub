@@ -20,7 +20,9 @@ import time
 from pathlib import Path
 from typing import Any
 
+from ..audit import AuditLogger
 from ..models import OperationSpec, OperationStatus, RiskLevel
+from ..operation_receipts import OperationReceiptStore, WORKER_CONTEXT_KEY
 from ..runner import OperationRunner
 from ..queue import Task
 from .base import Artifact, TEXT, WorkerError, new_artifact_id
@@ -50,13 +52,32 @@ class BuiltinAdapter:
             )
 
         payload: dict[str, Any] = dict(packet.get("payload", {}))
+        if WORKER_CONTEXT_KEY in payload:
+            raise WorkerError(
+                f"task {task.id}: payload contains reserved worker execution context"
+            )
+        if task.claimed_by is not None and task.claimed_by != self.worker_id:
+            raise WorkerError(
+                f"task {task.id}: claimed worker does not match adapter worker"
+            )
+        payload[WORKER_CONTEXT_KEY] = {
+            "trace_id": task.trace_id,
+            "idempotency_key": task.idempotency_key,
+            "task_id": task.id,
+            "worker_id": self.worker_id,
+            "lease_epoch": task.lease_epoch,
+            "fencing_suffix": task.fencing_suffix(),
+        }
         risk_value = packet.get("risk_level", RiskLevel.LOCAL_WRITE.code)
+        operation_idempotency_key = task.idempotency_key or None
         spec = OperationSpec(
             name=str(operation),
             action=str(packet.get("action", "run")),
             connector=str(packet.get("connector", "local")),
             payload=payload,
             risk_level=RiskLevel.parse(risk_value),
+            idempotency_key=operation_idempotency_key,
+            trace_id=task.trace_id,
         )
 
         start = time.time()
@@ -97,5 +118,12 @@ def make_builtin_adapter(
 
     from ..builtins import build_default_registry
 
-    runner = OperationRunner(build_default_registry(workspace))
+    workspace_path = Path(workspace).resolve()
+    runner = OperationRunner(
+        build_default_registry(workspace_path),
+        audit=AuditLogger(workspace_path / ".omni" / "audit" / "events.jsonl"),
+        receipts=OperationReceiptStore(
+            workspace_path / ".omni" / "operation-receipts.sqlite3"
+        ),
+    )
     return BuiltinAdapter(runner, worker_id=worker_id)

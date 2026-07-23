@@ -213,10 +213,17 @@ class V022CascadeTests(unittest.TestCase):
     def test_finance_includes_tushare(self) -> None:
         self.assertIn("tushare", DEFAULT_DOMAIN_CASCADES["finance"])
 
-    def test_enterprise_includes_crunchbase_and_linkedin(self) -> None:
+    def test_enterprise_uses_free_company_sources(self) -> None:
+        # v0.48: crunchbase (sales-gated), opencorporates (paid/£2250yr) and
+        # linkedin (no public API) dropped — none obtainable for a single user.
+        # Enterprise now leans on free substitutes.
         casc = DEFAULT_DOMAIN_CASCADES["enterprise"]
-        self.assertIn("crunchbase", casc)
-        self.assertIn("linkedin", casc)
+        self.assertIn("edgar", casc)
+        self.assertIn("crossref", casc)
+        self.assertIn("wikidata", casc)
+        self.assertNotIn("crunchbase", casc)
+        self.assertNotIn("linkedin", casc)
+        self.assertNotIn("opencorporates", casc)
 
 
 # ---------------------------------------------------------------------------
@@ -304,11 +311,15 @@ class HeuristicJudgeTests(unittest.TestCase):
 
 class LLMJudgeTests(unittest.TestCase):
     def test_fallback_when_no_ccload_and_no_sdk(self) -> None:
-        # Clear env so neither path is available.
-        keys = ("OMNI_CCLOAD_BASE", "ANTHROPIC_API_KEY")
+        # Clear env so neither path is available.  v0.42+ also includes
+        # DeepSeek as a third LLM channel — pass empty deepseek_api_key
+        # explicitly so the test still exercises the fallback path.
+        keys = ("OMNI_CCLOAD_BASE", "ANTHROPIC_API_KEY", "DEEPSEEK_API_KEY")
         original = {k: os.environ.pop(k, None) for k in keys}
         try:
-            judge = LLMJudge(ccload_base="", anthropic_api_key="")
+            judge = LLMJudge(
+                ccload_base="", anthropic_api_key="", deepseek_api_key="",
+            )
             self.assertFalse(judge.available())
             verdict = judge.evaluate(JudgeRequest(
                 domain="research", candidate="hello [1]",

@@ -92,6 +92,7 @@ class NarrativeRequest:
             ),
             "audience": self.target_audience,
             "notes": self.additional_notes,
+            "trace_id": self.trace_id,
             "context": {
                 "report_markdown": self.markdown_summary,
                 "period": self.period,

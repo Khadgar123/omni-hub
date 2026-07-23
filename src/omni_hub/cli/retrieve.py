@@ -27,9 +27,12 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     retrieve.add_argument(
         "--domain", default="default",
         help=(
-            "Domain profile (engineering | research | photography | fashion | "
-            "chat_relationships | finance | policy | international_relations | "
-            "ai_progress | default)"
+            "Domain profile (source of truth: domain_schemas.DOMAIN_SCHEMAS). "
+            "One of the 19 domains — research | engineering | photography | "
+            "fashion | chat_relationships | finance | us_policy | cn_policy | "
+            "international_relations | ai_progress | agent_systems | social_en | "
+            "social_zh | meta | fitness_wellness | cooking | travel | marketing | "
+            "enterprise — or 'default'"
         ),
     )
     retrieve.add_argument(
@@ -39,10 +42,19 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     retrieve.add_argument("--per-source-limit", type=int, default=5)
     retrieve.add_argument("--total-limit", type=int, default=20)
     retrieve.add_argument(
-        "--fusion", choices=["concat", "rrf"], default="concat",
+        "--fusion", choices=["concat", "rrf"], default="rrf",
         help=(
-            "Cross-source ranking. ``rrf`` = Reciprocal Rank Fusion; "
-            "``concat`` = cascade-order (legacy default)."
+            "Cross-source ranking. ``rrf`` = Reciprocal Rank Fusion (default, "
+            "matches the retrieve op); ``concat`` = cascade-order (opt-in legacy)."
+        ),
+    )
+    retrieve.add_argument(
+        "--quality-weight", type=float, default=0.0,
+        help=(
+            "Blend learned source-quality (SourceQualityStore: success-rate x "
+            "freshness) into fusion ranking, 0..1. Default 0.0 = pure "
+            "priority/RRF. Decouples measured quality from cascade priority — a "
+            "fallback/degraded source is not assumed worse."
         ),
     )
     retrieve.add_argument(
@@ -69,12 +81,25 @@ def register(subparsers: argparse._SubParsersAction) -> None:
              "linking evidence to a queue task.",
     )
     retrieve.add_argument(
-        "--reranker", choices=["none", "cohere", "voyage"], default="none",
+        "--reranker", choices=["none", "cohere", "voyage", "bge"], default="none",
         help=(
             "Optional cross-encoder rerank tail applied after fusion + grader. "
-            "Voyage rerank-2.5 (VOYAGE_API_KEY) is Anthropic's 2026 recommendation; "
-            "Cohere Rerank 4 (COHERE_API_KEY) the previous default."
+            "bge=local BAAI/bge-reranker-v2-m3 (no API key, requires `pip install "
+            "FlagEmbedding torch`); voyage=rerank-2.5 (VOYAGE_API_KEY); "
+            "cohere=Rerank 4 (COHERE_API_KEY)."
         ),
+    )
+    retrieve.add_argument(
+        "--synthesize", action="store_true",
+        help=(
+            "After fusion + rerank, synthesize the top records into one "
+            "cited answer via the LLM (ccLoad → DeepSeek → concat fallback). "
+            "Turns a record dump into an actual answer."
+        ),
+    )
+    retrieve.add_argument(
+        "--synthesize-max-records", type=int, default=8,
+        help="How many top records to feed the synthesizer (default 8).",
     )
 
     fetch = subparsers.add_parser(
@@ -108,6 +133,7 @@ def _retrieve(args, *, runner, workspace) -> int:
         "per_source_limit": args.per_source_limit,
         "total_limit": args.total_limit,
         "fusion": args.fusion,
+        "quality_weight": float(args.quality_weight),
         "use_cache": bool(args.cache),
         "persist_evidence": bool(args.persist_evidence),
     }
@@ -117,6 +143,9 @@ def _retrieve(args, *, runner, workspace) -> int:
         payload["grader"] = args.grader
     if args.reranker and args.reranker != "none":
         payload["reranker"] = args.reranker
+    if getattr(args, "synthesize", False):
+        payload["synthesize"] = True
+        payload["synthesize_max_records"] = int(args.synthesize_max_records)
     if args.run_id:
         payload["run_id"] = args.run_id
     return run_and_print(

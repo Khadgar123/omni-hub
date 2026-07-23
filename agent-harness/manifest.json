@@ -59,6 +59,16 @@
   ],
   "pending_forks": [
     {
+      "id": "quant",
+      "path": "agent-harness/quant",
+      "upstream": "(local-first; promote to a personal fork when externalized)",
+      "branch": "main",
+      "role": "market-data store (Hive-partitioned Parquet + DuckDB), reproducible API ingest + compaction, PIT-correct backtest bars, regime/levels, and a live broker — exposed to the stdlib core ONLY via the frozen SCHEMA.md CLI/JSON seam (never imported)",
+      "decision": "fork-pending-personal-clone",
+      "promotion_reason": "Tier-0 market_store + SCHEMA.md (SCHEMA_VERSION=1) complete; reproducible ingest.py + compact.py added. Ready to pin as a submodule once externalized.",
+      "next_step": "Externalize agent-harness/quant to a personal clone, then run scripts/add_pending_harness_forks.sh quant"
+    },
+    {
       "id": "dspy",
       "path": "agent-harness/dspy",
       "upstream": "https://github.com/stanfordnlp/dspy.git",
@@ -99,24 +109,14 @@
       "next_step": "cd agent-harness && git submodule add https://github.com/adbar/trafilatura.git forks/trafilatura; then pipx install ./forks/trafilatura"
     },
     {
-      "id": "xiaohongshu-cli",
-      "path": "agent-harness/forks/xiaohongshu-cli",
-      "upstream": "https://github.com/jackwener/xiaohongshu-cli.git",
+      "id": "mediacrawler",
+      "path": "agent-harness/forks/mediacrawler",
+      "upstream": "https://github.com/NanmiCoder/MediaCrawler.git",
       "branch": "main",
-      "role": "Xiaohongshu (RED) CLI via camoufox anti-fingerprint Firefox + paste-cookie auth; signing isolated to upstream xhshow library so XHS server rotations only require xhshow patch — omni-hub stays signing-free",
-      "decision": "upstream-direct",
-      "promotion_reason": "v0.10 SOTA reversal of prior XHS rejection: 2k stars, 2026-03-21 active, signing factored out to Cloxl/xhshow upstream lib — Tier B PIN (not Tier C reject). Wrap via stdlib subprocess; absolutely no reverse signing code in main repo.",
-      "next_step": "cd agent-harness && git submodule add https://github.com/jackwener/xiaohongshu-cli.git forks/xiaohongshu-cli; pipx install ./forks/xiaohongshu-cli; then `xhs login` to paste-cookie auth"
-    },
-    {
-      "id": "xhshow",
-      "path": "agent-harness/forks/xhshow",
-      "upstream": "https://github.com/Cloxl/xhshow.git",
-      "branch": "main",
-      "role": "isolated Xiaohongshu x-s / x-s-common / xsc signing library; transitive dep of xiaohongshu-cli pinned separately so signing patches land in one place when XHS rotates",
-      "decision": "upstream-direct",
-      "promotion_reason": "Pinned alongside xiaohongshu-cli per dev.to 2026 writeup recommendation: keep signing in dedicated upstream so blast radius of XHS server changes is days-not-weeks.",
-      "next_step": "Installed as a transitive dependency of xiaohongshu-cli; no manual action unless XHS rotates and the cli upstream lags."
+      "role": "Unified self-hosted CN-social SNAPSHOT broker (Xiaohongshu / 抖音 / B站 / 微博 / 快手 / 知乎 / 贴吧). Playwright+CDP reuses a logged-in browser context for signing, so there is NO separate xhshow signing fork to maintain. The operator runs it periodically with a BURNER account; omni-hub only READS the JSON it writes to the snapshot dir (snapshot mode, NOT cascade hot path).",
+      "decision": "fork-pending-personal-clone",
+      "promotion_reason": "2026-05-30 review: replaces jackwener/xiaohongshu-cli + Cloxl/xhshow. MediaCrawler (~50k stars, active, 7 CN platforms) consolidates ALL CN-social behind one self-hosted broker and folds signing into browser-login-state, removing the two-fork maintenance and unifying xhs/zhihu/weibo/bilibili. HARD RULES: burner account ONLY (XHS is litigating scrapers + 2026-Q1 strict risk control — never a real/business account); low-volume snapshot; residential IP if scaling; never commercialize or redistribute scraped data.",
+      "next_step": "cd agent-harness && git submodule add https://github.com/NanmiCoder/MediaCrawler.git forks/mediacrawler; create a BURNER XHS account; `python main.py --platform xhs --lt qrcode --type search --keywords \"<kw>\" --save_data_option json`; point omni-hub at the output via MEDIACRAWLER_DATA env (default agent-harness/forks/mediacrawler/data). Apify RedNote actor is the managed (risk-offloaded) alternative if you prefer not to self-host."
     },
     {
       "id": "we-mp-rss",
@@ -231,6 +231,14 @@
       "id": "vogue-runway-scraper",
       "to": "upstream-direct",
       "reason": "v0.10: only viable open-source fashion runway data path. Pinned for snapshot mode (not cascade hot path) — Selenium too brittle for live retrieve."
+    },
+    {
+      "date": "2026-05-30",
+      "action": "replace",
+      "id": "mediacrawler",
+      "from": "xiaohongshu-cli + xhshow",
+      "to": "fork-pending-personal-clone",
+      "reason": "MediaCrawler (NanmiCoder, ~50k stars, 7 CN platforms) replaces jackwener/xiaohongshu-cli + Cloxl/xhshow: one self-hosted SNAPSHOT broker for all CN-social, signing folded into browser login-state (no xhshow fork to chase rotations). omni-hub xhs connector now reads MediaCrawler JSON snapshots (legacy xhs-CLI kept as fallback). HARD: burner account, low-volume snapshot, never commercialize — XHS is litigating scrapers (蝉妈妈/艺恩星数) and 2026-Q1 risk control is strict."
     }
   ]
 }

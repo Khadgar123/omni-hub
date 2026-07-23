@@ -75,7 +75,7 @@ class ForwardedPaperE2ETests(unittest.TestCase):
                 f.write(json.dumps({
                     "title": "ACE: Evolving Context as a Wiki",
                     "url": "https://arxiv.org/abs/2510.04618",
-                    "snippet": "ACE evolves context across sessions...",
+                    "snippet": "ACE evolves a persistent context document that the agent reads and edits across sessions.",
                     "canonical_id": "arxiv:2510.04618",
                     "source": "arxiv",
                     "score": 1.0,

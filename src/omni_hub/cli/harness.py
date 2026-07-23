@@ -133,6 +133,27 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     compile_skill.add_argument("--from-version", default="v0")
     compile_skill.add_argument("--max-positive", type=int, default=10)
     compile_skill.add_argument("--max-negative", type=int, default=4)
+
+    # GEPA auto-relay (human-gated): compile into staging -> Proposal(skill_update)
+    propose_skill = subparsers.add_parser(
+        "harness-propose-skill",
+        help=(
+            "GEPA auto-relay: compile a SKILL.md into staging and emit it as a "
+            "Proposal(skill_update). The live skill is untouched until approved "
+            "+ applied (HR#13: no auto-promotion)."
+        ),
+    )
+    propose_skill.add_argument("--domain", required=True)
+    propose_skill.add_argument("--skill-id", default="")
+    propose_skill.add_argument("--max-positive", type=int, default=10)
+    propose_skill.add_argument("--max-negative", type=int, default=4)
+    propose_skill.add_argument("--backend", default="manual", choices=["manual", "dspy"])
+
+    apply_skill = subparsers.add_parser(
+        "harness-apply-skill-update",
+        help="Write the live SKILL.md from an APPROVED skill_update proposal.",
+    )
+    apply_skill.add_argument("--proposal-id", required=True)
     compile_skill.add_argument(
         "--backend", default="manual", choices=["auto", "dspy", "manual"],
         help="Underlying prompt compile backend (default: manual)",
@@ -412,6 +433,37 @@ def _compile_skill(args, *, runner, workspace) -> int:
     )
 
 
+def _propose_skill(args, *, runner, workspace) -> int:
+    return run_and_print(
+        runner,
+        OperationSpec(
+            name="harness_propose_skill",
+            action="propose",
+            payload={
+                "domain": args.domain,
+                "skill_id": args.skill_id,
+                "max_positive": args.max_positive,
+                "max_negative": args.max_negative,
+                "backend": args.backend,
+            },
+            # staging compile + Proposal emit only; nothing live is written
+            risk_level=RiskLevel.LOCAL_WRITE,
+        ),
+    )
+
+
+def _apply_skill_update(args, *, runner, workspace) -> int:
+    return run_and_print(
+        runner,
+        OperationSpec(
+            name="harness_apply_skill_update",
+            action="apply",
+            payload={"proposal_id": args.proposal_id},
+            risk_level=RiskLevel.LOCAL_WRITE,
+        ),
+    )
+
+
 def _compile(args, *, runner, workspace) -> int:
     return run_and_print(
         runner,
@@ -518,6 +570,8 @@ COMMANDS = {
     "harness-preference-stats": _preference_stats,
     "harness-compile": _compile,
     "harness-compile-skill": _compile_skill,
+    "harness-propose-skill": _propose_skill,
+    "harness-apply-skill-update": _apply_skill_update,
     "harness-redundancy-scan": _redundancy_scan,
     "harness-domain-list": _domain_list,
     "harness-domain-get": _domain_get,

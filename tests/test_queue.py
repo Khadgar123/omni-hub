@@ -19,6 +19,7 @@ from omni_hub.queue import (
     DEAD,
     DONE,
     LeaseLost,
+    IdempotencyKeyCollision,
     PENDING,
     TaskQueue,
     _now_ms,
@@ -37,14 +38,50 @@ class TaskQueueTests(unittest.TestCase):
             self.assertEqual(task.attempts, 0)
             self.assertTrue(task.idempotency_key)
 
-    def test_idempotency_key_collision_returns_existing(self) -> None:
+    def test_idempotency_key_same_canonical_packet_returns_existing(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             q = TaskQueue(tmp)
-            a = q.enqueue(lane="python", packet={"v": 1}, idempotency_key="dup")
-            b = q.enqueue(lane="python", packet={"v": 2}, idempotency_key="dup")
+            a = q.enqueue(
+                lane="python", packet={"a": 1, "b": 2}, idempotency_key="dup"
+            )
+            b = q.enqueue(
+                lane="python", packet={"b": 2, "a": 1}, idempotency_key="dup"
+            )
             self.assertEqual(a.id, b.id)
-            # second enqueue must not overwrite payload
-            self.assertEqual(b.packet, {"v": 1})
+            self.assertEqual(b.packet, {"a": 1, "b": 2})
+
+    def test_idempotency_key_different_packet_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            q = TaskQueue(tmp)
+            q.enqueue(lane="python", packet={"v": 1}, idempotency_key="dup")
+            with self.assertRaises(IdempotencyKeyCollision):
+                q.enqueue(lane="python", packet={"v": 2}, idempotency_key="dup")
+
+    def test_nested_non_string_packet_key_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            q = TaskQueue(tmp)
+            with self.assertRaisesRegex(ValueError, "keys must be strings"):
+                q.enqueue(
+                    lane="python",
+                    packet={"nested": {1: "collides-with-string-one"}},
+                    idempotency_key="nested-key",
+                )
+
+    def test_trace_id_round_trips_enqueue_claim_to_dict(self) -> None:
+        # HR #4: every write carries a trace_id. It must survive
+        # enqueue -> persist -> claim -> to_dict so the omni-hub ->
+        # ccLoad -> upstream hop can be correlated.
+        with tempfile.TemporaryDirectory() as tmp:
+            q = TaskQueue(tmp)
+            task = q.enqueue(lane="python", packet={}, trace_id="trace-abc-123")
+            self.assertEqual(task.trace_id, "trace-abc-123")
+            self.assertEqual(task.to_dict()["trace_id"], "trace-abc-123")
+            claimed = q.claim(lane="python", claimed_by="w1")
+            assert claimed is not None
+            self.assertEqual(claimed.trace_id, "trace-abc-123")
+            # default stays empty (back-compat for unfenced/legacy callers)
+            t2 = q.enqueue(lane="python", packet={})
+            self.assertEqual(t2.trace_id, "")
 
     def test_claim_transitions_state_and_increments_attempts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -101,7 +138,7 @@ class TaskQueueTests(unittest.TestCase):
             # 1-second visibility timeout should make the task reclaimable.
             with q._connect() as conn:
                 conn.execute(
-                    "UPDATE tasks SET claimed_at = ? WHERE id = ?",
+                    "UPDATE tasks SET claimed_at = ?, lease_deadline = NULL WHERE id = ?",
                     (_now_ms() - 3_600_000, first.id),
                 )
                 conn.commit()
@@ -111,6 +148,28 @@ class TaskQueueTests(unittest.TestCase):
             assert reclaimed is not None
             self.assertEqual(reclaimed.id, first.id)
             self.assertEqual(reclaimed.attempts, 2)
+
+    def test_nonexpired_deadline_prevents_claimed_at_early_reclaim(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            q = TaskQueue(tmp)
+            q.enqueue(lane="python", packet={})
+            first = q.claim(
+                lane="python", claimed_by="w1", visibility_timeout_sec=60
+            )
+            assert first is not None
+            with q._connect() as conn:
+                conn.execute(
+                    "UPDATE tasks SET claimed_at = ? WHERE id = ?",
+                    (_now_ms() - 3_600_000, first.id),
+                )
+                conn.commit()
+            self.assertIsNone(
+                q.claim(
+                    lane="python",
+                    claimed_by="w2",
+                    visibility_timeout_sec=1,
+                )
+            )
 
     def test_complete_marks_done(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -170,8 +229,8 @@ class LeaseEpochFencingTests(unittest.TestCase):
             # Force-rewind so w2 can reclaim with a short visibility timeout.
             with q._connect() as conn:
                 conn.execute(
-                    "UPDATE tasks SET claimed_at = ? WHERE id = ?",
-                    (_now_ms() - 3_600_000, first.id),
+                    "UPDATE tasks SET claimed_at = ?, lease_deadline = ? WHERE id = ?",
+                    (_now_ms() - 3_600_000, _now_ms() - 1, first.id),
                 )
                 conn.commit()
 
@@ -195,8 +254,8 @@ class LeaseEpochFencingTests(unittest.TestCase):
             # Steal via expired visibility.
             with q._connect() as conn:
                 conn.execute(
-                    "UPDATE tasks SET claimed_at = ? WHERE id = ?",
-                    (_now_ms() - 3_600_000, w1.id),
+                    "UPDATE tasks SET claimed_at = ?, lease_deadline = ? WHERE id = ?",
+                    (_now_ms() - 3_600_000, _now_ms() - 1, w1.id),
                 )
                 conn.commit()
             w2 = q.claim(lane="claude", claimed_by="w1", visibility_timeout_sec=1)
@@ -293,8 +352,8 @@ class LeaseFencingTests(unittest.TestCase):
             # Force-rewind claimed_at so w2 can reclaim with a 1s timeout.
             with q._connect() as conn:
                 conn.execute(
-                    "UPDATE tasks SET claimed_at = ? WHERE id = ?",
-                    (_now_ms() - 3_600_000, w1.id),
+                    "UPDATE tasks SET claimed_at = ?, lease_deadline = ? WHERE id = ?",
+                    (_now_ms() - 3_600_000, _now_ms() - 1, w1.id),
                 )
                 conn.commit()
 
@@ -322,8 +381,8 @@ class LeaseFencingTests(unittest.TestCase):
             assert w1 is not None
             with q._connect() as conn:
                 conn.execute(
-                    "UPDATE tasks SET claimed_at = ? WHERE id = ?",
-                    (_now_ms() - 3_600_000, w1.id),
+                    "UPDATE tasks SET claimed_at = ?, lease_deadline = ? WHERE id = ?",
+                    (_now_ms() - 3_600_000, _now_ms() - 1, w1.id),
                 )
                 conn.commit()
             q.claim(lane="claude", claimed_by="w2", visibility_timeout_sec=1)
@@ -389,7 +448,9 @@ class TaskCliTests(unittest.TestCase):
                 "task-enqueue", "--lane", "claude",
                 "--packet-json", '{"goal":"b"}', "--idempotency-key", "k1",
             ])
-            self.assertEqual(a["output"]["id"], b["output"]["id"])
+            self.assertEqual(a["status"], "succeeded")
+            self.assertEqual(b["status"], "failed")
+            self.assertIn("idempotency key collision", b["error"])
 
     def test_claim_empty_lane_returns_null(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

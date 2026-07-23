@@ -459,11 +459,15 @@ def reindex_wiki(workspace: Path | str = ".") -> dict[str, int]:
 
 
 def _is_closed_page(frontmatter: dict[str, object], *, now: datetime) -> bool:
-    """Page is "closed" when review_state ∈ rejected/superseded OR
-    t_valid_to is in the past."""
+    """Page is "closed" (skipped by default search / context-pack) when
+    review_state ∈ rejected/superseded/proposed OR t_valid_to is in the past.
+
+    P0.2: ``proposed`` is closed-by-default so an un-applied draft never leaks
+    into downstream consumption.  ``apply_wiki_proposal`` rewrites an applied
+    page to ``approved``, so correctly-landed pages stay visible."""
 
     state = str(frontmatter.get("review_state", "")).strip().lower()
-    if state in {"rejected", "superseded"}:
+    if state in {"rejected", "superseded", "proposed"}:
         return True
     t_valid_to = frontmatter.get("t_valid_to")
     if t_valid_to is None:
@@ -708,6 +712,12 @@ def preview_supersede_claim(
     return diff
 
 
+def _set_frontmatter_review_state(body: str, state: str) -> str:
+    """Set the YAML frontmatter ``review_state`` to ``state`` (first match)."""
+
+    return re.sub(r"(?m)^review_state:.*$", f"review_state: {state}", body, count=1)
+
+
 def apply_wiki_proposal(
     workspace: Path | str = ".",
     proposal_id: str = "",
@@ -731,25 +741,69 @@ def apply_wiki_proposal(
         raise PermissionError("wiki update target must stay inside vault/wiki") from exc
 
     target.parent.mkdir(parents=True, exist_ok=True)
-    body = str(proposal.payload["body"])
-    target.write_text(body.rstrip() + "\n", encoding="utf-8")
-    append_log(workspace_root, op="apply", summary=proposal.title, source=proposal.source_path)
-    _upsert_index_entry(workspace_root, target.relative_to(workspace_root), proposal.title, proposal.summary)
+
+    # WS1 (claims single-source): land claims FIRST — stamped with this page's
+    # target_path — then render synthesis pages AS A PROJECTION of those
+    # claims rather than trusting the proposal's frozen body.  This kills the
+    # drift between a hand-edited page and the claim ledger: a synthesis page
+    # can be rebuilt from claims at any time (`wiki-render`).  concept /
+    # entity / method pages keep their human-authored exposition body.
+    rel_target = str(target.relative_to(workspace_root))
     claims_written = _append_claims(
         workspace_root,
         list(proposal.payload.get("claims", [])),
         proposal_id=proposal.proposal_id,
-        target_path=str(target.relative_to(workspace_root)),
+        target_path=rel_target,
     )
+
+    from . import wiki_projection as _wp
+
+    page_type = str(proposal.payload.get("page_type", ""))
+    is_synthesis = _wp.is_synthesis_target(rel_target, page_type)
+    active_claims = _wp.active_claims_for_page(workspace_root, rel_target) if is_synthesis else []
+    if is_synthesis and active_claims:
+        # Project the page from its claims (the single source of truth).
+        _wp.record_page_meta(
+            workspace_root,
+            rel_target,
+            page_type="synthesis",
+            domain=str(proposal.payload.get("domain", "")),
+            title=str(proposal.payload.get("title", "")),
+            query=str(proposal.payload.get("query", "")),
+        )
+        body = _wp.render_synthesis_from_claims(
+            workspace_root,
+            rel_target,
+            page_meta={
+                "page_type": "synthesis",
+                "domain": str(proposal.payload.get("domain", "")),
+                "title": str(proposal.payload.get("title", "")),
+                "query": str(proposal.payload.get("query", "")),
+            },
+        )
+    else:
+        # No claims to project (degenerate synthesis) OR an authored
+        # concept/entity/method page — keep the proposal's body.  P0.2: an
+        # applied page is APPROVED by definition, so flip review_state.
+        body = _set_frontmatter_review_state(str(proposal.payload["body"]), "approved")
+
+    target.write_text(body.rstrip() + "\n", encoding="utf-8")
+    append_log(workspace_root, op="apply", summary=proposal.title, source=proposal.source_path)
+    _upsert_index_entry(workspace_root, target.relative_to(workspace_root), proposal.title, proposal.summary)
 
     # Feed the DSPy/GEPA flywheel without depending on Argilla: an approved
     # wiki_update is by definition a positive demonstration of the
     # synthesis-page schema, so record it as an accepted PreferenceRecord.
+    # WS1: record the *authored* proposal body as the demonstration, not the
+    # machine projection — the human-meaningful synthesis is the training
+    # signal; the projection is reproducible from claims and would be a poor
+    # exemplar.  Falls back to the written body when no authored body exists.
     # Failures here are non-fatal — the apply step already succeeded.
+    authored_body = str(proposal.payload.get("body", "")) or body
     preference_path = ""
     try:
         preference_path = _record_wiki_preference(
-            workspace_root, proposal=proposal, body=body, claims_written=claims_written,
+            workspace_root, proposal=proposal, body=authored_body, claims_written=claims_written,
         )
     except Exception:                                           # noqa: BLE001
         # Preference flywheel is opportunistic; never block apply.
@@ -871,6 +925,16 @@ def ingest_retrieval_evidence(
             continue
         if len(records) >= max_records:
             break
+
+    # 3b: fold cross-source paper duplicates (arXiv preprint <-> accepted DOI
+    # <-> OpenReview thread) BEFORE evidence + claims, so one paper ingests as
+    # ONE record/claim instead of N.  This is the dedup the operator flagged
+    # (preprint already in repo; accepted version arrives).  Gated to paper
+    # domains -- non-paper records carry no cross-referenced ids, so folding
+    # there is a near-no-op and we keep the blast radius small.
+    if resolved_domain in ("research", "ai_progress", "agent_systems"):
+        from .retrieval.paper_identity import merge_papers
+        records = merge_papers(records)
 
     evidence_files = _write_evidence_files(workspace_root, resolved_domain, run_id, records)
 
@@ -1593,7 +1657,7 @@ def _render_research_wiki_page(
         f"source_id: {source_id}",
         f"source_path: {analysis_path}",
         f"paper_link: {entry.get('paper_link', '')}",
-        "review_state: approved_after_proposal",
+        "review_state: proposed",
         "---",
         "",
         f"# {title}",
@@ -1710,7 +1774,11 @@ def _write_evidence_files(
         # actually saw at fetch time).
         raw_name = f"{idx:03d}__{digest}.md"
         raw_target = raw_run_dir / raw_name
-        raw_body = _render_raw_capture(record, run_id=run_id, idx=idx)
+        raw_hash = _record_raw_hash(record)
+        license_str = _record_license(record)
+        raw_body = _render_raw_capture(
+            record, run_id=run_id, idx=idx, raw_hash=raw_hash, license_=license_str,
+        )
         raw_target.write_text(raw_body, encoding="utf-8")
         raw_path = str(raw_target.relative_to(workspace))
 
@@ -1726,6 +1794,16 @@ def _write_evidence_files(
             "fetched_at": record.get("fetched_at", _utcnow()),
             "score": record.get("score"),
             "raw_path": raw_path,
+            # v0.46 bronze provenance: content fingerprint (tamper-evident +
+            # run-independent dedup key) + best-effort source license.
+            "raw_hash": raw_hash,
+            "license": license_str,
+            # v0.46: persist the connector's API-native metadata.  Previously
+            # dropped here, which is why "the API structure is lost" — the
+            # RetrievalRecord.metadata escape hatch never reached disk.  The
+            # seed-script writer already kept it; this aligns the production
+            # path to the same (single) evidence schema.
+            "metadata": record.get("metadata", {}) or {},
         }
         file_name = f"{run_id}__{idx:03d}__{digest}.json"
         target = domain_dir / file_name
@@ -1737,11 +1815,55 @@ def _write_evidence_files(
     return written
 
 
+def _record_raw_hash(record: dict[str, object]) -> str:
+    """Content fingerprint of what we captured — tamper-evident + a dedup key.
+
+    Hashes the stable fetch-time payload (title/url/snippet/canonical_id +
+    the connector's API-native metadata), independent of run_id/idx so the
+    same artifact fetched twice hashes identically.
+    """
+
+    payload = {
+        "title": record.get("title", ""),
+        "url": record.get("url", ""),
+        "snippet": record.get("snippet", ""),
+        "canonical_id": record.get("canonical_id", ""),
+        "metadata": record.get("metadata", {}) or {},
+    }
+    blob = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+def _record_license(record: dict[str, object]) -> str:
+    """Best-effort source license / usage terms for the bronze artifact.
+
+    Several connectors already surface it (Crossref ``license``, GitHub SPDX
+    ``license``, OpenAlex OA status); capture whatever is present and leave it
+    blank otherwise — honest, never invented.
+    """
+
+    meta = record.get("metadata") or {}
+    lic = (
+        record.get("license")
+        or meta.get("license")
+        or meta.get("spdx_license")
+        or meta.get("oa_status")
+        or ""
+    )
+    if isinstance(lic, dict):
+        lic = lic.get("name") or lic.get("spdx_id") or lic.get("url") or ""
+    if isinstance(lic, (list, tuple)):
+        lic = ", ".join(str(x) for x in lic if x)
+    return str(lic)
+
+
 def _render_raw_capture(
     record: dict[str, object],
     *,
     run_id: str,
     idx: int,
+    raw_hash: str = "",
+    license_: str = "",
 ) -> str:
     """Render a retrieval record as raw-layer markdown.
 
@@ -1762,6 +1884,8 @@ def _render_raw_capture(
         f"cite_id: {record.get('cite_id', '')}",
         f"title: {json.dumps(str(record.get('title', '')), ensure_ascii=False)}",
         f"fetched_at: {record.get('fetched_at', _utcnow())}",
+        f"raw_hash: {raw_hash}",
+        f"license: {json.dumps(license_, ensure_ascii=False)}",
         "---",
         "",
         f"# {record.get('title') or 'Untitled retrieval record'}",
@@ -1769,7 +1893,65 @@ def _render_raw_capture(
         str(record.get("snippet", "")),
         "",
     ]
+    metadata = record.get("metadata") or {}
+    if metadata:
+        # Keep raw genuinely lossless (as the docstring promises): preserve
+        # the connector's full API-native metadata so a later re-parse with
+        # a different evidence pipeline can recover fields the summary layer
+        # dropped.
+        lines.append("<!-- omni:metadata -->")
+        lines.append("```json")
+        lines.append(json.dumps(metadata, ensure_ascii=False, indent=2, sort_keys=True))
+        lines.append("```")
+        lines.append("")
     return "\n".join(lines)
+
+
+# P0.3: a quality gate so the naive "first sentence of a snippet" extraction
+# can't write bare titles / journal names / company names ("Constellations",
+# "Annals of Oncology", "LyondellBasell Industries N.V.") into the claim
+# ledger.  A real claim is a full predication — long enough AND carrying a
+# verb/predicate.  Below the bar the record still lands as *evidence*; it just
+# does not become a *claim* (single-source low-signal → evidence-only).
+_CLAIM_MIN_CHARS = 40
+# Explicit finite verb forms (NOT ``\w*`` stems) so nominalisations like
+# "Optimization" / "improvement" / "reduction" — common in titles — do not
+# masquerade as predicates.  Precision over recall: a real claim whose verb
+# isn't listed simply stays evidence (the conservative, correct failure mode).
+_CLAIM_VERBISH = re.compile(
+    r"\b(is|are|was|were|be|been|being|am|"
+    r"has|have|had|can|could|should|shall|will|would|may|might|must|do|does|did|"
+    r"shows?|showed|improves?|improved|reduces?|reduced|increases?|increased|"
+    r"achieves?|achieved|enables?|enabled|provides?|provided|presents?|presented|"
+    r"introduces?|introduced|outperforms?|outperformed|requires?|required|"
+    r"leads?|led|causes?|caused|finds?|found|suggests?|suggested|allows?|allowed|"
+    r"trains?|trained|proposes?|proposed|demonstrates?|demonstrated|"
+    r"generates?|generated|estimates?|estimated|predicts?|predicted|"
+    r"solves?|solved|optimizes?|optimized|enhances?|enhanced|yields?|yielded|"
+    r"evolves?|evolved|edits?|edited|reads?|adapts?|adapted|extends?|extended|"
+    r"combines?|combined|evaluates?|evaluated|leverages?|leveraged|exploits?|"
+    r"exploited|mitigates?|mitigated|captures?|captured|treats?|treated)\b",
+    re.IGNORECASE,
+)
+# CJK predicate / copula markers (Chinese snippets carry no whitespace verbs).
+_CLAIM_VERBISH_CJK = re.compile(
+    r"(是|为|可以|能够|提出|实现|表明|显示|证明|提升|提高|降低|增加|减少|"
+    r"需要|使用|导致|发现|改善|优化|生成|预测|解决|应用|包含|具有|属于)"
+)
+
+
+def _looks_like_claim(statement: str) -> bool:
+    """True when ``statement`` reads like an assertable claim, not a bare
+    title / venue / entity name."""
+
+    s = statement.strip()
+    # CJK carries far more meaning per character, so a dense Chinese sentence
+    # clears the bar at a lower char count than an English one.
+    cjk = sum(1 for ch in s if "一" <= ch <= "鿿")
+    min_chars = 16 if cjk >= 8 else _CLAIM_MIN_CHARS
+    if len(s) < min_chars:
+        return False
+    return bool(_CLAIM_VERBISH.search(s) or _CLAIM_VERBISH_CJK.search(s))
 
 
 def _claims_from_retrieval_records(
@@ -1778,12 +1960,15 @@ def _claims_from_retrieval_records(
     domain: str,
     query: str,
 ) -> list[dict[str, object]]:
-    """Generate one candidate claim per record.
+    """Generate one candidate claim per record that clears the quality gate.
 
     Conservative: confidence 0.5 (web evidence, single-source),
-    review_state=proposed, bitemporal fields populated.  Lint + human review
-    sharpen these later.
+    review_state=proposed, bitemporal fields populated.  Low-signal fragments
+    are dropped (they remain as evidence).  Lint + human review sharpen the
+    survivors later.
     """
+
+    from .retrieval.source_policy import source_tier as _source_tier
 
     claims: list[dict[str, object]] = []
     seen_statements: set[str] = set()
@@ -1794,8 +1979,13 @@ def _claims_from_retrieval_records(
         statement = _first_sentence(snippet, max_chars=280)
         if not statement or statement.lower() in seen_statements:
             continue
+        # P0.3 quality gate: bare titles / venue / entity fragments stay as
+        # evidence only — they do not become claims.
+        if not _looks_like_claim(statement):
+            continue
         seen_statements.add(statement.lower())
         canonical = str(record.get("canonical_id") or record.get("url") or "")
+        _meta = record.get("metadata") or {}
         claims.append(
             {
                 "claim_id": _stable_id("claim", domain, query, canonical, statement),
@@ -1807,6 +1997,12 @@ def _claims_from_retrieval_records(
                         "cite_id": record.get("cite_id", ""),
                         "url": record.get("url", ""),
                         "source": record.get("source", ""),
+                        # v0.46 provenance carried onto the claim: cost/access
+                        # tier + how the evidence was served.  Lets downstream
+                        # rank/audit a claim by where it came from WITHOUT
+                        # assuming a fallback/degraded source is worse.
+                        "source_tier": _source_tier(str(record.get("source", ""))),
+                        "served_via": _meta.get("served_via", ""),
                     }
                 ],
                 "against": [],

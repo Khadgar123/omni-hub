@@ -24,6 +24,135 @@ from .base import DEFAULT_TIMEOUT_SEC, RetrievalError, RetrievalRecord, http_get
 
 
 _CRUNCHBASE_URL = "https://api.crunchbase.com/api/v4"
+_OPENCORPORATES_URL = "https://api.opencorporates.com/v0.4/companies/search"
+_OPENCORPORATES_SECRET_REF = "local:omni-hub/api/opencorporates/default"
+_CRUNCHBASE_SECRET_REF = "local:omni-hub/api/crunchbase/default"
+
+
+def _resolve_secret(env_var: str, secret_ref: str) -> str:
+    """Env var first, then ``.omni/secrets.json`` — shared by both
+    OpenCorporates and Crunchbase below."""
+
+    env_val = os.environ.get(env_var, "").strip()
+    if env_val:
+        return env_val
+    try:
+        from ..secrets import resolve_secret_ref, SecretStoreError
+    except ImportError:
+        return ""
+    try:
+        return resolve_secret_ref(secret_ref) or ""
+    except SecretStoreError:
+        return ""
+    except Exception:                                            # noqa: BLE001
+        return ""
+
+
+def _resolve_opencorporates_token() -> str:
+    return _resolve_secret("OPENCORPORATES_API_TOKEN", _OPENCORPORATES_SECRET_REF)
+
+
+class OpenCorporatesSource:
+    """OpenCorporates global company registry search.
+
+    Covers ~200M companies across 140+ jurisdictions vs Crunchbase's
+    ~3M startup-skewed dataset.  Strong on registration metadata
+    (jurisdiction, incorporation date, status, officers, address).
+
+    Auth (as of 2024): the anonymous API tier was retired; every search
+    now requires a free API key.  Get one at https://opencorporates.com/api_accounts/new
+    (free tier: 500 req/month, no credit card).  Configure via
+    ``OPENCORPORATES_API_TOKEN`` env or
+    ``.omni/secrets.json::omni-hub/api/opencorporates/default``.
+
+    Limitations vs Crunchbase: no funding round / valuation, no founders
+    or executives, no acquisition news.  Use Crunchbase when you need
+    investment data.
+    """
+
+    name = "opencorporates"
+    tier = 1                                                # free key, monthly quota
+
+    def __init__(
+        self,
+        *,
+        api_token: str | None = None,
+        timeout: int = DEFAULT_TIMEOUT_SEC,
+    ) -> None:
+        self.api_token = (
+            api_token if api_token is not None else _resolve_opencorporates_token()
+        )
+        self.timeout = timeout
+
+    def check(self) -> tuple[str, str]:
+        if self.api_token:
+            return "ok", "api token configured (500/mo free tier)"
+        return "warn", (
+            "OPENCORPORATES_API_TOKEN not set; "
+            "register at opencorporates.com/api_accounts/new"
+        )
+
+    def retrieve(
+        self,
+        query: str,
+        *,
+        limit: int = 5,
+        domain: str = "",
+    ) -> list[RetrievalRecord]:
+        if not query.strip():
+            return []
+        if not self.api_token:
+            raise RetrievalError("OPENCORPORATES_API_TOKEN not set")
+
+        data = http_get_json(
+            _OPENCORPORATES_URL,
+            params={
+                "q": query,
+                "per_page": str(min(max(limit, 1), 30)),
+                "order": "score",
+                "api_token": self.api_token,
+            },
+            headers={"Accept": "application/json"},
+            timeout=self.timeout,
+        )
+        if not isinstance(data, dict):
+            return []
+        results = (data.get("results") or {}).get("companies") or []
+        records: list[RetrievalRecord] = []
+        for entry in results[:limit]:
+            company = (entry or {}).get("company") or {}
+            if not company:
+                continue
+            name = str(company.get("name", ""))
+            jurisdiction = str(company.get("jurisdiction_code", ""))
+            number = str(company.get("company_number", ""))
+            status = str(company.get("current_status", ""))
+            inc = str(company.get("incorporation_date", "") or "")
+            url = str(company.get("opencorporates_url", ""))
+            snippet_bits = [
+                f"jurisdiction={jurisdiction}",
+                f"company_number={number}",
+                f"status={status}",
+            ]
+            if inc:
+                snippet_bits.append(f"incorporated={inc}")
+            records.append(RetrievalRecord(
+                source=self.name,
+                title=name,
+                url=url,
+                snippet=" | ".join(snippet_bits),
+                score=0.0,
+                canonical_id=f"oc:{jurisdiction}:{number}" if (jurisdiction and number) else "",
+                metadata={
+                    "jurisdiction_code": jurisdiction,
+                    "company_number": number,
+                    "status": status,
+                    "incorporation_date": inc,
+                    "company_type": company.get("company_type", ""),
+                    "registered_address": company.get("registered_address_in_full", ""),
+                },
+            ))
+        return records
 
 
 class CrunchbaseSource:
@@ -38,13 +167,17 @@ class CrunchbaseSource:
         api_key: str | None = None,
         timeout: int = DEFAULT_TIMEOUT_SEC,
     ) -> None:
-        self.api_key = api_key or os.environ.get("CRUNCHBASE_API_KEY", "")
+        self.api_key = (
+            api_key
+            if api_key is not None
+            else _resolve_secret("CRUNCHBASE_API_KEY", _CRUNCHBASE_SECRET_REF)
+        )
         self.timeout = timeout
 
     def check(self) -> tuple[str, str]:
         if not self.api_key:
             return "off", "CRUNCHBASE_API_KEY not set"
-        return "ok", "CRUNCHBASE_API_KEY present"
+        return "ok", "Crunchbase key configured (env or secrets.json)"
 
     def retrieve(
         self,

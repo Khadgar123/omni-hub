@@ -1,0 +1,38 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "omni-hub-quant"
+version = "0.1.0"
+description = "Single-user quant market store (DuckDB + Hive-partitioned Parquet). Separate sub-instance — the stdlib-only main repo never imports it."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+# These deps live HERE, never in the main omni-hub repo (which pins
+# dependencies = []).  This sub-instance is opt-in, like agent-harness/researchflow.
+# Pins reflect the versions this layer is tested against (quant conda env,
+# Python 3.12): duckdb 1.5, pyarrow 23, polars 1.41.
+dependencies = [
+  "duckdb>=1.1,<2",
+  "pyarrow>=17",
+  # polars is an OPTIONAL transform engine; DuckDB is the query engine (the
+  # README's "pick one" note).  Kept here so `pip install -e .` matches the
+  # declared sub-instance; no core code path imports it.
+  "polars>=1.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+# Serious tick/L2 backtest: the catalog IS Parquet, so this is opt-in only.
+backtest = ["nautilus_trader>=1.200"]
+
+[project.scripts]
+quant-market-store = "quant.market_store:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["quant"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

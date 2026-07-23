@@ -11,8 +11,32 @@ COURTLISTENER_SEARCH = "https://www.courtlistener.com/api/rest/v4/search/"
 COURTLISTENER_BASE = "https://www.courtlistener.com"
 
 
+COURTLISTENER_SECRET_REF = "local:omni-hub/api/courtlistener/default"
+
+
+def _resolve_courtlistener_token() -> str:
+    env_token = os.environ.get("COURTLISTENER_TOKEN", "").strip()
+    if env_token:
+        return env_token
+    try:
+        from ..secrets import resolve_secret_ref, SecretStoreError
+    except ImportError:
+        return ""
+    try:
+        return resolve_secret_ref(COURTLISTENER_SECRET_REF) or ""
+    except SecretStoreError:
+        return ""
+    except Exception:                                            # noqa: BLE001
+        return ""
+
+
 class CourtListenerSource:
-    """CourtListener opinion search. Optional ``COURTLISTENER_TOKEN``."""
+    """CourtListener opinion search.
+
+    Token via ``COURTLISTENER_TOKEN`` env or
+    ``.omni/secrets.json::omni-hub/api/courtlistener/default``.
+    Anonymous tier works (lower limits); authenticated raises throughput.
+    """
 
     name = "courtlistener"
     tier = 0
@@ -23,7 +47,7 @@ class CourtListenerSource:
         token: str | None = None,
         timeout: int = DEFAULT_TIMEOUT_SEC,
     ) -> None:
-        self.token = token if token is not None else os.environ.get("COURTLISTENER_TOKEN", "")
+        self.token = token if token is not None else _resolve_courtlistener_token()
         self.timeout = timeout
 
     def check(self) -> tuple[str, str]:
@@ -51,7 +75,7 @@ class CourtListenerSource:
             headers=headers,
             timeout=self.timeout,
         )
-        items = data.get("results", []) if isinstance(data, dict) else []
+        items = (data.get("results") or []) if isinstance(data, dict) else []
         records: list[RetrievalRecord] = []
         for item in items[:limit]:
             if not isinstance(item, dict):

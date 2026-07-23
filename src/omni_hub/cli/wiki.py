@@ -29,6 +29,18 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     reindex.add_argument("--force", action="store_true",
                           help="No-op for now; reserved for future incremental modes")
 
+    render = subparsers.add_parser(
+        "wiki-render",
+        help=(
+            "Rebuild synthesis pages AS PROJECTIONS of claims (WS1: claims are "
+            "the single source of truth).  Pages are byte-identical rebuilds, so "
+            "vault/wiki/syntheses is disposable."
+        ),
+    )
+    render.add_argument("--path", default="",
+                         help="Rebuild a single page (vault/wiki/syntheses/<slug>.md); "
+                              "omit to rebuild all synthesis pages")
+
     subparsers.add_parser(
         "wiki-doctor",
         help=(
@@ -56,6 +68,21 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     propose.add_argument("--source", required=True, choices=["researchflow", "paperbite"])
     propose.add_argument("--path", required=True)
     propose.add_argument("--domain", default="research")
+
+    rf_ingest = subparsers.add_parser(
+        "wiki-ingest-researchflow",
+        help=(
+            "WS3: decompose a ResearchFlow main_analysis.json "
+            "(conclusion / method / result findings) into candidate claims "
+            "and emit a wiki_update Proposal.  Approve to project the synthesis "
+            "page from claims (WS1).  Richer than wiki-propose-research."
+        ),
+    )
+    rf_ingest.add_argument("--analysis-json", required=True,
+                            help="Path to a ResearchFlow main_analysis.json")
+    rf_ingest.add_argument("--domain", default="research")
+    rf_ingest.add_argument("--title", default="",
+                            help="Override page title (default: paper_metadata.title)")
 
     apply = subparsers.add_parser("wiki-apply-proposal")
     apply.add_argument("--proposal", required=True)
@@ -164,6 +191,18 @@ def _init(args, *, runner, workspace) -> int:
         ),
     )
 
+    vec_build = subparsers.add_parser(
+        "wiki-vec-build",
+        help="Build the sqlite-vec KNN index over wiki pages (enables hybrid search).",
+    )
+
+    hybrid = subparsers.add_parser(
+        "wiki-hybrid-search",
+        help="Hybrid wiki search: FTS5/substring + vector KNN fused via RRF.",
+    )
+    hybrid.add_argument("--query", required=True)
+    hybrid.add_argument("--limit", type=int, default=10)
+
 
 def _status(args, *, runner, workspace) -> int:
     return run_and_print(
@@ -201,6 +240,34 @@ def _reindex(args, *, runner, workspace) -> int:
             name="wiki_reindex",
             action="reindex",
             payload={},
+            risk_level=RiskLevel.LOCAL_WRITE,
+        ),
+    )
+
+
+def _render(args, *, runner, workspace) -> int:
+    return run_and_print(
+        runner,
+        OperationSpec(
+            name="wiki_render",
+            action="render",
+            payload={"path": getattr(args, "path", "")},
+            risk_level=RiskLevel.LOCAL_WRITE,
+        ),
+    )
+
+
+def _ingest_researchflow(args, *, runner, workspace) -> int:
+    return run_and_print(
+        runner,
+        OperationSpec(
+            name="wiki_ingest_researchflow",
+            action="ingest",
+            payload={
+                "analysis_json": args.analysis_json,
+                "domain": args.domain,
+                "title": args.title,
+            },
             risk_level=RiskLevel.LOCAL_WRITE,
         ),
     )
@@ -389,17 +456,42 @@ def _context_pack(args, *, runner, workspace) -> int:
     )
 
 
+
+def _vec_build(args, *, runner, workspace) -> int:
+    return run_and_print(
+        runner,
+        OperationSpec(
+            name="wiki_vec_build", action="build",
+            payload={}, risk_level=RiskLevel.LOCAL_WRITE,
+        ),
+    )
+
+
+def _hybrid_search(args, *, runner, workspace) -> int:
+    return run_and_print(
+        runner,
+        OperationSpec(
+            name="wiki_hybrid_search", action="search",
+            payload={"query": args.query, "limit": args.limit},
+            risk_level=RiskLevel.READ_ONLY,
+        ),
+    )
+
 COMMANDS = {
     "wiki-init": _init,
     "wiki-status": _status,
     "wiki-search": _search,
     "wiki-propose-research": _propose_research,
+    "wiki-ingest-researchflow": _ingest_researchflow,
     "wiki-apply-proposal": _apply_proposal,
     "wiki-ingest": _ingest,
     "wiki-log": _log,
     "wiki-dream": _dream,
     "wiki-lint": _lint,
     "wiki-reindex": _reindex,
+    "wiki-render": _render,
+    "wiki-vec-build": _vec_build,
+    "wiki-hybrid-search": _hybrid_search,
     "wiki-doctor": _doctor,
     "wiki-graph": _graph,
     "wiki-supersede": _supersede,

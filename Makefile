@@ -1,7 +1,13 @@
-PYTHON ?= python3
+# Default to the project's conda env interpreter (python 3.12) so `make test`
+# etc. work without activating anything. Override with `make PYTHON=python3.x`.
+# Falls back to the conda-env path if it exists, else plain python3.
+PYTHON ?= $(shell test -x $(HOME)/opt/anaconda3/envs/omni-hub/bin/python && echo $(HOME)/opt/anaconda3/envs/omni-hub/bin/python || echo python3)
 PYTHON_ABS := $(shell command -v $(PYTHON) 2>/dev/null)
+# The quant package runs in its OWN env (duckdb/pyarrow) and is NEVER imported by the stdlib
+# core — only shelled out to via the SCHEMA.md/CLI seam. `make test-all` runs both suites.
+QUANT_PY ?= $(shell test -x $(HOME)/opt/anaconda3/envs/quant/bin/python && echo $(HOME)/opt/anaconda3/envs/quant/bin/python || echo python3)
 
-.PHONY: setup test api-status api-update harness-setup harness-update harness-status harness-add-pending harness-ensemble compose-config compose-build-config schedule-install schedule-install-dry schedule-uninstall worker-python worker-claude worker-codex check-python
+.PHONY: setup test test-quant test-all api-status api-update harness-setup harness-update harness-status harness-add-pending harness-ensemble compose-config compose-build-config schedule-install schedule-install-dry schedule-uninstall worker-python worker-claude worker-codex check-python
 
 # Refuse to run the launchd installer (or test runner) against a stale
 # Python 3.x on PATH; v0.7 worker pool requires 3.12+ (datetime.UTC, etc.).
@@ -15,6 +21,14 @@ setup:
 
 test: check-python
 	PYTHONPATH=src $(PYTHON) -m unittest discover -s tests
+
+# The quant package has its OWN pytest suite in its OWN env (the SCHEMA.md/CLI seam keeps it
+# decoupled from the stdlib core). `test-all` runs both; neither suite imports the other.
+test-quant:
+	$(QUANT_PY) -m pytest agent-harness/quant/tests -q
+
+test-all: test test-quant
+	@echo "all suites green - stdlib core (unittest) + quant package (pytest)"
 
 api-status:
 	PYTHONPATH=src $(PYTHON) -m omni_hub.cli api-management-status

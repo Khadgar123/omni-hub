@@ -1,7 +1,7 @@
 ---
 omni_type: domain_schema
 domain: research
-schema_version: v0.13
+schema_version: v0.21
 stale_after_days: 730
 ---
 
@@ -30,6 +30,13 @@ First (and reference) implementation of the global truth wiki母模板. Owns sch
 - `topics` — list of topical tags from the analysis
 - `core_operator` — PaperBite-style one-line description of the central operator
 - `primary_logic` — PaperBite-style one-line description of the mechanism
+- `orcids` — author ORCIDs — from OpenAlex authorships (disambiguation)
+- `affiliations` — author institutions + ROR ids — from OpenAlex
+- `paper_versions` — PaperVersion list: arXiv v1/v2/.. + camera-ready {version,date,url}
+- `review_thread` — ReviewThread: OpenReview decision + avg_rating + n_reviews (openreview.forum_thread)
+- `acceptance` — venue decision: accepted / rejected / withdrawn / unknown (OpenReview)
+- `code_artifact` — Artifact: GitHub stars/license/latest-release/checkpoint (github.repo_audit)
+- `model_artifact` — Artifact: HF Hub model/dataset id + downloads (hf_hub.model_info)
 
 ## Stale Threshold
 

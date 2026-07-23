@@ -342,10 +342,16 @@ def builtin_skill_adapters(workspace: Path | str = ".") -> dict[str, SkillAdapte
 
     from ..builtins import build_default_registry
     from ..models import OperationSpec, RiskLevel
+    from ..operation_receipts import OperationReceiptStore
     from ..runner import OperationRunner
 
     workspace_root = Path(workspace).resolve()
-    runner = OperationRunner(build_default_registry(workspace_root))
+    runner = OperationRunner(
+        build_default_registry(workspace_root),
+        receipts=OperationReceiptStore(
+            workspace_root / ".omni" / "operation-receipts.sqlite3"
+        ),
+    )
 
     def _domain_wiki_adapter(domain: str) -> SkillAdapter:
         def _run(case: EvalCase) -> str:

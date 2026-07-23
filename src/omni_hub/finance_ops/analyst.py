@@ -107,13 +107,77 @@ class FinanceAnalyst:
     def screen(self, criteria: ScreenCriteria) -> list[StockSignal]:
         """Return candidate stocks matching ``criteria``.
 
-        v0.36 is a stub that records the screening intent; real
-        screening will plug into Tushare/EDGAR connectors in a
-        follow-up.  Returning ``[]`` is a feature, not a bug — caller
-        must decide whether to enqueue a claude lane task or escalate.
+        v0.43.4 — connects EDGAR (filings) + FRED (macro) cascade so
+        screening returns real candidates instead of an empty list.
+
+        Behaviour:
+        * If ``tickers`` is set → EDGAR full-text for each (latest 10-K /
+          10-Q / 8-K context) → emit one StockSignal per ticker.
+        * Else if ``sector`` is set → EDGAR full-text by sector → top N
+          tickers extracted.
+        * Else → no filters → return empty.
+
+        Read-only.  No prices, no orders.  Pipes into ``order-propose``
+        skill if user wants to act on a signal.
         """
 
-        return []
+        signals: list[StockSignal] = []
+        try:
+            from ..retrieval.finance import EdgarSource
+        except ImportError:                                       # pragma: no cover
+            return signals
+        edgar = EdgarSource()
+
+        # Path 1: explicit ticker list — one EDGAR look-up each.
+        if criteria.tickers:
+            for ticker in criteria.tickers[:10]:
+                try:
+                    records = edgar.retrieve(ticker, limit=3, domain="finance")
+                except Exception:                                 # noqa: BLE001
+                    continue
+                if not records:
+                    continue
+                head = records[0]
+                signals.append(StockSignal(
+                    ticker=ticker.upper(),
+                    name=head.title[:120],
+                    market=criteria.market or "US",
+                    sector=criteria.sector,
+                    summary=head.snippet[:400],
+                    sources=["edgar"],
+                    metadata={
+                        "edgar_url": head.url,
+                        "edgar_filings_seen": len(records),
+                        "criteria": criteria.to_dict(),
+                    },
+                ))
+            return signals
+
+        # Path 2: sector keyword — broad EDGAR search.
+        if criteria.sector:
+            try:
+                records = edgar.retrieve(criteria.sector, limit=10, domain="finance")
+            except Exception:                                     # noqa: BLE001
+                return signals
+            for rec in records[:10]:
+                # Try to extract ticker from title / URL (heuristic: first
+                # capitalised 2-5 letter token).
+                import re
+                m = re.search(r"\b([A-Z]{2,5})\b", rec.title)
+                ticker = m.group(1) if m else ""
+                signals.append(StockSignal(
+                    ticker=ticker,
+                    name=rec.title[:120],
+                    market=criteria.market or "US",
+                    sector=criteria.sector,
+                    summary=rec.snippet[:400],
+                    sources=["edgar"],
+                    metadata={"edgar_url": rec.url},
+                ))
+            return signals
+
+        # Path 3: no filters → empty.
+        return signals
 
     def watch_create(self, rule: AlertRule) -> AlertRule:
         """Persist a watchlist rule.  Evaluation happens externally

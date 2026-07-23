@@ -20,6 +20,28 @@ from .base import DEFAULT_TIMEOUT_SEC, RetrievalError, RetrievalRecord, http_get
 COHERE_RERANK_URL = "https://api.cohere.com/v2/rerank"
 VOYAGE_RERANK_URL = "https://api.voyageai.com/v1/rerank"
 
+COHERE_SECRET_REF = "local:omni-hub/api/cohere/default"
+VOYAGE_SECRET_REF = "local:omni-hub/api/voyage/default"
+
+
+def _resolve_secret(env_var: str, secret_ref: str) -> str:
+    """Env var first, then ``.omni/secrets.json`` — same pattern as the
+    other connectors so every key is set the same way."""
+
+    val = os.environ.get(env_var, "").strip()
+    if val:
+        return val
+    try:
+        from ..secrets import resolve_secret_ref, SecretStoreError
+    except ImportError:
+        return ""
+    try:
+        return resolve_secret_ref(secret_ref) or ""
+    except SecretStoreError:
+        return ""
+    except Exception:                                            # noqa: BLE001
+        return ""
+
 
 class CohereRerankerV4:
     """Cohere Rerank 4 cross-encoder.  Requires ``COHERE_API_KEY``.
@@ -40,7 +62,11 @@ class CohereRerankerV4:
         model: str = "rerank-v3.5",
         timeout: float = DEFAULT_TIMEOUT_SEC,
     ) -> None:
-        self.api_key = api_key if api_key is not None else os.environ.get("COHERE_API_KEY", "")
+        self.api_key = (
+            api_key
+            if api_key is not None
+            else _resolve_secret("COHERE_API_KEY", COHERE_SECRET_REF)
+        )
         self.model = model
         self.timeout = timeout
 
@@ -118,7 +144,11 @@ class VoyageRerankerV2_5:
         model: str = "rerank-2.5",
         timeout: float = DEFAULT_TIMEOUT_SEC,
     ) -> None:
-        self.api_key = api_key if api_key is not None else os.environ.get("VOYAGE_API_KEY", "")
+        self.api_key = (
+            api_key
+            if api_key is not None
+            else _resolve_secret("VOYAGE_API_KEY", VOYAGE_SECRET_REF)
+        )
         self.model = model
         self.timeout = timeout
 
@@ -174,6 +204,45 @@ class VoyageRerankerV2_5:
         return ordered
 
 
+class BGERerankerLocal:
+    """BAAI/bge-reranker-v2-m3 local cross-encoder.
+
+    No API key needed.  Requires `pip install FlagEmbedding torch` (one-
+    time, see ``omni_hub.retrieval.bge_reranker`` docstring).  First call
+    triggers ~600MB model download to ``~/.cache/huggingface``.
+
+    On CPU: ~10-15s for 15 candidates.  Free-tier alternative to
+    Cohere / Voyage paid rerank APIs.
+    """
+
+    name = "bge_local"
+    tier = 1
+
+    def check(self) -> tuple[str, str]:
+        try:
+            import FlagEmbedding                                  # noqa: F401
+            return "ready", "BAAI/bge-reranker-v2-m3 (local, ~600MB)"
+        except ImportError:
+            return "off", "FlagEmbedding not installed; pip install FlagEmbedding torch"
+
+    def rerank(
+        self,
+        query: str,
+        records: list[RetrievalRecord],
+        *,
+        top_k: int | None = None,
+    ) -> list[RetrievalRecord]:
+        if not records:
+            return []
+        from .bge_reranker import bge_rerank
+        ranked = bge_rerank(query, list(records), top_k=top_k)
+        for r in ranked:
+            r.metadata = dict(r.metadata or {})
+            r.metadata["rerank_score"] = r.score
+            r.metadata["reranker"] = self.name
+        return ranked
+
+
 def build_reranker(name: str):
     """Return a reranker instance by short name, or None for ``"none"``."""
 
@@ -184,7 +253,9 @@ def build_reranker(name: str):
         return CohereRerankerV4()
     if n == "voyage":
         return VoyageRerankerV2_5()
-    raise ValueError(f"unknown reranker {name!r}; expected none|cohere|voyage")
+    if n == "bge":
+        return BGERerankerLocal()
+    raise ValueError(f"unknown reranker {name!r}; expected none|cohere|voyage|bge")
 
 
 # ---------------------------------------------------------------------------

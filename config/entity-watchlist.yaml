@@ -1,0 +1,462 @@
+# Entity Watchlist — declarative tracking config
+#
+# Replaces "Karpathy skill / Musk skill / Trump skill" with declarative
+# entity entries.  Each entity is composed from existing connectors;
+# no new domain skill required.
+#
+# Use:
+#   python3 scripts/follow_entity.py karpathy
+#   python3 scripts/follow_entity.py musk --sources rss,edgar,hn
+#
+# Schema:
+#   <entity_id>:
+#     display: "Human-readable name"
+#     kind: person | company | institution | topic
+#     sources:
+#       rss: [list of feed URLs]
+#       bluesky_handle: <handle>
+#       hn_query: <hackernews search term>
+#       reddit_query: <reddit search term>
+#       gdelt_query: <gdelt search term>
+#       openalex_query: <author/affiliation search>
+#       hf_query: <HF Daily Papers filter>
+#       edgar_tickers: [SEC tickers]
+#       truth_social_handle: <handle>
+#       mastodon_tag: <hashtag without #>
+#       tavily_query: "<free-text web search>"
+#       x_query: "<X/Twitter search; 'from:handle' targets one account>"  # needs TWITTERAPI_IO key
+#       github_query: "<GitHub repo search; org name or topic>"
+#       hf_hub_query: "<HuggingFace org/model/dataset search>"
+#       xhs_query: "<小红书 keyword>"     # needs xiaohongshu-cli broker
+#       wechat_query: "<公众号 keyword>"   # needs we-mp-rss broker
+#     primary_domain: ai_progress | enterprise | us_policy | ...  (for routing)
+
+version: 1
+
+people:
+
+  karpathy:
+    display: "Andrej Karpathy"
+    kind: person
+    primary_domain: ai_progress
+    sources:
+      rss: ["https://karpathy.github.io/feed.xml"]
+      bluesky_handle: "karpathy.bsky.social"
+      hn_query: "karpathy"
+      reddit_query: "Karpathy"
+      gdelt_query: "Andrej Karpathy"
+      openalex_query: "Karpathy"
+      hf_query: "Karpathy"
+      tavily_query: "Andrej Karpathy latest"
+
+  musk:
+    display: "Elon Musk"
+    kind: person
+    primary_domain: enterprise
+    sources:
+      hn_query: "Elon Musk"
+      reddit_query: "Elon Musk"
+      gdelt_query: "Elon Musk"
+      tavily_query: "Elon Musk latest news"
+      edgar_tickers: ["TSLA"]
+
+  altman:
+    display: "Sam Altman"
+    kind: person
+    primary_domain: ai_progress
+    sources:
+      rss: ["https://blog.samaltman.com/posts.atom"]
+      hn_query: "Sam Altman OpenAI"
+      reddit_query: "Sam Altman"
+      gdelt_query: "Sam Altman OpenAI"
+      tavily_query: "Sam Altman latest"
+
+  dario:
+    display: "Dario Amodei"
+    kind: person
+    primary_domain: ai_progress
+    sources:
+      hn_query: "Dario Amodei Anthropic"
+      reddit_query: "Dario Amodei"
+      gdelt_query: "Dario Amodei Anthropic"
+      openalex_query: "Dario Amodei"
+
+  trump:
+    display: "Donald Trump"
+    kind: person
+    primary_domain: us_policy
+    sources:
+      truth_social_handle: "realDonaldTrump"
+      hn_query: "Trump"
+      reddit_query: "Donald Trump"
+      gdelt_query: "Donald Trump"
+      tavily_query: "Donald Trump latest"
+
+  hinton:
+    display: "Geoffrey Hinton"
+    kind: person
+    primary_domain: ai_progress
+    sources:
+      hn_query: "Hinton"
+      gdelt_query: "Geoffrey Hinton"
+      openalex_query: "Geoffrey Hinton"
+
+  ylecun:
+    display: "Yann LeCun"
+    kind: person
+    primary_domain: ai_progress
+    sources:
+      bluesky_handle: "ylecun.bsky.social"
+      hn_query: "Yann LeCun"
+      gdelt_query: "Yann LeCun Meta"
+      openalex_query: "Yann LeCun"
+
+  lex:
+    display: "Lex Fridman"
+    kind: person
+    primary_domain: ai_progress
+    sources:
+      hn_query: "Lex Fridman"
+      reddit_query: "Lex Fridman"
+      gdelt_query: "Lex Fridman"
+
+  dwarkesh:
+    display: "Dwarkesh Patel"
+    kind: person
+    primary_domain: ai_progress
+    sources:
+      rss: ["https://www.dwarkesh.com/feed"]
+      hn_query: "Dwarkesh"
+      reddit_query: "Dwarkesh Patel"
+
+  simonw:
+    display: "Simon Willison"
+    kind: person
+    primary_domain: engineering
+    sources:
+      rss: ["https://simonwillison.net/atom/everything/"]
+      bluesky_handle: "simonw.bsky.social"
+      hn_query: "simonw"
+
+  huang:
+    display: "Jensen Huang"
+    kind: person
+    primary_domain: enterprise
+    sources:
+      hn_query: "Jensen Huang"
+      gdelt_query: "Jensen Huang NVIDIA"
+      tavily_query: "Jensen Huang latest"
+      edgar_tickers: ["NVDA"]
+
+  bezos:
+    display: "Jeff Bezos"
+    kind: person
+    primary_domain: enterprise
+    sources:
+      hn_query: "Jeff Bezos"
+      gdelt_query: "Jeff Bezos Amazon"
+      edgar_tickers: ["AMZN"]
+
+  pichai:
+    display: "Sundar Pichai"
+    kind: person
+    primary_domain: enterprise
+    sources:
+      hn_query: "Sundar Pichai"
+      gdelt_query: "Sundar Pichai Google"
+      edgar_tickers: ["GOOGL"]
+
+  zuck:
+    display: "Mark Zuckerberg"
+    kind: person
+    primary_domain: enterprise
+    sources:
+      hn_query: "Zuckerberg"
+      gdelt_query: "Mark Zuckerberg Meta"
+      edgar_tickers: ["META"]
+
+  ilya:
+    display: "Ilya Sutskever"
+    kind: person
+    primary_domain: ai_progress
+    sources:
+      hn_query: "Ilya Sutskever"
+      gdelt_query: "Ilya Sutskever SSI"
+      openalex_query: "Ilya Sutskever"
+      x_query: "from:ilyasut"
+      tavily_query: "Ilya Sutskever SSI latest"
+
+  demis:
+    display: "Demis Hassabis"
+    kind: person
+    primary_domain: ai_progress
+    sources:
+      hn_query: "Demis Hassabis"
+      gdelt_query: "Demis Hassabis DeepMind"
+      openalex_query: "Demis Hassabis"
+      x_query: "from:demishassabis"
+
+  feifei:
+    display: "Fei-Fei Li"
+    kind: person
+    primary_domain: ai_progress
+    sources:
+      hn_query: "Fei-Fei Li"
+      openalex_query: "Fei-Fei Li"
+      x_query: "from:drfeifei"
+      tavily_query: "Fei-Fei Li World Labs latest"
+
+  jimfan:
+    display: "Jim Fan"
+    kind: person
+    primary_domain: ai_progress
+    sources:
+      hn_query: "Jim Fan NVIDIA"
+      openalex_query: "Linxi Fan"
+      x_query: "from:DrJimFan"
+
+
+companies:
+
+  anthropic:
+    display: "Anthropic"
+    kind: company
+    primary_domain: ai_progress
+    sources:
+      rss: ["https://www.anthropic.com/news/rss.xml"]
+      hn_query: "Anthropic"
+      tavily_query: "Anthropic latest announcement"
+      gdelt_query: "Anthropic AI"
+      openalex_query: "Anthropic"
+      hf_hub_query: "Anthropic"
+      github_query: "anthropics"
+      x_query: "from:AnthropicAI"
+
+  openai:
+    display: "OpenAI"
+    kind: company
+    primary_domain: ai_progress
+    sources:
+      rss: ["https://openai.com/blog/rss.xml"]
+      hn_query: "OpenAI"
+      tavily_query: "OpenAI latest announcement"
+      gdelt_query: "OpenAI"
+      hf_hub_query: "openai"
+      github_query: "openai"
+      x_query: "from:OpenAI"
+
+  deepmind:
+    display: "Google DeepMind"
+    kind: company
+    primary_domain: ai_progress
+    sources:
+      rss: ["https://deepmind.google/blog/rss.xml"]
+      hn_query: "DeepMind"
+      gdelt_query: "DeepMind"
+
+  nvidia:
+    display: "NVIDIA"
+    kind: company
+    primary_domain: enterprise
+    sources:
+      rss: ["https://blogs.nvidia.com/feed/"]
+      hn_query: "NVIDIA"
+      tavily_query: "NVIDIA latest GPU AI"
+      gdelt_query: "NVIDIA"
+      edgar_tickers: ["NVDA"]
+
+  tesla:
+    display: "Tesla"
+    kind: company
+    primary_domain: enterprise
+    sources:
+      hn_query: "Tesla"
+      tavily_query: "Tesla latest news"
+      gdelt_query: "Tesla"
+      edgar_tickers: ["TSLA"]
+
+  xai:
+    display: "xAI"
+    kind: company
+    primary_domain: ai_progress
+    sources:
+      hn_query: "xAI Grok"
+      tavily_query: "xAI Grok latest"
+      gdelt_query: "xAI Grok"
+
+  bytedance:
+    display: "ByteDance"
+    kind: company
+    primary_domain: enterprise
+    sources:
+      hn_query: "ByteDance TikTok"
+      gdelt_query: "ByteDance TikTok"
+
+  deepseek:
+    display: "DeepSeek"
+    kind: company
+    primary_domain: ai_progress
+    sources:
+      hn_query: "DeepSeek"
+      tavily_query: "DeepSeek latest model"
+      gdelt_query: "DeepSeek AI"
+      hf_hub_query: "deepseek-ai"
+      github_query: "deepseek-ai"
+      x_query: "from:deepseek_ai"
+
+  mistral:
+    display: "Mistral AI"
+    kind: company
+    primary_domain: ai_progress
+    sources:
+      hn_query: "Mistral AI"
+      tavily_query: "Mistral AI latest model"
+      gdelt_query: "Mistral AI"
+      hf_hub_query: "mistralai"
+      github_query: "mistralai"
+      x_query: "from:MistralAI"
+
+  cohere:
+    display: "Cohere"
+    kind: company
+    primary_domain: ai_progress
+    sources:
+      hn_query: "Cohere"
+      tavily_query: "Cohere latest model"
+      hf_hub_query: "CohereForAI"
+      x_query: "from:cohere"
+
+  perplexity:
+    display: "Perplexity AI"
+    kind: company
+    primary_domain: ai_progress
+    sources:
+      hn_query: "Perplexity AI"
+      tavily_query: "Perplexity AI latest"
+      x_query: "from:perplexity_ai"
+
+  huggingface:
+    display: "Hugging Face"
+    kind: company
+    primary_domain: ai_progress
+    sources:
+      rss: ["https://huggingface.co/blog/feed.xml"]
+      hn_query: "Hugging Face"
+      hf_hub_query: "huggingface"
+      github_query: "huggingface"
+      x_query: "from:huggingface"
+
+  qwen:
+    display: "Qwen (Alibaba)"
+    kind: company
+    primary_domain: ai_progress
+    sources:
+      hn_query: "Qwen Alibaba"
+      tavily_query: "Qwen Alibaba latest model"
+      hf_hub_query: "Qwen"
+      github_query: "QwenLM"
+      x_query: "from:Alibaba_Qwen"
+
+
+institutions:
+
+  scotus:
+    display: "U.S. Supreme Court"
+    kind: institution
+    primary_domain: us_policy
+    sources:
+      hn_query: "SCOTUS"
+      gdelt_query: "Supreme Court ruling"
+      tavily_query: "SCOTUS latest decision"
+
+  fed:
+    display: "Federal Reserve"
+    kind: institution
+    primary_domain: finance
+    sources:
+      hn_query: "Federal Reserve interest rate"
+      gdelt_query: "Federal Reserve FOMC"
+      tavily_query: "Federal Reserve latest"
+
+  fair:
+    display: "Meta FAIR"
+    kind: institution
+    primary_domain: ai_progress
+    sources:
+      hn_query: "Meta FAIR AI research"
+      openalex_query: "Meta AI FAIR"
+      hf_hub_query: "facebook"
+      github_query: "facebookresearch"
+      x_query: "from:AIatMeta"
+
+  ai2:
+    display: "Allen Institute for AI (AI2)"
+    kind: institution
+    primary_domain: ai_progress
+    sources:
+      hn_query: "Allen Institute AI2"
+      openalex_query: "Allen Institute for AI"
+      hf_hub_query: "allenai"
+      github_query: "allenai"
+      x_query: "from:allen_ai"
+
+  msr:
+    display: "Microsoft Research"
+    kind: institution
+    primary_domain: ai_progress
+    sources:
+      hn_query: "Microsoft Research"
+      openalex_query: "Microsoft Research"
+      github_query: "microsoft"
+      x_query: "from:MSFTResearch"
+
+  eleuther:
+    display: "EleutherAI"
+    kind: institution
+    primary_domain: ai_progress
+    sources:
+      hn_query: "EleutherAI"
+      hf_hub_query: "EleutherAI"
+      github_query: "EleutherAI"
+      x_query: "from:AiEleuther"
+
+
+topics:
+
+  llm_safety:
+    display: "LLM Safety & Alignment"
+    kind: topic
+    primary_domain: ai_progress
+    sources:
+      openalex_query: "AI safety alignment"
+      hn_query: "AI safety alignment"
+      hf_query: "alignment"
+      gdelt_query: "AI safety regulation"
+
+  agents:
+    display: "LLM Agents & Tool Use"
+    kind: topic
+    primary_domain: agent_systems
+    sources:
+      openalex_query: "LLM agents tool use"
+      hn_query: "AI agents"
+      hf_query: "agent"
+      github_query: "LLM agent framework"
+
+  multimodal:
+    display: "Multimodal Models (VLM / Omni)"
+    kind: topic
+    primary_domain: ai_progress
+    sources:
+      openalex_query: "multimodal large language model"
+      hn_query: "multimodal model"
+      hf_query: "multimodal"
+
+  rl_posttrain:
+    display: "RL & Post-training (RLHF / GRPO / GEPA)"
+    kind: topic
+    primary_domain: ai_progress
+    sources:
+      openalex_query: "reinforcement learning human feedback LLM"
+      hn_query: "RLHF reinforcement learning LLM"
+      hf_query: "rlhf"

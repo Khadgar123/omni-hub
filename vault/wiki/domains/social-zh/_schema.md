@@ -1,7 +1,7 @@
 ---
 omni_type: domain_schema
 domain: social_zh
-schema_version: v0.13
+schema_version: v0.21
 stale_after_days: 14
 ---
 

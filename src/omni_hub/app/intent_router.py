@@ -53,7 +53,7 @@ _INTENT_TOOLS: dict[str, list[str]] = {
     "pptx":       ["context-pack", "wiki-search"],
     "project":    ["context-pack"],
     "inbox":      ["url-capture", "wiki-propose-research"],
-    "finance_op": ["context-pack", "propose-approve"],
+    "finance_op": ["finance-screen", "order-propose", "propose-approve"],
     "chat":       ["context-pack", "wiki-search"],
 }
 

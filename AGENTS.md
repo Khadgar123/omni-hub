@@ -109,6 +109,14 @@ v0.11 起 `vault/wiki/` + `.omni/claims.jsonl` 是 Karpathy LLM-Wiki 母模板�
 - **HR #15 — case_id 必须 sha256(domain|class|span) 派生** (v0.42 加)。禁用 Python 内置 `hash()` (PYTHONHASHSEED 随机化); `evals.promote._stable_case_id()` 是唯一允许的生成路径,保证跨进程 idempotency。
 - **HR #16 — EvalRunner 必走 SkillAdapter** (v0.42 加)。`run()` 默认调 `builtin_skill_adapters(workspace)` + `pick_adapter(case)` 拿真实 skill 输出;只在 `--echo-only` 显式 flag 下退回 echo。"评了 ground-truth 自己" 的反模式 (v0.41 全量回归全过) 不再允许。Write-class skill (`order-propose` / `calendar-add` / 等) 的 adapter 强制只 describe 不执行,防 eval 副作用污染。
 
+### 5.6 Skill taxonomy 不变量 (v0.47 加,填补 #8/#9/#10 空缺)
+
+机器校验见 `src/omni_hub/skill_audit.py::audit_skills`(report-mode lint,后续接入 `wiki-doctor` 作硬门)。
+
+- **HR #8 — Skill 必须声明 layer**。每个 domain `*-wiki` skill 的 SKILL.md frontmatter 必须显式带 `status: active-domain`(不靠 id 后缀推断),reviewer / router 才能据此推理 always-on context tax。
+- **HR #9 — Atomic identity / trigger 不重叠**。任意两个 domain skill 的 trigger 短语 Jaccard 重叠必须 < 0.30,否则 router 无法消歧(=反模式,直接拒)。
+- **HR #10 — Domain skill 只 answer**。`*-wiki` 正文**不得**在可运行的 fenced 代码块里内联 retrieve/curate/write 动词(`wiki-ingest` / `wiki-apply` / `retrieve --persist` / `wiki-supersede` 等);那是 foundation/pipeline 的职责(CQRS 读写分离)。散文里引用可以,放进可执行块就是泄漏。
+
 ### 6. Interface + Application Plane (v0.19)
 
 - **新 Channel adapter 必须实现 `omni_hub.channels.Channel` Protocol** (`listen` / `reply` / `health_check` / `shutdown`)。
@@ -142,3 +150,17 @@ make worker-python           # 拉取 python lane 直至 idle 退出
 make worker-claude           # 拉取 claude lane（需要 claude CLI 已安装）
 make worker-codex            # 拉取 codex lane（需要 codex CLI 已安装）
 ```
+
+## 币圈分析 (crypto edge-audit)
+
+分析 BTC/ETH 等任意 Binance 永续的**当前状态**(多级别 regime + 摆动结构/双底 + S/R + 真实订单流 +
+carry/持仓 + ETF 流 + 宏观 → 对手盘/脆弱点/触发),一条命令:
+
+```bash
+omni-hub crypto-read --symbol BTCUSDT     # 或 ETHUSDT / SOLUSDT …
+```
+
+只读、绝不下单、绝不预测价格。两个**单一真源**:报告规范(十节)+ 数据源见
+**`agent-harness/quant/FRAMEWORK.md`**;**分析纪律(读计算出的判定、别凭印象;过往 miss→规则)是契约,
+在 `.agents/skills/quant-framework/SKILL.md`**——CC/Codex 问"分析现在的 BTC/ETH"会自动触发该 skill。
+引擎 = quant venv 的 `quant.framework`(omni-hub stdlib-only,CLI shell-out seam)。

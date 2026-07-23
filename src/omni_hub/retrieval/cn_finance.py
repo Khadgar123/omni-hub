@@ -39,8 +39,31 @@ _TICKER_PATTERN = re.compile(
 )
 
 
+TUSHARE_SECRET_REF = "local:omni-hub/api/tushare/default"
+
+
+def _resolve_tushare_token() -> str:
+    env_token = os.environ.get("TUSHARE_TOKEN", "").strip()
+    if env_token:
+        return env_token
+    try:
+        from ..secrets import resolve_secret_ref, SecretStoreError
+    except ImportError:
+        return ""
+    try:
+        return resolve_secret_ref(TUSHARE_SECRET_REF) or ""
+    except SecretStoreError:
+        return ""
+    except Exception:                                            # noqa: BLE001
+        return ""
+
+
 class TushareSource:
-    """Tushare A-stock + macro data probe.  Tier-1 (free token)."""
+    """Tushare A-stock + macro data probe.  Tier-1 (free token).
+
+    Token via ``TUSHARE_TOKEN`` env or
+    ``.omni/secrets.json::omni-hub/api/tushare/default``.
+    """
 
     name = "tushare"
     tier = 1
@@ -51,7 +74,7 @@ class TushareSource:
         token: str | None = None,
         timeout: int = DEFAULT_TIMEOUT_SEC,
     ) -> None:
-        self.token = token or os.environ.get("TUSHARE_TOKEN", "")
+        self.token = token if token is not None else _resolve_tushare_token()
         self.timeout = timeout
 
     def check(self) -> tuple[str, str]:

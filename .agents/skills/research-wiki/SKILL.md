@@ -151,6 +151,13 @@ venue_year: ...   # Conference + year, e.g. ICLR_2026
 # topics: ...   # list of topical tags from the analysis
 # core_operator: ...   # PaperBite-style one-line description of the central operator
 # primary_logic: ...   # PaperBite-style one-line description of the mechanism
+# orcids: ...   # author ORCIDs — from OpenAlex authorships (disambiguation)
+# affiliations: ...   # author institutions + ROR ids — from OpenAlex
+# paper_versions: ...   # PaperVersion list: arXiv v1/v2/.. + camera-ready {version,date,url}
+# review_thread: ...   # ReviewThread: OpenReview decision + avg_rating + n_reviews (openreview.forum_thread)
+# acceptance: ...   # venue decision: accepted / rejected / withdrawn / unknown (OpenReview)
+# code_artifact: ...   # Artifact: GitHub stars/license/latest-release/checkpoint (github.repo_audit)
+# model_artifact: ...   # Artifact: HF Hub model/dataset id + downloads (hf_hub.model_info)
 # global bitemporal
 t_valid_from: YYYY-MM-DD
 t_valid_to: null

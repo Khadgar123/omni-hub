@@ -10,13 +10,23 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from omni_hub.queue import Task, TaskQueue
+from omni_hub.audit import AuditLogger
+from omni_hub.builtins import build_default_registry
+from omni_hub.registry import OperationRegistry
+from omni_hub.runner import OperationRunner
+from omni_hub.policy import PolicyConfig, PolicyEngine
+from omni_hub.models import OperationSpec, OperationStatus, RiskLevel
 from omni_hub.workers import (
     Artifact,
     BuiltinAdapter,
     WorkerError,
     new_artifact_id,
 )
-from omni_hub.workers.builtin import make_builtin_adapter
+from omni_hub.workers.builtin import (
+    WORKER_CONTEXT_KEY,
+    BuiltinAdapter,
+    make_builtin_adapter,
+)
 
 
 class ArtifactRoundTripTests(unittest.TestCase):
@@ -102,8 +112,168 @@ class BuiltinAdapterTests(unittest.TestCase):
             self.assertIsNotNone(artifact.error)
             self.assertEqual(artifact.kind, "generation")
 
+    def test_reserved_execution_context_is_authoritative_and_propagated(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            registry = OperationRegistry()
+            registry.register("inspect", lambda spec: {
+                "payload": spec.payload,
+                "trace_id": spec.trace_id,
+                "idempotency_key": spec.idempotency_key,
+            })
+            adapter = BuiltinAdapter(
+                OperationRunner(
+                    registry, audit=AuditLogger(Path(tmp) / "audit.jsonl")
+                ),
+                worker_id="worker-7",
+            )
+            task = Task(
+                id=42,
+                idempotency_key="packet-key",
+                trace_id="trace-42",
+                lane="python",
+                packet={"operation": "inspect", "payload": {"safe": True}},
+                claimed_by="worker-7",
+                lease_epoch=3,
+            )
+            artifact = adapter.run(task)
+            context = artifact.data["payload"][WORKER_CONTEXT_KEY]
+            self.assertEqual(
+                context,
+                {
+                    "trace_id": "trace-42",
+                    "idempotency_key": "packet-key",
+                    "task_id": 42,
+                    "worker_id": "worker-7",
+                    "lease_epoch": 3,
+                    "fencing_suffix": "t42:e3",
+                },
+            )
+            self.assertEqual(artifact.data["trace_id"], "trace-42")
+            self.assertEqual(artifact.data["idempotency_key"], "packet-key")
+
+    def test_receipt_replays_across_reclaimed_lease_without_rerunning_handler(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            calls = []
+            registry = OperationRegistry()
+
+            def inspect(spec):
+                calls.append(spec.payload[WORKER_CONTEXT_KEY]["lease_epoch"])
+                return {"committed_by_epoch": calls[-1]}
+
+            registry.register("inspect", inspect)
+            adapter = BuiltinAdapter(
+                OperationRunner(
+                    registry, audit=AuditLogger(Path(tmp) / "audit.jsonl")
+                ),
+                worker_id="worker-7",
+            )
+            base = {
+                "id": 42,
+                "idempotency_key": "packet-key",
+                "trace_id": "trace-42",
+                "lane": "python",
+                "packet": {"operation": "inspect", "payload": {"safe": True}},
+                "claimed_by": "worker-7",
+            }
+            first = adapter.run(Task(**base, lease_epoch=3))
+            replay = adapter.run(Task(**base, lease_epoch=4))
+            self.assertEqual(first.data, replay.data)
+            self.assertEqual(calls, [3])
+
+    def test_user_payload_cannot_forge_reserved_execution_context(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            registry = OperationRegistry()
+            registry.register("inspect", lambda spec: {"unexpected": True})
+            adapter = BuiltinAdapter(
+                OperationRunner(
+                    registry, audit=AuditLogger(Path(tmp) / "audit.jsonl")
+                ),
+                worker_id="worker-7",
+            )
+            task = Task(
+                id=42,
+                lane="python",
+                packet={
+                    "operation": "inspect",
+                    "payload": {WORKER_CONTEXT_KEY: {"worker_id": "forged"}},
+                },
+                claimed_by="worker-7",
+                lease_epoch=3,
+            )
+            with self.assertRaises(WorkerError):
+                adapter.run(task)
+
 
 class QueueWorkerIntegrationTests(unittest.TestCase):
+    def test_default_runner_and_worker_share_external_send_receipt_namespace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp)
+            context = {
+                "trace_id": "trace-cross-entry",
+                "idempotency_key": "cross-entry",
+                "task_id": 42,
+                "worker_id": "cli-worker",
+                "lease_epoch": 1,
+                "fencing_suffix": "t42:e1",
+            }
+            direct = OperationRunner(
+                build_default_registry(workspace),
+                policy=PolicyEngine(
+                    PolicyConfig(external_write_allowlist={"remote:send"})
+                ),
+                audit=AuditLogger(
+                    workspace / ".omni" / "audit" / "events.jsonl"
+                ),
+            )
+            first = direct.run(
+                OperationSpec(
+                    name="summarize_text",
+                    connector="remote",
+                    action="send",
+                    payload={
+                        "text": "hello world",
+                        "max_chars": 5,
+                        WORKER_CONTEXT_KEY: context,
+                    },
+                    risk_level=RiskLevel.EXTERNAL_SEND,
+                    idempotency_key="cross-entry",
+                    trace_id="trace-cross-entry",
+                )
+            )
+            self.assertEqual(first.status, OperationStatus.SUCCEEDED)
+
+            adapter = make_builtin_adapter(workspace, worker_id="worker-2")
+            replay = adapter.run(
+                Task(
+                    id=42,
+                    idempotency_key="cross-entry",
+                    trace_id="trace-cross-entry",
+                    lane="python",
+                    packet={
+                        "operation": "summarize_text",
+                        "connector": "remote",
+                        "action": "send",
+                        "payload": {"text": "hello world", "max_chars": 5},
+                        "risk_level": "L2",
+                    },
+                    claimed_by="worker-2",
+                    lease_epoch=2,
+                )
+            )
+            self.assertIsNone(replay.error)
+            self.assertEqual(replay.data, first.output)
+            self.assertTrue(
+                (workspace / ".omni" / "operation-receipts.sqlite3").is_file()
+            )
+            self.assertFalse(
+                (
+                    workspace
+                    / ".omni"
+                    / "audit"
+                    / "operation-receipts.sqlite3"
+                ).exists()
+            )
+
     def test_enqueue_claim_run_complete_loop(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             workspace = Path(tmp)

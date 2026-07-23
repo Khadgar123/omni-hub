@@ -125,10 +125,19 @@ _KEYWORDS: dict[str, list[str]] = {
         "agent 框架", "agent system",
     ],
     "social_en": [
-        "tweet", "twitter", "reddit", "hn", "hacker news",
+        "tweet", "twitter", "x.com", "x post",
+        "bluesky", "bsky", "mastodon", "fediverse",
+        "reddit", "subreddit", "r/", "hn", "hacker news",
+        "trending on x", "viral tweet", "twitter thread",
     ],
     "social_zh": [
-        "微博", "小红书", "知乎", "公众号", "weixin",
+        "微博", "热搜", "热门话题",
+        "小红书", "xhs", "种草",
+        "知乎", "知乎回答",
+        "公众号", "weixin", "wechat",
+        "b站", "bilibili", "弹幕",
+        "抖音", "douyin",
+        "贴吧",
     ],
 }
 
@@ -200,8 +209,17 @@ _INTENT_PHRASES: dict[str, list[str]] = {
     "agent_systems": [
         "build vs use", "fork vs pin", "agent 框架对比",
     ],
-    "social_en": [],
-    "social_zh": [],
+    "social_en": [
+        "twitter 热议", "x 上说", "elon 推", "musk tweet",
+        "reddit 讨论", "hn 讨论", "bluesky 热议",
+        "twitter latest", "trending on twitter",
+    ],
+    "social_zh": [
+        "小红书 趋势", "小红书 热门", "微博 热搜",
+        "知乎 高赞", "b站 up主", "公众号 文章",
+        "全网热议", "网友热议", "舆论",
+        "种草推荐", "测评分享",
+    ],
 }
 
 
@@ -349,6 +367,46 @@ class RoutingDecision:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+@dataclass(slots=True)
+class DomainRoute:
+    """One domain inside a multi-domain plan (v0.46)."""
+
+    skill_id: str
+    confidence: float
+    recommended_operation: str = ""
+    recommended_payload: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
+class MultiRoutingDecision:
+    """Plan for a query that may span several knowledge domains (v0.46).
+
+    ``domains`` is ordered (primary first).  The execute step fans out one
+    context-pack per domain and a single synthesis pass merges them
+    (gather-then-synthesize); that LLM half stays gated like
+    ``planner.plan()``'s ``model_call``, so this planner itself is
+    deterministic + LLM-free.
+    """
+
+    inbound_trace_id: str
+    is_multi_domain: bool
+    primary_skill_id: str
+    domains: list[DomainRoute] = field(default_factory=list)
+    note: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "inbound_trace_id": self.inbound_trace_id,
+            "is_multi_domain": self.is_multi_domain,
+            "primary_skill_id": self.primary_skill_id,
+            "domains": [d.to_dict() for d in self.domains],
+            "note": self.note,
+        }
 
 
 @dataclass(slots=True)
@@ -512,6 +570,70 @@ class TaskRouter:
             history_bias_applied=history_bias_applied,
             app_intents=app_intents,
             primary_intent=primary_intent,
+        )
+
+    def route_multi(
+        self,
+        inbound: InboundMessage,
+        *,
+        conversation_history: list["ConversationTurn"] | None = None,
+        min_ratio: float = 0.5,
+        max_domains: int = 4,
+    ) -> MultiRoutingDecision:
+        """Detect a query spanning MULTIPLE knowledge domains and plan it.
+
+        Reuses the heuristic ``route()`` scores (LLM-free): every domain
+        whose normalised share is ≥ ``min_ratio`` of the top domain's share
+        is kept, so a question touching e.g. research + finance yields BOTH —
+        ordered, each with its own recommended op.  This is the *plan* half
+        of plan-and-execute for cross-domain tasks; a downstream executor
+        fans out one context-pack per domain and synthesises once (the
+        gather-then-synthesize split), with the LLM synthesis gated.
+        """
+
+        primary = self.route(inbound, conversation_history=conversation_history)
+        haystack = " ".join([inbound.body, inbound.subject]).strip()[:200]
+
+        # candidates = selected + runners_up, deduped, score>0, order preserved
+        seen: set[str] = set()
+        ordered: list[tuple[str, float]] = []
+        for dom, conf in [
+            (primary.selected_skill_id, primary.confidence),
+            *primary.runners_up,
+        ]:
+            if dom and dom not in seen and conf > 0:
+                seen.add(dom)
+                ordered.append((dom, conf))
+
+        top = ordered[0][1] if ordered else 0.0
+        chosen = [
+            (dom, conf) for dom, conf in ordered
+            if top <= 0 or conf >= min_ratio * top
+        ][:max_domains]
+        if not chosen:
+            chosen = [(primary.selected_skill_id, primary.confidence)]
+
+        routes: list[DomainRoute] = []
+        for dom, conf in chosen:
+            op, payload, _ = self._recommend(dom, haystack)
+            routes.append(DomainRoute(
+                skill_id=dom,
+                confidence=round(conf, 3),
+                recommended_operation=op,
+                recommended_payload=payload,
+            ))
+
+        is_multi = len(routes) > 1
+        note = (
+            "multi-domain plan: " + ", ".join(r.skill_id for r in routes)
+            if is_multi else f"single-domain: {routes[0].skill_id}"
+        )
+        return MultiRoutingDecision(
+            inbound_trace_id=inbound.trace_id,
+            is_multi_domain=is_multi,
+            primary_skill_id=routes[0].skill_id,
+            domains=routes,
+            note=note,
         )
 
     def reply_template(

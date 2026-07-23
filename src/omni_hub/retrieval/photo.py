@@ -10,7 +10,10 @@ Auth model:
   reviewed approval).
 * Pexels: ``Authorization: <key>`` header. Free, no commercial caps.
 
-Set ``UNSPLASH_ACCESS_KEY`` and ``PEXELS_API_KEY`` env vars.
+Set the key via ``UNSPLASH_ACCESS_KEY`` / ``PEXELS_API_KEY`` env vars OR
+``.omni/secrets.json`` (``store_api_key('api/unsplash/default', ...)`` /
+``store_api_key('api/pexels/default', ...)``) — same dual-resolution as
+the other connectors.
 """
 
 from __future__ import annotations
@@ -23,6 +26,28 @@ from .health import env_var_probe
 
 UNSPLASH_SEARCH = "https://api.unsplash.com/search/photos"
 PEXELS_SEARCH = "https://api.pexels.com/v1/search"
+
+UNSPLASH_SECRET_REF = "local:omni-hub/api/unsplash/default"
+PEXELS_SECRET_REF = "local:omni-hub/api/pexels/default"
+
+
+def _resolve_secret(env_var: str, secret_ref: str) -> str:
+    """Env var first, then ``.omni/secrets.json`` — same dual-resolution
+    pattern as the other connectors (web_search / pixabay / ucdp / reddit)."""
+
+    val = os.environ.get(env_var, "").strip()
+    if val:
+        return val
+    try:
+        from ..secrets import resolve_secret_ref, SecretStoreError
+    except ImportError:
+        return ""
+    try:
+        return resolve_secret_ref(secret_ref) or ""
+    except SecretStoreError:
+        return ""
+    except Exception:                                            # noqa: BLE001
+        return ""
 
 
 class UnsplashSource:
@@ -37,10 +62,16 @@ class UnsplashSource:
         api_key: str | None = None,
         timeout: int = DEFAULT_TIMEOUT_SEC,
     ) -> None:
-        self.api_key = api_key or os.environ.get("UNSPLASH_ACCESS_KEY", "")
+        self.api_key = (
+            api_key
+            if api_key is not None
+            else _resolve_secret("UNSPLASH_ACCESS_KEY", UNSPLASH_SECRET_REF)
+        )
         self.timeout = timeout
 
     def check(self) -> tuple[str, str]:
+        if self.api_key:
+            return "ok", "Unsplash key configured (env or secrets.json)"
         return env_var_probe("UNSPLASH_ACCESS_KEY")
 
     def retrieve(
@@ -61,7 +92,7 @@ class UnsplashSource:
             headers={"Authorization": f"Client-ID {self.api_key}"},
             timeout=self.timeout,
         )
-        results = data.get("results", []) if isinstance(data, dict) else []
+        results = (data.get("results") or []) if isinstance(data, dict) else []
         records: list[RetrievalRecord] = []
         for item in results[:limit]:
             user = (item.get("user") or {}).get("name", "")
@@ -99,10 +130,16 @@ class PexelsSource:
         api_key: str | None = None,
         timeout: int = DEFAULT_TIMEOUT_SEC,
     ) -> None:
-        self.api_key = api_key or os.environ.get("PEXELS_API_KEY", "")
+        self.api_key = (
+            api_key
+            if api_key is not None
+            else _resolve_secret("PEXELS_API_KEY", PEXELS_SECRET_REF)
+        )
         self.timeout = timeout
 
     def check(self) -> tuple[str, str]:
+        if self.api_key:
+            return "ok", "Pexels key configured (env or secrets.json)"
         return env_var_probe("PEXELS_API_KEY")
 
     def retrieve(
@@ -123,7 +160,7 @@ class PexelsSource:
             headers={"Authorization": self.api_key},
             timeout=self.timeout,
         )
-        photos = data.get("photos", []) if isinstance(data, dict) else []
+        photos = (data.get("photos") or []) if isinstance(data, dict) else []
         records: list[RetrievalRecord] = []
         for item in photos[:limit]:
             photographer = item.get("photographer", "")

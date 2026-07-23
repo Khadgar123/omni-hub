@@ -17,9 +17,9 @@ State machine:
                                                        │
                                                        └── fail(>max_attempts) ─► dead
 
-Idempotent enqueue: if ``idempotency_key`` collides with an existing row the
-existing task is returned, never replaced.  Callers can therefore enqueue
-"daily-redundancy-2026-05-28" from launchd without worrying about overlap.
+Idempotent enqueue: if ``idempotency_key`` collides with an existing row and
+the canonical packet bytes match, the existing task is returned.  A different
+packet fails closed instead of silently binding the caller to unrelated work.
 """
 
 from __future__ import annotations
@@ -51,6 +51,11 @@ class LeaseLost(RuntimeError):
     caller can drop the result and move on.
     """
 
+
+class IdempotencyKeyCollision(ValueError):
+    """An enqueue key was reused for different canonical packet bytes."""
+
+
 DEFAULT_VISIBILITY_TIMEOUT_SEC = 600          # 10 min reclaim window
 DEFAULT_BACKOFF_BASE_SEC = 60
 DEFAULT_BACKOFF_CAP_SEC = 3600
@@ -68,6 +73,7 @@ def _new_id() -> str:
 class Task:
     id: int = 0
     idempotency_key: str = ""
+    trace_id: str = ""                        # W3C trace correlation (HR #4)
     domain_profile: str = ""
     lane: str = "python"                      # python | claude | codex | ...
     packet: dict[str, Any] = field(default_factory=dict)
@@ -78,6 +84,7 @@ class Task:
     claimed_at: int | None = None
     claimed_by: str | None = None
     lease_epoch: int = 0                      # monotonic fencing token (Kleppmann)
+    lease_deadline: int | None = None
     last_error: str | None = None
     output: dict[str, Any] | None = None
     created_at: int = 0
@@ -98,6 +105,7 @@ class Task:
         return {
             "id": self.id,
             "idempotency_key": self.idempotency_key,
+            "trace_id": self.trace_id,
             "domain_profile": self.domain_profile,
             "lane": self.lane,
             "packet": self.packet,
@@ -108,6 +116,7 @@ class Task:
             "claimed_at": self.claimed_at,
             "claimed_by": self.claimed_by,
             "lease_epoch": self.lease_epoch,
+            "lease_deadline": self.lease_deadline,
             "last_error": self.last_error,
             "output": self.output,
             "created_at": self.created_at,
@@ -120,6 +129,8 @@ def _task_from_row(row: sqlite3.Row) -> Task:
     return Task(
         id=int(row["id"]),
         idempotency_key=row["idempotency_key"] or "",
+        # trace_id added by migration; tolerate missing column on legacy dbs.
+        trace_id=row["trace_id"] if "trace_id" in keys and row["trace_id"] is not None else "",
         domain_profile=row["domain_profile"] or "",
         lane=row["lane"],
         packet=json.loads(row["packet_json"]) if row["packet_json"] else {},
@@ -132,6 +143,11 @@ def _task_from_row(row: sqlite3.Row) -> Task:
         # lease_epoch is added by migration; tolerate missing column on
         # legacy databases until they're touched.
         lease_epoch=int(row["lease_epoch"]) if "lease_epoch" in keys and row["lease_epoch"] is not None else 0,
+        lease_deadline=(
+            int(row["lease_deadline"])
+            if "lease_deadline" in keys and row["lease_deadline"] is not None
+            else None
+        ),
         last_error=row["last_error"],
         output=json.loads(row["output_json"]) if row["output_json"] else None,
         created_at=int(row["created_at"]),
@@ -163,31 +179,32 @@ class TaskQueue:
         lane: str,
         packet: dict[str, Any],
         domain_profile: str = "",
+        trace_id: str = "",
         idempotency_key: str | None = None,
         available_at: int | None = None,
         max_attempts: int = 3,
     ) -> Task:
-        """Insert a task or return the existing row sharing the idempotency key."""
+        """Insert a task, or replay an exact canonical-packet enqueue."""
 
         key = idempotency_key or _new_id()
         now = _now_ms()
         avail = int(available_at if available_at is not None else now)
-        packet_json = json.dumps(packet, ensure_ascii=False)
+        packet_json = _canonical_packet_json(packet)
 
         with self._connect() as conn:
             try:
                 cur = conn.execute(
                     """
                     INSERT INTO tasks (
-                        idempotency_key, domain_profile, lane, packet_json,
+                        idempotency_key, trace_id, domain_profile, lane, packet_json,
                         state, attempts, max_attempts, available_at,
                         created_at, updated_at
                     )
-                    VALUES (?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?)
                     RETURNING *
                     """,
                     (
-                        key, domain_profile, lane, packet_json,
+                        key, trace_id, domain_profile, lane, packet_json,
                         max_attempts, avail, now, now,
                     ),
                 )
@@ -195,12 +212,22 @@ class TaskQueue:
                 conn.commit()
                 return _task_from_row(row)
             except sqlite3.IntegrityError:
-                # idempotency key already exists — return the existing task
+                # A duplicate key is valid only for byte-identical canonical
+                # packets.  Returning an unrelated task would silently bind
+                # the caller to somebody else's work.
                 row = conn.execute(
                     "SELECT * FROM tasks WHERE idempotency_key = ?", (key,),
                 ).fetchone()
                 if row is None:  # pragma: no cover — defensive
                     raise
+                existing_packet_json = _canonical_packet_json(
+                    json.loads(row["packet_json"])
+                )
+                if existing_packet_json != packet_json:
+                    raise IdempotencyKeyCollision(
+                        f"idempotency key collision for {key!r}: "
+                        "canonical packet bytes differ"
+                    )
                 return _task_from_row(row)
 
     def claim(
@@ -225,11 +252,16 @@ class TaskQueue:
         """
 
         worker = claimed_by or _new_id()
-        now = _now_ms()
-        stale_threshold = now - int(visibility_timeout_sec * 1000)
 
         with self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
+            # Sample after the write lock is acquired.  A worker may have
+            # waited behind another writer long enough for a lease boundary
+            # to pass; using a pre-lock timestamp would mint an already-stale
+            # lease or miss an authoritative expiry.
+            now = _now_ms()
+            stale_threshold = now - int(visibility_timeout_sec * 1000)
+            lease_deadline = now + int(visibility_timeout_sec * 1000)
             row = conn.execute(
                 """
                 UPDATE tasks
@@ -237,6 +269,7 @@ class TaskQueue:
                     claimed_at = ?,
                     claimed_by = ?,
                     lease_epoch = lease_epoch + 1,
+                    lease_deadline = ?,
                     attempts = attempts + 1,
                     updated_at = ?
                 WHERE id = (
@@ -244,14 +277,33 @@ class TaskQueue:
                     WHERE lane = ?
                       AND (
                         (state = 'pending' AND available_at <= ?)
-                        OR (state = 'claimed' AND claimed_at IS NOT NULL AND claimed_at < ?)
+                        OR (
+                            state = 'claimed'
+                            AND (
+                                (lease_deadline IS NOT NULL AND lease_deadline <= ?)
+                                OR (
+                                    lease_deadline IS NULL
+                                    AND claimed_at IS NOT NULL
+                                    AND claimed_at < ?
+                                )
+                            )
+                        )
                       )
                     ORDER BY available_at ASC, id ASC
                     LIMIT 1
                 )
                 RETURNING *
                 """,
-                (now, worker, now, lane, now, stale_threshold),
+                (
+                    now,
+                    worker,
+                    lease_deadline,
+                    now,
+                    lane,
+                    now,
+                    now,
+                    stale_threshold,
+                ),
             ).fetchone()
             conn.commit()
 
@@ -409,6 +461,7 @@ class TaskQueue:
                         available_at = ?,
                         claimed_at = NULL,
                         claimed_by = NULL,
+                        lease_deadline = NULL,
                         updated_at = ?
                     WHERE id = ?
                     RETURNING *
@@ -561,6 +614,7 @@ class TaskQueue:
                 CREATE TABLE IF NOT EXISTS tasks (
                     id              INTEGER PRIMARY KEY AUTOINCREMENT,
                     idempotency_key TEXT NOT NULL UNIQUE,
+                    trace_id        TEXT NOT NULL DEFAULT '',
                     domain_profile  TEXT NOT NULL DEFAULT '',
                     lane            TEXT NOT NULL,
                     packet_json     TEXT NOT NULL,
@@ -571,6 +625,7 @@ class TaskQueue:
                     claimed_at      INTEGER,
                     claimed_by      TEXT,
                     lease_epoch     INTEGER NOT NULL DEFAULT 0,
+                    lease_deadline  INTEGER,
                     last_error      TEXT,
                     output_json     TEXT,
                     created_at      INTEGER NOT NULL,
@@ -589,11 +644,22 @@ class TaskQueue:
                 conn.execute(
                     "ALTER TABLE tasks ADD COLUMN lease_epoch INTEGER NOT NULL DEFAULT 0"
                 )
+            if "trace_id" not in cols:
+                conn.execute(
+                    "ALTER TABLE tasks ADD COLUMN trace_id TEXT NOT NULL DEFAULT ''"
+                )
+            if "lease_deadline" not in cols:
+                conn.execute(
+                    "ALTER TABLE tasks ADD COLUMN lease_deadline INTEGER"
+                )
             conn.commit()
 
     def _connect(self) -> sqlite3.Connection:
         from ._storage import connect_sqlite_store
-        return connect_sqlite_store(self.db_path)
+        conn = connect_sqlite_store(self.db_path)
+        conn.execute("PRAGMA synchronous = FULL")
+        conn.execute("PRAGMA foreign_keys = ON")
+        return conn
 
     def _safe_path(self, relative_path: str) -> Path:
         from ._storage import safe_workspace_path
@@ -618,3 +684,39 @@ def _percentiles(sorted_values: list[int]) -> dict[str, int]:
         "p99": _at(0.99),
         "count": n,
     }
+
+
+def _canonical_packet_json(packet: dict[str, Any]) -> str:
+    """Canonical packet bytes used for idempotent enqueue collision checks."""
+
+    if not isinstance(packet, dict):
+        raise TypeError("task packet must be a JSON object")
+    _validate_packet_json(packet)
+    try:
+        return json.dumps(
+            packet,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
+    except (TypeError, ValueError) as exc:
+        raise ValueError("task packet must be strict canonical JSON") from exc
+
+
+def _validate_packet_json(value: object) -> None:
+    if value is None or isinstance(value, (str, bool, int, float)):
+        return
+    if isinstance(value, (list, tuple)):
+        for item in value:
+            _validate_packet_json(item)
+        return
+    if isinstance(value, dict):
+        if any(not isinstance(key, str) for key in value):
+            raise ValueError("task packet mapping keys must be strings")
+        for item in value.values():
+            _validate_packet_json(item)
+        return
+    raise ValueError(
+        f"task packet value is not representable as JSON: {type(value).__name__}"
+    )

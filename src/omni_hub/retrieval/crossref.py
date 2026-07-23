@@ -17,6 +17,23 @@ from .base import DEFAULT_TIMEOUT_SEC, RetrievalRecord, http_get_json
 
 
 WORKS_URL = "https://api.crossref.org/works"
+CROSSREF_SECRET_REF = "local:omni-hub/api/crossref/mailto"
+
+
+def _resolve_crossref_mailto() -> str:
+    env_v = os.environ.get("CROSSREF_MAILTO", "").strip()
+    if env_v:
+        return env_v
+    try:
+        from ..secrets import resolve_secret_ref, SecretStoreError
+    except ImportError:
+        return ""
+    try:
+        return resolve_secret_ref(CROSSREF_SECRET_REF) or ""
+    except SecretStoreError:
+        return ""
+    except Exception:                                            # noqa: BLE001
+        return ""
 
 
 class CrossrefSource:
@@ -31,7 +48,7 @@ class CrossrefSource:
         mailto: str | None = None,
         timeout: int = DEFAULT_TIMEOUT_SEC,
     ) -> None:
-        self.mailto = mailto or os.environ.get("CROSSREF_MAILTO", "")
+        self.mailto = mailto if mailto is not None else _resolve_crossref_mailto()
         self.timeout = timeout
 
     def check(self) -> tuple[str, str]:
@@ -94,6 +111,16 @@ class CrossrefSource:
                     "license": item.get("license", []),
                     "reference_count": item.get("reference-count", 0),
                     "is_referenced_by_count": item.get("is-referenced-by-count", 0),
+                    # v0.49: stop under-extraction (Q2/Q3)
+                    "full_text_links": _full_text_links(item.get("link")),
+                    "authors_detailed": _authors_detailed(item.get("author", [])),
+                    "funder": _funders(item.get("funder")),
+                    "relation": item.get("relation") if isinstance(item.get("relation"), dict) else {},
+                    "issn": list(item.get("ISSN") or []),
+                    "subject": list(item.get("subject") or []),
+                    "volume": str(item.get("volume", "")),
+                    "issue": str(item.get("issue", "")),
+                    "page": str(item.get("page", "")),
                 },
             ))
         return records
@@ -138,6 +165,68 @@ def _authors(value: object) -> list[str]:
             name = " ".join(part for part in (given, family) if part)
         if name:
             out.append(name)
+    return out
+
+
+def _authors_detailed(value: object) -> list[dict[str, Any]]:
+    """Author name + ORCID + affiliations + sequence (Crossref deposits these
+    when the publisher provides them — far cheaper/cleaner than PDF parsing)."""
+    if not isinstance(value, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for author in value:
+        if not isinstance(author, dict):
+            continue
+        given = str(author.get("given", "")).strip()
+        family = str(author.get("family", "")).strip()
+        name = str(author.get("name", "")).strip() or " ".join(
+            p for p in (given, family) if p
+        )
+        out.append({
+            "name": name,
+            "orcid": str(author.get("ORCID", "")),
+            "sequence": str(author.get("sequence", "")),
+            "affiliations": [
+                str((aff or {}).get("name", ""))
+                for aff in (author.get("affiliation") or [])
+                if isinstance(aff, dict) and (aff or {}).get("name")
+            ],
+        })
+    return out
+
+
+def _full_text_links(value: object) -> list[dict[str, str]]:
+    """Crossref ``link`` entries — publisher full-text PDF/HTML URLs (the most
+    useful previously-dropped field for downstream deep-parse)."""
+    if not isinstance(value, list):
+        return []
+    out: list[dict[str, str]] = []
+    for link in value:
+        if not isinstance(link, dict):
+            continue
+        u = str(link.get("URL", "")).strip()
+        if not u:
+            continue
+        out.append({
+            "url": u,
+            "content_type": str(link.get("content-type", "")),
+            "intended_application": str(link.get("intended-application", "")),
+        })
+    return out
+
+
+def _funders(value: object) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for f in value:
+        if not isinstance(f, dict):
+            continue
+        out.append({
+            "name": str(f.get("name", "")),
+            "doi": str(f.get("DOI", "")),
+            "awards": [str(a) for a in (f.get("award") or [])],
+        })
     return out
 
 

@@ -270,7 +270,6 @@ omni_hub:
   entrypoint: "operation:context_pack_build"
   risk_level: L0
   required_permissions: []
-  connectors:
 {_render_connector_list(schema.authoritative_sources)}
   tags:
     - wiki
@@ -382,11 +381,18 @@ _Auto-generated stub.  Hand-editing is supported — remove the
 
 
 def _render_connector_list(connectors: list[str]) -> str:
-    """YAML-list render for the ``connectors:`` field inside ``omni_hub:``."""
+    """YAML-list render for the ``connectors:`` field inside ``omni_hub:``.
+
+    Returns the *complete* ``connectors:`` line.  Empty lists must use
+    inline ``[]`` syntax on the same line — the previous "key:\\n    []"
+    form was misparsed as a list of strings ``["[]"]`` by some YAML
+    parsers, polluting the skill registry (v0.42 fix).
+    """
 
     if not connectors:
-        return "    []"
-    return "\n".join(f"    - {c}" for c in connectors)
+        return "  connectors: []"
+    items = "\n".join(f"    - {c}" for c in connectors)
+    return f"  connectors:\n{items}"
 
 
 def _render_frontmatter_block(schema: DomainSchema) -> str:
@@ -891,6 +897,23 @@ FUNCTIONAL_SKILLS: list[FunctionalSkill] = [
         ],
         entrypoint="operation:meta_cross_skill_scan",
         composes=["judge-evaluate"],
+    ),
+    FunctionalSkill(
+        skill_id="quant-finding",
+        display_name="Quant Finding Propose",
+        hero="Fold a quant backtest finding (strategy hypothesis / backtest "
+             "metrics / risk disclosure) into the finance-domain ClaimLedger "
+             "via Proposal(kind=wiki_update).  Never ingests raw OHLCV -- only "
+             "human-reviewable conclusions.  The quant->knowledge seam (the "
+             "quant data/backtest plane stays in agent-harness/quant).",
+        triggers=[
+            "record this backtest conclusion into the wiki",
+            "把这个量化策略结论 / 回测沉淀进 claims",
+            "log a quant finding for review",
+        ],
+        entrypoint="operation:quant_finding_propose",
+        composes=["context-pack", "claims-show"],
+        risk_level="L1",
     ),
 ]
 
