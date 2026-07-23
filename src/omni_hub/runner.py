@@ -3,7 +3,13 @@ from __future__ import annotations
 from uuid import uuid4
 
 from .audit import AuditLogger
-from .models import OperationResult, OperationSpec, OperationStatus
+from .models import OperationResult, OperationSpec, OperationStatus, RiskLevel
+from .operation_receipts import (
+    OperationReceiptStore,
+    ReceiptConflict,
+    UncommittedReceipt,
+    canonical_operation_spec_sha256,
+)
 from .policy import PolicyEngine
 from .registry import OperationRegistry
 
@@ -16,11 +22,20 @@ class OperationRunner:
         audit: AuditLogger | None = None,
         *,
         sandbox_enabled: bool = False,
+        receipts: OperationReceiptStore | None = None,
     ) -> None:
         self.registry = registry
         self.policy = policy or PolicyEngine()
         self.audit = audit or AuditLogger()
         self.sandbox_enabled = sandbox_enabled
+        self.receipts = receipts
+
+    def _receipts(self) -> OperationReceiptStore:
+        if self.receipts is None:
+            self.receipts = OperationReceiptStore(
+                self.audit.path.parent / "operation-receipts.sqlite3"
+            )
+        return self.receipts
 
     def run(self, spec: OperationSpec, *, approved: bool = False) -> OperationResult:
         # v0.18-C: ensure every Operation carries a trace_id so audit /
@@ -78,6 +93,41 @@ class OperationRunner:
             result.audit_id = event.event_id
             return result
 
+        receipt_store: OperationReceiptStore | None = None
+        receipt_sha = ""
+        external_send = RiskLevel.parse(spec.risk_level) == RiskLevel.EXTERNAL_SEND
+        if spec.idempotency_key:
+            receipt_store = self._receipts()
+            receipt_sha = canonical_operation_spec_sha256(spec)
+            try:
+                replay = receipt_store.lookup(
+                    spec.name, spec.idempotency_key, receipt_sha
+                )
+                if replay is not None:
+                    self.audit.record(
+                        "operation_replayed",
+                        spec,
+                        decision=decision,
+                        result=replay,
+                    )
+                    return replay
+                receipt_store.begin(
+                    spec.name,
+                    spec.idempotency_key,
+                    receipt_sha,
+                    external_send=external_send,
+                )
+            except (ReceiptConflict, UncommittedReceipt, ValueError, TypeError) as exc:
+                result = OperationResult(
+                    operation_id=spec.operation_id,
+                    status=OperationStatus.FAILED,
+                    error=str(exc),
+                    trace_id=spec.trace_id,
+                )
+                event = self.audit.record("operation_failed", spec, result=result)
+                result.audit_id = event.event_id
+                return result
+
         # v0.18-A: when dry_run is set, audit uses a distinct event_kind so
         # log readers can filter previews out from real writes.
         start_event_kind = "operation_previewed" if spec.dry_run else "operation_started"
@@ -92,6 +142,19 @@ class OperationRunner:
                 error=str(exc),
                 trace_id=spec.trace_id,
             )
+            if receipt_store is not None and not external_send:
+                try:
+                    receipt_store.commit(
+                        spec.name,
+                        spec.idempotency_key or "",
+                        receipt_sha,
+                        result,
+                    )
+                except Exception as receipt_exc:
+                    result.error = (
+                        f"{result.error}; idempotency receipt commit failed: "
+                        f"{receipt_exc}"
+                    )
             event = self.audit.record("operation_failed", spec, result=result)
             result.audit_id = event.event_id
             return result
@@ -102,6 +165,24 @@ class OperationRunner:
             output=output,
             trace_id=spec.trace_id,
         )
+        if receipt_store is not None:
+            try:
+                receipt_store.commit(
+                    spec.name,
+                    spec.idempotency_key or "",
+                    receipt_sha,
+                    result,
+                )
+            except Exception as exc:
+                failed = OperationResult(
+                    operation_id=spec.operation_id,
+                    status=OperationStatus.FAILED,
+                    error=f"idempotency receipt commit failed: {exc}",
+                    trace_id=spec.trace_id,
+                )
+                event = self.audit.record("operation_failed", spec, result=failed)
+                failed.audit_id = event.event_id
+                return failed
         finish_event_kind = (
             "operation_preview_succeeded" if spec.dry_run else "operation_succeeded"
         )

@@ -9,9 +9,106 @@ from omni_hub.audit import AuditLogger
 from omni_hub.builtins import build_default_registry
 from omni_hub.models import OperationSpec, OperationStatus, RiskLevel
 from omni_hub.runner import OperationRunner
+from omni_hub.operation_receipts import OperationReceiptStore
+from omni_hub.policy import PolicyConfig, PolicyEngine
+from omni_hub.registry import OperationRegistry
 
 
 class OperationRunnerTests(unittest.TestCase):
+    def test_same_idempotency_key_and_spec_replays_without_calling_handler(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            calls = []
+            registry = OperationRegistry()
+
+            def handler(spec):
+                calls.append(spec.payload)
+                return {"call_count": len(calls)}
+
+            registry.register("once", handler)
+            runner = OperationRunner(
+                registry,
+                audit=AuditLogger(Path(tmpdir) / "audit.jsonl"),
+                receipts=OperationReceiptStore(Path(tmpdir) / "receipts.sqlite3"),
+            )
+            first = runner.run(
+                OperationSpec(
+                    name="once",
+                    action="write",
+                    payload={"value": 1},
+                    risk_level=RiskLevel.LOCAL_WRITE,
+                    idempotency_key="once-1",
+                )
+            )
+            replay = runner.run(
+                OperationSpec(
+                    name="once",
+                    action="write",
+                    payload={"value": 1},
+                    risk_level=RiskLevel.LOCAL_WRITE,
+                    idempotency_key="once-1",
+                )
+            )
+            self.assertEqual(first.status, OperationStatus.SUCCEEDED)
+            self.assertEqual(replay.output, first.output)
+            self.assertEqual(len(calls), 1)
+
+    def test_same_idempotency_key_with_different_spec_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            calls = []
+            registry = OperationRegistry()
+            registry.register("once", lambda spec: calls.append(spec.payload) or {"ok": True})
+            runner = OperationRunner(
+                registry,
+                audit=AuditLogger(Path(tmpdir) / "audit.jsonl"),
+                receipts=OperationReceiptStore(Path(tmpdir) / "receipts.sqlite3"),
+            )
+            runner.run(
+                OperationSpec(
+                    name="once", action="write", payload={"value": 1},
+                    risk_level=RiskLevel.LOCAL_WRITE, idempotency_key="key",
+                )
+            )
+            collision = runner.run(
+                OperationSpec(
+                    name="once", action="write", payload={"value": 2},
+                    risk_level=RiskLevel.LOCAL_WRITE, idempotency_key="key",
+                )
+            )
+            self.assertEqual(collision.status, OperationStatus.FAILED)
+            self.assertIn("idempotency", collision.error)
+            self.assertEqual(len(calls), 1)
+
+    def test_external_send_exception_is_not_silently_retried(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            calls = []
+            registry = OperationRegistry()
+
+            def uncertain_send(spec):
+                calls.append(spec.payload)
+                raise RuntimeError("connection dropped after send")
+
+            registry.register("send", uncertain_send)
+            runner = OperationRunner(
+                registry,
+                policy=PolicyEngine(
+                    PolicyConfig(external_write_allowlist={"remote:send"})
+                ),
+                audit=AuditLogger(Path(tmpdir) / "audit.jsonl"),
+                receipts=OperationReceiptStore(Path(tmpdir) / "receipts.sqlite3"),
+            )
+            make_spec = lambda: OperationSpec(
+                name="send", connector="remote", action="send",
+                payload={"request_sha256": "a" * 64},
+                risk_level=RiskLevel.EXTERNAL_SEND,
+                idempotency_key="send-key",
+            )
+            first = runner.run(make_spec())
+            retry = runner.run(make_spec())
+            self.assertEqual(first.status, OperationStatus.FAILED)
+            self.assertEqual(retry.status, OperationStatus.FAILED)
+            self.assertIn("already recorded", retry.error)
+            self.assertEqual(len(calls), 1)
+
     def test_runs_read_only_operation_and_writes_audit_log(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             audit_path = Path(tmpdir) / "audit.jsonl"

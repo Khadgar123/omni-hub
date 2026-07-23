@@ -10,13 +10,20 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from omni_hub.queue import Task, TaskQueue
+from omni_hub.audit import AuditLogger
+from omni_hub.registry import OperationRegistry
+from omni_hub.runner import OperationRunner
 from omni_hub.workers import (
     Artifact,
     BuiltinAdapter,
     WorkerError,
     new_artifact_id,
 )
-from omni_hub.workers.builtin import make_builtin_adapter
+from omni_hub.workers.builtin import (
+    WORKER_CONTEXT_KEY,
+    BuiltinAdapter,
+    make_builtin_adapter,
+)
 
 
 class ArtifactRoundTripTests(unittest.TestCase):
@@ -101,6 +108,97 @@ class BuiltinAdapterTests(unittest.TestCase):
             artifact = adapter.run(task)
             self.assertIsNotNone(artifact.error)
             self.assertEqual(artifact.kind, "generation")
+
+    def test_reserved_execution_context_is_authoritative_and_propagated(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            registry = OperationRegistry()
+            registry.register("inspect", lambda spec: {
+                "payload": spec.payload,
+                "trace_id": spec.trace_id,
+                "idempotency_key": spec.idempotency_key,
+            })
+            adapter = BuiltinAdapter(
+                OperationRunner(
+                    registry, audit=AuditLogger(Path(tmp) / "audit.jsonl")
+                ),
+                worker_id="worker-7",
+            )
+            task = Task(
+                id=42,
+                idempotency_key="packet-key",
+                trace_id="trace-42",
+                lane="python",
+                packet={"operation": "inspect", "payload": {"safe": True}},
+                claimed_by="worker-7",
+                lease_epoch=3,
+            )
+            artifact = adapter.run(task)
+            context = artifact.data["payload"][WORKER_CONTEXT_KEY]
+            self.assertEqual(
+                context,
+                {
+                    "trace_id": "trace-42",
+                    "idempotency_key": "packet-key",
+                    "task_id": 42,
+                    "worker_id": "worker-7",
+                    "lease_epoch": 3,
+                    "fencing_suffix": "t42:e3",
+                },
+            )
+            self.assertEqual(artifact.data["trace_id"], "trace-42")
+            self.assertEqual(artifact.data["idempotency_key"], "packet-key")
+
+    def test_receipt_replays_across_reclaimed_lease_without_rerunning_handler(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            calls = []
+            registry = OperationRegistry()
+
+            def inspect(spec):
+                calls.append(spec.payload[WORKER_CONTEXT_KEY]["lease_epoch"])
+                return {"committed_by_epoch": calls[-1]}
+
+            registry.register("inspect", inspect)
+            adapter = BuiltinAdapter(
+                OperationRunner(
+                    registry, audit=AuditLogger(Path(tmp) / "audit.jsonl")
+                ),
+                worker_id="worker-7",
+            )
+            base = {
+                "id": 42,
+                "idempotency_key": "packet-key",
+                "trace_id": "trace-42",
+                "lane": "python",
+                "packet": {"operation": "inspect", "payload": {"safe": True}},
+                "claimed_by": "worker-7",
+            }
+            first = adapter.run(Task(**base, lease_epoch=3))
+            replay = adapter.run(Task(**base, lease_epoch=4))
+            self.assertEqual(first.data, replay.data)
+            self.assertEqual(calls, [3])
+
+    def test_user_payload_cannot_forge_reserved_execution_context(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            registry = OperationRegistry()
+            registry.register("inspect", lambda spec: {"unexpected": True})
+            adapter = BuiltinAdapter(
+                OperationRunner(
+                    registry, audit=AuditLogger(Path(tmp) / "audit.jsonl")
+                ),
+                worker_id="worker-7",
+            )
+            task = Task(
+                id=42,
+                lane="python",
+                packet={
+                    "operation": "inspect",
+                    "payload": {WORKER_CONTEXT_KEY: {"worker_id": "forged"}},
+                },
+                claimed_by="worker-7",
+                lease_epoch=3,
+            )
+            with self.assertRaises(WorkerError):
+                adapter.run(task)
 
 
 class QueueWorkerIntegrationTests(unittest.TestCase):

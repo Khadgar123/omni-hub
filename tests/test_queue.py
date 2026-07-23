@@ -19,6 +19,7 @@ from omni_hub.queue import (
     DEAD,
     DONE,
     LeaseLost,
+    IdempotencyKeyCollision,
     PENDING,
     TaskQueue,
     _now_ms,
@@ -37,14 +38,24 @@ class TaskQueueTests(unittest.TestCase):
             self.assertEqual(task.attempts, 0)
             self.assertTrue(task.idempotency_key)
 
-    def test_idempotency_key_collision_returns_existing(self) -> None:
+    def test_idempotency_key_same_canonical_packet_returns_existing(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             q = TaskQueue(tmp)
-            a = q.enqueue(lane="python", packet={"v": 1}, idempotency_key="dup")
-            b = q.enqueue(lane="python", packet={"v": 2}, idempotency_key="dup")
+            a = q.enqueue(
+                lane="python", packet={"a": 1, "b": 2}, idempotency_key="dup"
+            )
+            b = q.enqueue(
+                lane="python", packet={"b": 2, "a": 1}, idempotency_key="dup"
+            )
             self.assertEqual(a.id, b.id)
-            # second enqueue must not overwrite payload
-            self.assertEqual(b.packet, {"v": 1})
+            self.assertEqual(b.packet, {"a": 1, "b": 2})
+
+    def test_idempotency_key_different_packet_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            q = TaskQueue(tmp)
+            q.enqueue(lane="python", packet={"v": 1}, idempotency_key="dup")
+            with self.assertRaises(IdempotencyKeyCollision):
+                q.enqueue(lane="python", packet={"v": 2}, idempotency_key="dup")
 
     def test_trace_id_round_trips_enqueue_claim_to_dict(self) -> None:
         # HR #4: every write carries a trace_id. It must survive
@@ -405,7 +416,9 @@ class TaskCliTests(unittest.TestCase):
                 "task-enqueue", "--lane", "claude",
                 "--packet-json", '{"goal":"b"}', "--idempotency-key", "k1",
             ])
-            self.assertEqual(a["output"]["id"], b["output"]["id"])
+            self.assertEqual(a["status"], "succeeded")
+            self.assertEqual(b["status"], "failed")
+            self.assertIn("idempotency key collision", b["error"])
 
     def test_claim_empty_lane_returns_null(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
