@@ -97,6 +97,14 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     blogger_inventory.add_argument("--targets", required=True)
     blogger_inventory.add_argument("--output", required=True)
 
+    identity_review_freeze = subparsers.add_parser(
+        "discord-blogger-identity-review-freeze",
+        help="Freeze a complete hash-bound private blogger identity review pack.",
+    )
+    identity_review_freeze.add_argument("--candidate-pack", required=True)
+    identity_review_freeze.add_argument("--reviewed-labels", required=True)
+    identity_review_freeze.add_argument("--output", required=True)
+
     blogger_backtest = subparsers.add_parser(
         "discord-blogger-backtest-run",
         help="Run and atomically publish a hash-bound conservative 1m blogger backtest.",
@@ -281,6 +289,24 @@ def _blogger_inventory_build(args, *, runner, workspace) -> int:
     )
 
 
+def _blogger_identity_review_freeze(args, *, runner, workspace) -> int:
+    del workspace
+    return run_and_print(
+        runner,
+        OperationSpec(
+            name="discord_blogger_identity_review_freeze",
+            action="freeze_blogger_identity_review",
+            connector="discord",
+            payload={
+                "candidate_pack": args.candidate_pack,
+                "reviewed_labels": args.reviewed_labels,
+                "output": args.output,
+            },
+            risk_level=RiskLevel.LOCAL_WRITE,
+        ),
+    )
+
+
 def _blogger_backtest_run(args, *, runner, workspace) -> int:
     del workspace
     return run_and_print(
@@ -313,5 +339,8 @@ COMMANDS = {
     "discord-shard-closure-audit": _shard_closure_audit,
     "discord-blogger-events-build": _blogger_events_build,
     "discord-blogger-inventory-build": _blogger_inventory_build,
+    "discord-blogger-identity-review-freeze": (
+        _blogger_identity_review_freeze
+    ),
     "discord-blogger-backtest-run": _blogger_backtest_run,
 }

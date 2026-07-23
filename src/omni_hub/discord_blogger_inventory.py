@@ -8,7 +8,9 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import sqlite3
 import stat
+import tempfile
 from typing import Iterable, Mapping, Sequence
 
 from .discord_blogger_corpus import BloggerMessage
@@ -84,22 +86,63 @@ def build_blogger_target_inventory(
     )
     exact: dict[str, _Counts] = {}
     family: dict[str, _Counts] = {}
-    commitments: list[tuple[str, str, str]] = []
-    seen_messages: set[str] = set()
-    for message in messages:
-        if message.message_id in seen_messages:
-            raise ValueError("Discord authorized corpus contains a duplicate message")
-        seen_messages.add(message.message_id)
-        if message.channel_id not in target_by_id and message.channel_id not in family_owner:
-            raise ValueError("Discord authorized message is outside the target families")
-        exact.setdefault(message.channel_id, _Counts()).add(message)
-        owner = family_owner.get(message.channel_id, message.channel_id)
-        if owner not in target_by_id:
-            raise ValueError("Discord family owner is outside the explicit targets")
-        family.setdefault(owner, _Counts()).add(message)
-        commitments.append(
-            (message.message_id, message.channel_id, message.snapshot_sha256)
-        )
+    with tempfile.TemporaryDirectory(
+        prefix="omni-discord-inventory-ledger-"
+    ) as directory:
+        ledger = sqlite3.connect(Path(directory) / "inventory.sqlite3")
+        try:
+            ledger.execute(
+                """
+                CREATE TABLE authorized_messages (
+                    message_id TEXT PRIMARY KEY,
+                    channel_id TEXT NOT NULL,
+                    snapshot_sha256 TEXT NOT NULL
+                )
+                """
+            )
+            for message in messages:
+                try:
+                    ledger.execute(
+                        """
+                        INSERT INTO authorized_messages (
+                            message_id, channel_id, snapshot_sha256
+                        ) VALUES (?, ?, ?)
+                        """,
+                        (
+                            message.message_id,
+                            message.channel_id,
+                            message.snapshot_sha256,
+                        ),
+                    )
+                except sqlite3.IntegrityError as exc:
+                    raise ValueError(
+                        "Discord authorized corpus contains a duplicate message"
+                    ) from exc
+                if (
+                    message.channel_id not in target_by_id
+                    and message.channel_id not in family_owner
+                ):
+                    raise ValueError(
+                        "Discord authorized message is outside the target families"
+                    )
+                exact.setdefault(message.channel_id, _Counts()).add(message)
+                owner = family_owner.get(
+                    message.channel_id, message.channel_id
+                )
+                if owner not in target_by_id:
+                    raise ValueError(
+                        "Discord family owner is outside the explicit targets"
+                    )
+                family.setdefault(owner, _Counts()).add(message)
+            ledger.commit()
+            unique_message_count = int(
+                ledger.execute(
+                    "SELECT COUNT(*) FROM authorized_messages"
+                ).fetchone()[0]
+            )
+            corpus_commitment = _authorized_corpus_commitment(ledger)
+        finally:
+            ledger.close()
 
     rows: list[dict[str, object]] = []
     for target in sorted(targets, key=lambda value: int(str(value["id"]))):
@@ -148,11 +191,6 @@ def build_blogger_target_inventory(
             }
         )
 
-    commitment_bytes = json.dumps(
-        sorted(commitments, key=lambda value: int(value[0])),
-        ensure_ascii=False,
-        separators=(",", ":"),
-    ).encode("utf-8")
     inventory = {
         "artifact_kind": "discord-blogger-target-inventory-v1",
         "schema_version": 1,
@@ -171,10 +209,8 @@ def build_blogger_target_inventory(
         },
         "provenance": dict(provenance),
         "target_count": len(rows),
-        "unique_authorized_message_count": len(seen_messages),
-        "authorized_corpus_commitment_sha256": hashlib.sha256(
-            commitment_bytes
-        ).hexdigest(),
+        "unique_authorized_message_count": unique_message_count,
+        "authorized_corpus_commitment_sha256": corpus_commitment,
         "per_target_message_sum": sum(int(row["message_count"]) for row in rows),
         "targets_with_verified_messages": sum(
             int(row["message_count"]) > 0 for row in rows
@@ -187,6 +223,32 @@ def build_blogger_target_inventory(
     }
     _reject_sensitive(inventory)
     return inventory
+
+
+def _authorized_corpus_commitment(ledger: sqlite3.Connection) -> str:
+    digest = hashlib.sha256()
+    digest.update(b"[")
+    first = True
+    rows = ledger.execute(
+        """
+        SELECT message_id, channel_id, snapshot_sha256
+        FROM authorized_messages
+        ORDER BY LENGTH(message_id), message_id
+        """
+    )
+    for message_id, channel_id, snapshot_sha256 in rows:
+        if not first:
+            digest.update(b",")
+        digest.update(
+            json.dumps(
+                [message_id, channel_id, snapshot_sha256],
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        )
+        first = False
+    digest.update(b"]")
+    return digest.hexdigest()
 
 
 def publish_blogger_target_inventory(

@@ -8,7 +8,7 @@ import hashlib
 import json
 from pathlib import Path
 import stat
-from typing import Iterator, Sequence
+from typing import Iterator, Mapping, Sequence
 
 from .discord_reference_sidecar import _RootAnchor
 from .discord_sharding import _read_regular_file_bytes, canonical_json_sha256
@@ -23,6 +23,21 @@ class BloggerMessage:
     edited_timestamp: str | None
     content: str
     reply_message_id: str | None
+    snapshot_ref: str
+    snapshot_sha256: str
+    media_occurrence_refs: tuple[str, ...]
+    webhook_id: str | None = None
+    application_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class VerifiedRawMessageSnapshot:
+    raw_message: Mapping[str, object]
+    source_kind: str
+    stream: str
+    evidence_path: str
+    evidence_sha256: str
+    json_pointer: str
     snapshot_ref: str
     snapshot_sha256: str
     media_occurrence_refs: tuple[str, ...]
@@ -114,46 +129,14 @@ def iter_verified_blogger_messages(
 ) -> Iterator[BloggerMessage]:
     """Yield baseline plus explicit closure IDs, with closure snapshots first."""
 
-    root = _root(export_root)
-    targets = _targets(target_ids)
-    _check_range(start, end)
-    closure_relative = _relative(closure_audit_path, "closure audit")
-    closure_bytes, closure_sha = read_blogger_closure_bytes(
-        export_root=root,
-        closure_audit_path=closure_relative,
+    root, targets, merge, head, request_path = _verified_corpus_context(
+        export_root=export_root,
+        closure_audit_path=closure_audit_path,
+        target_ids=target_ids,
+        expected_closure_sha256=expected_closure_sha256,
+        scope=scope,
     )
-    try:
-        closure = json.loads(closure_bytes)
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ValueError("Discord closure audit is unreadable") from exc
-    if expected_closure_sha256 is not None:
-        if not _sha(expected_closure_sha256):
-            raise ValueError("Discord closure audit hash commitment is invalid")
-        if closure_sha != expected_closure_sha256:
-            raise ValueError("Discord closure audit hash commitment changed")
-    if not isinstance(closure, dict) or closure.get("audit_kind") != "discord-parent-family-closure-v1":
-        raise ValueError("Discord closure audit kind is invalid")
-    bindings = closure.get("input_file_sha256")
-    canonical = closure.get("input_canonical_sha256")
-    if not isinstance(bindings, dict) or not isinstance(canonical, dict):
-        raise ValueError("Discord closure input bindings are invalid")
-    capture_dir = closure_relative.parent
-    namespace_dir = capture_dir.parent
-    merge_path = namespace_dir / _relative("merge-audit.json", "merge audit")
-    request_path = namespace_dir / _relative("merge-request.json", "merge request")
-    head_path = capture_dir / _relative("head-catchup.json", "head catch-up")
-    head, head_sha = _json_file(root, head_path, "head catch-up")
-    merge, merge_sha = _json_file(root, merge_path, "merge audit")
-    if bindings.get("merge_audit") != merge_sha or bindings.get("head_catchup") != head_sha:
-        raise ValueError("Discord closure file hash binding is invalid")
-    if canonical.get("merge_audit") != canonical_json_sha256(merge) or canonical.get("head_catchup") != canonical_json_sha256(head):
-        raise ValueError("Discord closure canonical hash binding is invalid")
-    if not isinstance(merge, dict) or merge.get("audit_kind") != "discord-parent-family-merge-v1":
-        raise ValueError("Discord merge audit kind is invalid")
-    if not isinstance(head, dict):
-        raise ValueError("Discord head catch-up is invalid")
-    _verify_scope(merge, closure, head, targets, scope=scope)
-    _verify_closure_delta(closure, head)
+    _check_range(start, end)
 
     selected: dict[str, BloggerMessage] = {}
     for message in _baseline_messages(root, merge, request_path, targets):
@@ -169,6 +152,100 @@ def iter_verified_blogger_messages(
         if end is not None and when >= end:
             continue
         yield message
+
+
+def iter_verified_blogger_raw_snapshots(
+    *,
+    export_root: Path,
+    closure_audit_path: Path,
+    target_ids: Sequence[str],
+    expected_closure_sha256: str | None = None,
+    scope: str = "static",
+) -> Iterator[VerifiedRawMessageSnapshot]:
+    """Yield verified baseline and closure snapshots without global buffering."""
+
+    root, targets, merge, head, request_path = _verified_corpus_context(
+        export_root=export_root,
+        closure_audit_path=closure_audit_path,
+        target_ids=target_ids,
+        expected_closure_sha256=expected_closure_sha256,
+        scope=scope,
+    )
+    yield from _baseline_raw_snapshots(
+        root, merge, request_path, targets
+    )
+    yield from _closure_raw_snapshots(root, head, targets)
+
+
+def _verified_corpus_context(
+    *,
+    export_root: Path,
+    closure_audit_path: Path,
+    target_ids: Sequence[str],
+    expected_closure_sha256: str | None,
+    scope: str,
+) -> tuple[
+    Path,
+    set[str],
+    dict[str, object],
+    dict[str, object],
+    Path,
+]:
+    root = _root(export_root)
+    targets = _targets(target_ids)
+    closure_relative = _relative(closure_audit_path, "closure audit")
+    closure_bytes, closure_sha = read_blogger_closure_bytes(
+        export_root=root,
+        closure_audit_path=closure_relative,
+    )
+    try:
+        closure = json.loads(closure_bytes)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("Discord closure audit is unreadable") from exc
+    if expected_closure_sha256 is not None:
+        if not _sha(expected_closure_sha256):
+            raise ValueError("Discord closure audit hash commitment is invalid")
+        if closure_sha != expected_closure_sha256:
+            raise ValueError("Discord closure audit hash commitment changed")
+    if (
+        not isinstance(closure, dict)
+        or closure.get("audit_kind")
+        != "discord-parent-family-closure-v1"
+    ):
+        raise ValueError("Discord closure audit kind is invalid")
+    bindings = closure.get("input_file_sha256")
+    canonical = closure.get("input_canonical_sha256")
+    if not isinstance(bindings, dict) or not isinstance(canonical, dict):
+        raise ValueError("Discord closure input bindings are invalid")
+    capture_dir = closure_relative.parent
+    namespace_dir = capture_dir.parent
+    merge_path = namespace_dir / _relative("merge-audit.json", "merge audit")
+    request_path = namespace_dir / _relative(
+        "merge-request.json", "merge request"
+    )
+    head_path = capture_dir / _relative("head-catchup.json", "head catch-up")
+    head, head_sha = _json_file(root, head_path, "head catch-up")
+    merge, merge_sha = _json_file(root, merge_path, "merge audit")
+    if (
+        bindings.get("merge_audit") != merge_sha
+        or bindings.get("head_catchup") != head_sha
+    ):
+        raise ValueError("Discord closure file hash binding is invalid")
+    if (
+        canonical.get("merge_audit") != canonical_json_sha256(merge)
+        or canonical.get("head_catchup") != canonical_json_sha256(head)
+    ):
+        raise ValueError("Discord closure canonical hash binding is invalid")
+    if (
+        not isinstance(merge, dict)
+        or merge.get("audit_kind") != "discord-parent-family-merge-v1"
+    ):
+        raise ValueError("Discord merge audit kind is invalid")
+    if not isinstance(head, dict):
+        raise ValueError("Discord head catch-up is invalid")
+    _verify_scope(merge, closure, head, targets, scope=scope)
+    _verify_closure_delta(closure, head)
+    return root, targets, merge, head, request_path
 
 
 def _verify_scope(
@@ -243,7 +320,23 @@ def _baseline_messages(
     merge: dict[str, object],
     request_path: Path,
     targets: set[str],
-) -> list[BloggerMessage]:
+) -> Iterator[BloggerMessage]:
+    for snapshot in _baseline_raw_snapshots(
+        root, merge, request_path, targets
+    ):
+        yield _message(
+            dict(snapshot.raw_message),
+            snapshot.snapshot_ref,
+            snapshot.media_occurrence_refs,
+        )
+
+
+def _baseline_raw_snapshots(
+    root: Path,
+    merge: dict[str, object],
+    request_path: Path,
+    targets: set[str],
+) -> Iterator[VerifiedRawMessageSnapshot]:
     request, request_sha = _json_file(root, request_path, "merge request")
     if not isinstance(request, dict) or request_sha != merge.get("merge_request_sha256"):
         raise ValueError("Discord merge request hash binding is invalid")
@@ -261,7 +354,6 @@ def _baseline_messages(
         if not isinstance(checkpoint, dict) or not isinstance(checkpoint.get("streams"), dict):
             raise ValueError("Discord checkpoint streams are invalid")
         validated.append((run_root, checkpoint))
-    all_messages: list[BloggerMessage] = []
     for run_root, checkpoint in validated:
         for stream, state in checkpoint["streams"].items():
             if not isinstance(stream, str) or not stream.startswith("messages_"):
@@ -275,8 +367,14 @@ def _baseline_messages(
                 raise ValueError("Discord checkpoint page ledger is invalid")
             for number, (raw_sha, page_state) in enumerate(zip(state["page_hashes"], state["page_states"], strict=True), start=1):
                 descriptor = page_state.get("message_evidence") if isinstance(page_state, dict) else None
-                all_messages.extend(_baseline_page(root, run_root, stream, number, raw_sha, descriptor))
-    return all_messages
+                yield from _baseline_raw_page(
+                    root,
+                    run_root,
+                    stream,
+                    number,
+                    raw_sha,
+                    descriptor,
+                )
 
 
 def _verify_run_hashes(root: Path, run_root: Path, shard: dict[str, object], merge: dict[str, object], index: str) -> None:
@@ -292,6 +390,26 @@ def _verify_run_hashes(root: Path, run_root: Path, shard: dict[str, object], mer
 
 
 def _baseline_page(root: Path, run_root: Path, stream: str, number: int, raw_sha: object, descriptor: object) -> list[BloggerMessage]:
+    return [
+        _message(
+            dict(snapshot.raw_message),
+            snapshot.snapshot_ref,
+            snapshot.media_occurrence_refs,
+        )
+        for snapshot in _baseline_raw_page(
+            root, run_root, stream, number, raw_sha, descriptor
+        )
+    ]
+
+
+def _baseline_raw_page(
+    root: Path,
+    run_root: Path,
+    stream: str,
+    number: int,
+    raw_sha: object,
+    descriptor: object,
+) -> Iterator[VerifiedRawMessageSnapshot]:
     if not _sha(raw_sha) or not isinstance(descriptor, dict) or descriptor.get("schema_version") not in {1, 2}:
         raise ValueError("Discord message evidence descriptor is invalid")
     raw_relative = run_root / "pages" / stream / f"{number:06d}.json"
@@ -307,13 +425,66 @@ def _baseline_page(root: Path, run_root: Path, stream: str, number: int, raw_sha
     rows = _jsonl(evidence_bytes)
     if len(rows) != len(raw["payload"]):
         raise ValueError("Discord raw/evidence row count differs")
-    output: list[BloggerMessage] = []
     for line, (message, row) in enumerate(zip(raw["payload"], rows, strict=True), start=1):
-        output.append(_baseline_message(message, row, stream, number, raw_relative, evidence_relative, actual_raw_sha, line))
-    return output
+        if not isinstance(message, dict):
+            raise ValueError("Discord baseline raw message is invalid")
+        _validate_baseline_evidence_row(
+            message,
+            row,
+            stream,
+            number,
+            raw_relative,
+            actual_raw_sha,
+        )
+        media = row["media"]
+        assert isinstance(media, list)
+        pointer = row["message_json_pointer"]
+        assert isinstance(pointer, str)
+        yield VerifiedRawMessageSnapshot(
+            raw_message=message,
+            source_kind="baseline",
+            stream=stream,
+            evidence_path=raw_relative.as_posix(),
+            evidence_sha256=actual_raw_sha,
+            json_pointer=pointer,
+            snapshot_ref=f"{raw_relative.as_posix()}#{pointer}",
+            snapshot_sha256=canonical_json_sha256(message),
+            media_occurrence_refs=tuple(
+                f"{evidence_relative.as_posix()}#/{line}/media/{index}"
+                for index in range(len(media))
+            ),
+        )
 
 
 def _baseline_message(message: object, row: object, stream: str, number: int, raw_relative: Path, evidence_relative: Path, raw_sha: str, line: int) -> BloggerMessage:
+    if not isinstance(message, dict):
+        raise ValueError("Discord baseline raw message is invalid")
+    _validate_baseline_evidence_row(
+        message, row, stream, number, raw_relative, raw_sha
+    )
+    assert isinstance(row, dict)
+    pointer = row["message_json_pointer"]
+    media = row["media"]
+    assert isinstance(pointer, str)
+    assert isinstance(media, list)
+    return _message(
+        message,
+        f"{raw_relative.as_posix()}#{pointer}",
+        tuple(
+            f"{evidence_relative.as_posix()}#/{line}/media/{index}"
+            for index in range(len(media))
+        ),
+    )
+
+
+def _validate_baseline_evidence_row(
+    message: dict[str, object],
+    row: object,
+    stream: str,
+    number: int,
+    raw_relative: Path,
+    raw_sha: str,
+) -> None:
     if not isinstance(message, dict) or not isinstance(row, dict) or row.get("schema_version") != 2 or row.get("stream") != stream or row.get("channel_id") != message.get("channel_id") or row.get("page_number") != number:
         raise ValueError("Discord message evidence row is invalid")
     pointer = row.get("message_json_pointer")
@@ -330,18 +501,29 @@ def _baseline_message(message: object, row: object, stream: str, number: int, ra
         source = occurrence.get("source") if isinstance(occurrence, dict) else None
         if not isinstance(source, dict) or source.get("stream") != stream or source.get("evidence_path") != (Path("pages") / stream / f"{number:06d}.json").as_posix() or source.get("evidence_sha256") != raw_sha:
             raise ValueError("Discord media source binding is invalid")
-    return _message(message, f"{raw_relative.as_posix()}#{pointer}", tuple(f"{evidence_relative.as_posix()}#/{line}/media/{index}" for index in range(len(media))))
 
 
 def _closure_messages(
     root: Path,
     head: dict[str, object],
     targets: set[str],
-) -> list[BloggerMessage]:
+) -> Iterator[BloggerMessage]:
+    for snapshot in _closure_raw_snapshots(root, head, targets):
+        yield _message(
+            dict(snapshot.raw_message),
+            snapshot.snapshot_ref,
+            snapshot.media_occurrence_refs,
+        )
+
+
+def _closure_raw_snapshots(
+    root: Path,
+    head: dict[str, object],
+    targets: set[str],
+) -> Iterator[VerifiedRawMessageSnapshot]:
     head_targets = head.get("targets")
     if not isinstance(head_targets, list):
         raise ValueError("Discord head catch-up targets are invalid")
-    output: list[BloggerMessage] = []
     for target in head_targets:
         if not isinstance(target, dict) or not _snowflake(target.get("id")):
             raise ValueError("Discord head catch-up target is invalid")
@@ -375,10 +557,20 @@ def _closure_messages(
                 message_id = message.get("id")
                 if message_id in allowed:
                     observed.add(message_id)
-                    output.append(_message(message, f"{relative.as_posix()}#/response/messages/{index}", ()))
+                    pointer = f"/response/messages/{index}"
+                    yield VerifiedRawMessageSnapshot(
+                        raw_message=message,
+                        source_kind="closure",
+                        stream=f"messages_{target['id']}",
+                        evidence_path=relative.as_posix(),
+                        evidence_sha256=raw_sha,
+                        json_pointer=pointer,
+                        snapshot_ref=f"{relative.as_posix()}#{pointer}",
+                        snapshot_sha256=canonical_json_sha256(message),
+                        media_occurrence_refs=(),
+                    )
         if observed != allowed:
             raise ValueError("Discord explicit closure IDs are not locatable")
-    return output
 
 
 def _message(value: dict[str, object], snapshot_ref: str, media: tuple[str, ...]) -> BloggerMessage:
@@ -390,6 +582,12 @@ def _message(value: dict[str, object], snapshot_ref: str, media: tuple[str, ...]
     author_id = author.get("id") if isinstance(author, dict) else None
     if author_id is not None and not _snowflake(author_id):
         raise ValueError("Discord message author is invalid")
+    webhook_id = value.get("webhook_id")
+    application_id = value.get("application_id")
+    if webhook_id is not None and not _snowflake(webhook_id):
+        raise ValueError("Discord message webhook is invalid")
+    if application_id is not None and not _snowflake(application_id):
+        raise ValueError("Discord message application is invalid")
     edited = value.get("edited_timestamp")
     if edited is not None and (not isinstance(edited, str) or _parse_time(edited) is None):
         raise ValueError("Discord edited timestamp is invalid")
@@ -397,7 +595,20 @@ def _message(value: dict[str, object], snapshot_ref: str, media: tuple[str, ...]
     reply = reference.get("message_id") if isinstance(reference, dict) else None
     if reply is not None and not _snowflake(reply):
         raise ValueError("Discord reply reference is invalid")
-    return BloggerMessage(message_id, channel_id, author_id, timestamp, edited, content, reply, snapshot_ref, canonical_json_sha256(value), media)
+    return BloggerMessage(
+        message_id,
+        channel_id,
+        author_id,
+        timestamp,
+        edited,
+        content,
+        reply,
+        snapshot_ref,
+        canonical_json_sha256(value),
+        media,
+        webhook_id,
+        application_id,
+    )
 
 
 def _root(value: Path) -> Path:

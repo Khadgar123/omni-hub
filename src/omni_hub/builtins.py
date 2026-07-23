@@ -2891,6 +2891,60 @@ def make_discord_blogger_inventory_build(workspace: Path):
     return discord_blogger_inventory_build
 
 
+def make_discord_blogger_identity_review_freeze(workspace: Path):
+    """Freeze a complete private identity review through policy and audit."""
+
+    workspace_root = workspace.absolute().resolve(strict=True)
+
+    def discord_blogger_identity_review_freeze(
+        spec: OperationSpec,
+    ) -> dict[str, object]:
+        from .discord_blogger_identity_review import (
+            freeze_identity_review_pack,
+        )
+
+        payload = spec.payload
+        candidate_path = _discord_preflight_path(
+            workspace_root,
+            payload.get("candidate_pack"),
+            "blogger identity candidate pack",
+            require_regular_file=True,
+        )
+        labels_path = _discord_preflight_path(
+            workspace_root,
+            payload.get("reviewed_labels"),
+            "blogger identity reviewed labels",
+            require_regular_file=True,
+        )
+        output_raw = str(payload.get("output", ""))
+        output_relative = Path(output_raw)
+        if (
+            not output_raw
+            or output_relative.is_absolute()
+            or ".." in output_relative.parts
+            or not output_relative.name
+        ):
+            raise ValueError(
+                "Discord blogger identity review output path "
+                "must be a contained relative path"
+            )
+        _discord_preflight_path(
+            workspace_root,
+            output_relative.parent,
+            "blogger identity review output parent",
+            require_regular_file=False,
+        )
+        return dict(
+            freeze_identity_review_pack(
+                candidate_pack=candidate_path,
+                reviewed_labels=labels_path,
+                output_path=workspace_root / output_relative,
+            )
+        )
+
+    return discord_blogger_identity_review_freeze
+
+
 def make_discord_blogger_backtest_run(workspace: Path):
     """Run the reviewed curation through the isolated quant subprocess seam."""
 
@@ -2963,6 +3017,10 @@ def build_default_registry(workspace: Path | str = ".") -> OperationRegistry:
     registry.register(
         "discord_blogger_inventory_build",
         make_discord_blogger_inventory_build(workspace_path),
+    )
+    registry.register(
+        "discord_blogger_identity_review_freeze",
+        make_discord_blogger_identity_review_freeze(workspace_path),
     )
     registry.register(
         "discord_blogger_backtest_run",

@@ -92,6 +92,48 @@ def _route(path: str, params: Mapping[str, object] | None = None) -> tuple[str, 
 
 
 class DiscordCLIRegistrationTests(unittest.TestCase):
+    def test_blogger_identity_review_freeze_is_a_local_write_operation(self) -> None:
+        from omni_hub.cli import discord
+
+        runner = _RecordingRunner()
+        args = build_parser().parse_args(
+            [
+                "discord-blogger-identity-review-freeze",
+                "--candidate-pack",
+                ".omni/private/discord-blogger/identity/candidate.json",
+                "--reviewed-labels",
+                ".omni/private/discord-blogger/identity/labels.json",
+                "--output",
+                ".omni/private/discord-blogger/identity/reviewed.json",
+            ]
+        )
+
+        self.assertIn(
+            "discord-blogger-identity-review-freeze", discord.COMMANDS
+        )
+        with contextlib.redirect_stdout(io.StringIO()):
+            discord.COMMANDS["discord-blogger-identity-review-freeze"](
+                args, runner=runner, workspace=Path.cwd()
+            )
+        spec = runner.specs[0]
+        self.assertEqual(spec.name, "discord_blogger_identity_review_freeze")
+        self.assertEqual(spec.action, "freeze_blogger_identity_review")
+        self.assertEqual(spec.risk_level, RiskLevel.LOCAL_WRITE)
+        self.assertEqual(
+            spec.payload,
+            {
+                "candidate_pack": (
+                    ".omni/private/discord-blogger/identity/candidate.json"
+                ),
+                "reviewed_labels": (
+                    ".omni/private/discord-blogger/identity/labels.json"
+                ),
+                "output": (
+                    ".omni/private/discord-blogger/identity/reviewed.json"
+                ),
+            },
+        )
+
     def test_blogger_inventory_is_a_local_write_operation(self) -> None:
         from omni_hub.cli import discord
 
@@ -358,6 +400,7 @@ class DiscordCLIRegistrationTests(unittest.TestCase):
         self.assertIn("discord_blogger_events_build", names)
         self.assertIn("discord_blogger_backtest_run", names)
         self.assertIn("discord_blogger_inventory_build", names)
+        self.assertIn("discord_blogger_identity_review_freeze", names)
 
 
 class DiscordOperationTests(unittest.TestCase):
@@ -377,6 +420,64 @@ class DiscordOperationTests(unittest.TestCase):
             build_default_registry(self.workspace),
             audit=AuditLogger(self.audit_path),
         )
+
+    def test_identity_review_freeze_is_audited_idempotent_and_hash_bound(
+        self,
+    ) -> None:
+        from omni_hub.discord_blogger_contract import canonical_json_bytes
+        from tests.test_discord_blogger_identity_review import (
+            _candidate_pack,
+            _labels,
+        )
+
+        private = self.workspace / ".omni/private/discord-blogger/identity"
+        private.mkdir(parents=True)
+        candidate = _candidate_pack()
+        labels = _labels(candidate)
+        candidate_path = private / "candidate.json"
+        labels_path = private / "labels.json"
+        output_path = private / "reviewed.json"
+        candidate_path.write_bytes(canonical_json_bytes(candidate))
+        labels_path.write_bytes(canonical_json_bytes(labels))
+        candidate_path.chmod(0o600)
+        labels_path.chmod(0o600)
+        spec = OperationSpec(
+            name="discord_blogger_identity_review_freeze",
+            action="freeze_blogger_identity_review",
+            connector="discord",
+            payload={
+                "candidate_pack": str(candidate_path.relative_to(self.workspace)),
+                "reviewed_labels": str(labels_path.relative_to(self.workspace)),
+                "output": str(output_path.relative_to(self.workspace)),
+            },
+            risk_level=RiskLevel.LOCAL_WRITE,
+        )
+        runner = self._runner()
+
+        first = runner.run(spec)
+        second = runner.run(spec)
+
+        self.assertEqual(first.status, OperationStatus.SUCCEEDED)
+        self.assertEqual(second.status, OperationStatus.SUCCEEDED)
+        self.assertEqual(first.output, second.output)
+        self.assertEqual(output_path.stat().st_mode & 0o777, 0o600)
+        audit = self.audit_path.read_text(encoding="utf-8")
+        self.assertIn("discord_blogger_identity_review_freeze", audit)
+
+        changed_candidate = dict(candidate)
+        changed_candidate["generated_at"] = "2026-07-23T00:00:00+00:00"
+        candidate_path.write_bytes(canonical_json_bytes(changed_candidate))
+        drift = runner.run(
+            OperationSpec(
+                name="discord_blogger_identity_review_freeze",
+                action="freeze_blogger_identity_review",
+                connector="discord",
+                payload=spec.payload,
+                risk_level=RiskLevel.LOCAL_WRITE,
+            )
+        )
+        self.assertEqual(drift.status, OperationStatus.FAILED)
+        self.assertIn("candidate pack SHA-256", str(drift.error))
 
     def test_blogger_inventory_handler_parses_private_family_blocker(self) -> None:
         target_id = "1514503993567744030"

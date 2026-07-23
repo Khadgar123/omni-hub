@@ -109,6 +109,76 @@ def _inventory() -> dict[str, object]:
 
 
 class BloggerTargetInventoryTests(unittest.TestCase):
+    def test_four_explicit_threads_keep_exact_counts_beside_parent_rollup(
+        self,
+    ) -> None:
+        thread_ids = [
+            "1516770209279512618",
+            "1516770209279512619",
+            "1516770209279512620",
+            "1516770209279512621",
+        ]
+        targets = [
+            {
+                "id": _FORUM_ID,
+                "name": "forum",
+                "kind": "GUILD_FORUM (15)",
+                "parent_id": None,
+                "source_labels": ["forum"],
+            },
+            *[
+                {
+                    "id": thread_id,
+                    "name": f"thread-{index}",
+                    "kind": "GUILD_PUBLIC_THREAD (11)",
+                    "parent_id": _FORUM_ID,
+                    "source_labels": [f"thread-{index}"],
+                }
+                for index, thread_id in enumerate(thread_ids)
+            ],
+        ]
+        snapshot = {
+            "schema_version": 1,
+            "guild_id": "1427104065959231640",
+            "target_count": len(targets),
+            "target_set_sha256": target_set_sha256(
+                row["id"] for row in targets
+            ),
+            "targets": targets,
+        }
+        result = build_blogger_target_inventory(
+            messages=(
+                _message(
+                    "160000000000000001",
+                    channel_id=thread_ids[0],
+                    content="one",
+                ),
+                _message(
+                    "160000000000000002",
+                    channel_id=thread_ids[1],
+                    content="two",
+                ),
+            ),
+            target_snapshot=snapshot,
+            discovered_threads=(),
+            provenance={},
+            private_archived_blocked_parent_ids=(),
+            family_parent_target_ids=(_FORUM_ID,),
+        )
+        rows = {row["target_id"]: row for row in result["targets"]}
+
+        self.assertEqual(rows[_FORUM_ID]["message_count"], 2)
+        self.assertEqual(
+            [rows[thread_id]["message_count"] for thread_id in thread_ids],
+            [1, 1, 0, 0],
+        )
+        self.assertTrue(
+            all(
+                rows[thread_id]["count_semantics"] == "exact_thread"
+                for thread_id in thread_ids
+            )
+        )
+
     def test_explicit_thread_rolls_up_without_duplicate_discovery_row(self) -> None:
         result = build_blogger_target_inventory(
             messages=(
