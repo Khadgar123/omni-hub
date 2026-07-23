@@ -25,8 +25,15 @@ class OperationReceiptStoreTests(unittest.TestCase):
                 idempotency_key="same-key",
             )
             spec_hash = canonical_operation_spec_sha256(spec)
-            self.assertIsNone(store.lookup("write", "same-key", spec_hash))
-            store.begin("write", "same-key", spec_hash, external_send=False)
+            self.assertIsNone(
+                store.acquire(
+                    "write",
+                    "same-key",
+                    spec_hash,
+                    external_send=False,
+                    reserve=True,
+                )
+            )
             result = OperationResult(
                 operation_id=spec.operation_id,
                 status=OperationStatus.SUCCEEDED,
@@ -34,7 +41,13 @@ class OperationReceiptStoreTests(unittest.TestCase):
                 trace_id="trace-1",
             )
             store.commit("write", "same-key", spec_hash, result)
-            replay = store.lookup("write", "same-key", spec_hash)
+            replay = store.acquire(
+                "write",
+                "same-key",
+                spec_hash,
+                external_send=False,
+                reserve=True,
+            )
             assert replay is not None
             self.assertEqual(replay.output, {"ok": True})
 
@@ -46,10 +59,12 @@ class OperationReceiptStoreTests(unittest.TestCase):
                 idempotency_key="same-key",
             )
             with self.assertRaises(ReceiptConflict):
-                store.lookup(
+                store.acquire(
                     "write",
                     "same-key",
                     canonical_operation_spec_sha256(changed),
+                    external_send=False,
+                    reserve=True,
                 )
 
     def test_external_send_attempt_is_separate_and_blocks_ambiguous_retry(self) -> None:
@@ -63,9 +78,21 @@ class OperationReceiptStoreTests(unittest.TestCase):
                 idempotency_key="send-1",
             )
             spec_hash = canonical_operation_spec_sha256(spec)
-            store.begin("send", "send-1", spec_hash, external_send=True)
+            store.acquire(
+                "send",
+                "send-1",
+                spec_hash,
+                external_send=True,
+                reserve=True,
+            )
             with self.assertRaises(UncommittedReceipt):
-                store.lookup("send", "send-1", spec_hash)
+                store.acquire(
+                    "send",
+                    "send-1",
+                    spec_hash,
+                    external_send=True,
+                    reserve=False,
+                )
             self.assertTrue(store.has_send_attempt("send", "send-1", spec_hash))
 
 

@@ -15,6 +15,7 @@ from pathlib import Path
 
 from ..audit import AuditLogger
 from ..builtins import build_default_registry
+from ..operation_receipts import OperationReceiptStore
 from ..runner import OperationRunner
 from . import (
     ab,
@@ -95,6 +96,9 @@ def main(argv: list[str] | None = None) -> int:
     runner = OperationRunner(
         build_default_registry(workspace),
         audit=AuditLogger(workspace / ".omni" / "audit" / "events.jsonl"),
+        receipts=OperationReceiptStore(
+            workspace / ".omni" / "operation-receipts.sqlite3"
+        ),
     )
 
     for area in _AREAS:

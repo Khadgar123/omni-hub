@@ -11,8 +11,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from omni_hub.queue import Task, TaskQueue
 from omni_hub.audit import AuditLogger
+from omni_hub.builtins import build_default_registry
 from omni_hub.registry import OperationRegistry
 from omni_hub.runner import OperationRunner
+from omni_hub.policy import PolicyConfig, PolicyEngine
+from omni_hub.models import OperationSpec, OperationStatus, RiskLevel
 from omni_hub.workers import (
     Artifact,
     BuiltinAdapter,
@@ -202,6 +205,75 @@ class BuiltinAdapterTests(unittest.TestCase):
 
 
 class QueueWorkerIntegrationTests(unittest.TestCase):
+    def test_default_runner_and_worker_share_external_send_receipt_namespace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp)
+            context = {
+                "trace_id": "trace-cross-entry",
+                "idempotency_key": "cross-entry",
+                "task_id": 42,
+                "worker_id": "cli-worker",
+                "lease_epoch": 1,
+                "fencing_suffix": "t42:e1",
+            }
+            direct = OperationRunner(
+                build_default_registry(workspace),
+                policy=PolicyEngine(
+                    PolicyConfig(external_write_allowlist={"remote:send"})
+                ),
+                audit=AuditLogger(
+                    workspace / ".omni" / "audit" / "events.jsonl"
+                ),
+            )
+            first = direct.run(
+                OperationSpec(
+                    name="summarize_text",
+                    connector="remote",
+                    action="send",
+                    payload={
+                        "text": "hello world",
+                        "max_chars": 5,
+                        WORKER_CONTEXT_KEY: context,
+                    },
+                    risk_level=RiskLevel.EXTERNAL_SEND,
+                    idempotency_key="cross-entry",
+                    trace_id="trace-cross-entry",
+                )
+            )
+            self.assertEqual(first.status, OperationStatus.SUCCEEDED)
+
+            adapter = make_builtin_adapter(workspace, worker_id="worker-2")
+            replay = adapter.run(
+                Task(
+                    id=42,
+                    idempotency_key="cross-entry",
+                    trace_id="trace-cross-entry",
+                    lane="python",
+                    packet={
+                        "operation": "summarize_text",
+                        "connector": "remote",
+                        "action": "send",
+                        "payload": {"text": "hello world", "max_chars": 5},
+                        "risk_level": "L2",
+                    },
+                    claimed_by="worker-2",
+                    lease_epoch=2,
+                )
+            )
+            self.assertIsNone(replay.error)
+            self.assertEqual(replay.data, first.output)
+            self.assertTrue(
+                (workspace / ".omni" / "operation-receipts.sqlite3").is_file()
+            )
+            self.assertFalse(
+                (
+                    workspace
+                    / ".omni"
+                    / "audit"
+                    / "operation-receipts.sqlite3"
+                ).exists()
+            )
+
     def test_enqueue_claim_run_complete_loop(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             workspace = Path(tmp)

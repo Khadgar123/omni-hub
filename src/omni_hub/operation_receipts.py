@@ -84,9 +84,37 @@ class OperationReceiptStore:
         idempotency_key: str,
         spec_sha256: str,
     ) -> OperationResult | None:
-        """Return the committed result, or ``None`` when the key is unused."""
+        """Compatibility wrapper for a non-reserving atomic acquire."""
 
+        return self.acquire(
+            operation_name,
+            idempotency_key,
+            spec_sha256,
+            external_send=False,
+            reserve=False,
+        )
+
+    def acquire(
+        self,
+        operation_name: str,
+        idempotency_key: str,
+        spec_sha256: str,
+        *,
+        external_send: bool,
+        reserve: bool,
+    ) -> OperationResult | None:
+        """Atomically replay, reject a collision, or reserve an unused key.
+
+        With ``reserve=False`` an unused key is only inspected.  With
+        ``reserve=True`` the same transaction inserts the started receipt and
+        external-send attempt marker.  A concurrent committer that wins the
+        writer lock is therefore observed as a replay, never as the old
+        lookup/begin false-uncommitted race.
+        """
+
+        now = datetime.now(UTC).isoformat()
         with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
             row = conn.execute(
                 """
                 SELECT spec_sha256, state, result_json
@@ -95,44 +123,19 @@ class OperationReceiptStore:
                 """,
                 (operation_name, idempotency_key),
             ).fetchone()
-        if row is None:
-            return None
-        self._require_matching_hash(row["spec_sha256"], spec_sha256)
-        if row["state"] != "committed" or row["result_json"] is None:
-            raise UncommittedReceipt(
-                "idempotent operation attempt already recorded without a "
-                "committed result; manual reconciliation is required"
-            )
-        return _result_from_json(row["result_json"])
-
-    def begin(
-        self,
-        operation_name: str,
-        idempotency_key: str,
-        spec_sha256: str,
-        *,
-        external_send: bool,
-    ) -> None:
-        """Reserve a key and, for external sends, durably mark the send attempt."""
-
-        now = datetime.now(UTC).isoformat()
-        with self._connect() as conn:
-            conn.execute("BEGIN IMMEDIATE")
-            existing = conn.execute(
-                """
-                SELECT spec_sha256, state
-                FROM operation_receipts
-                WHERE operation_name = ? AND idempotency_key = ?
-                """,
-                (operation_name, idempotency_key),
-            ).fetchone()
-            if existing is not None:
-                self._require_matching_hash(existing["spec_sha256"], spec_sha256)
-                conn.rollback()
-                raise UncommittedReceipt(
-                    "idempotent operation attempt already recorded without a "
-                    "committed result; manual reconciliation is required"
-                )
+            if row is not None:
+                self._require_matching_hash(row["spec_sha256"], spec_sha256)
+                if row["state"] != "committed" or row["result_json"] is None:
+                    raise UncommittedReceipt(
+                        "idempotent operation attempt already recorded without a "
+                        "committed result; manual reconciliation is required"
+                    )
+                result = _result_from_json(row["result_json"])
+                conn.commit()
+                return result
+            if not reserve:
+                conn.commit()
+                return None
             conn.execute(
                 """
                 INSERT INTO operation_receipts (
@@ -152,6 +155,25 @@ class OperationReceiptStore:
                     (operation_name, idempotency_key, spec_sha256, now),
                 )
             conn.commit()
+        return None
+
+    def begin(
+        self,
+        operation_name: str,
+        idempotency_key: str,
+        spec_sha256: str,
+        *,
+        external_send: bool,
+    ) -> None:
+        """Compatibility wrapper for a reserving atomic acquire."""
+
+        self.acquire(
+            operation_name,
+            idempotency_key,
+            spec_sha256,
+            external_send=external_send,
+            reserve=True,
+        )
 
     def commit(
         self,

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import sqlite3
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 
@@ -160,6 +162,45 @@ class BloggerLedgerTests(unittest.TestCase):
                     claimed_by="worker-a",
                     lease_epoch=task.lease_epoch,
                 )
+
+    def test_lock_wait_crossing_deadline_rejects_attempt(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            queue = TaskQueue(root)
+            queue.enqueue(lane="python", packet={})
+            task = queue.claim(
+                lane="python", claimed_by="worker-a", visibility_timeout_sec=1
+            )
+            assert task is not None and task.lease_deadline is not None
+            ledger = BloggerLedger(queue)
+            blocker = queue._connect()
+            blocker.execute("BEGIN IMMEDIATE")
+            outcome: list[BaseException | str] = []
+            started = threading.Event()
+
+            def attempt_after_lock() -> None:
+                started.set()
+                try:
+                    ledger.begin_attempt(
+                        task_id=str(task.id),
+                        claimed_by="worker-a",
+                        lease_epoch=task.lease_epoch,
+                    )
+                    outcome.append("committed")
+                except BaseException as exc:  # captured for the main test thread
+                    outcome.append(exc)
+
+            thread = threading.Thread(target=attempt_after_lock)
+            thread.start()
+            self.assertTrue(started.wait(timeout=1))
+            remaining = max(0.0, (task.lease_deadline - _now_ms()) / 1000)
+            time.sleep(remaining + 0.1)
+            blocker.commit()
+            blocker.close()
+            thread.join(timeout=3)
+            self.assertFalse(thread.is_alive())
+            self.assertEqual(len(outcome), 1)
+            self.assertIsInstance(outcome[0], LeaseLost)
 
     def test_two_connection_reclaim_race_rejects_a_and_commits_one_b_revision(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

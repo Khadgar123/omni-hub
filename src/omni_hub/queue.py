@@ -252,12 +252,16 @@ class TaskQueue:
         """
 
         worker = claimed_by or _new_id()
-        now = _now_ms()
-        stale_threshold = now - int(visibility_timeout_sec * 1000)
-        lease_deadline = now + int(visibility_timeout_sec * 1000)
 
         with self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
+            # Sample after the write lock is acquired.  A worker may have
+            # waited behind another writer long enough for a lease boundary
+            # to pass; using a pre-lock timestamp would mint an already-stale
+            # lease or miss an authoritative expiry.
+            now = _now_ms()
+            stale_threshold = now - int(visibility_timeout_sec * 1000)
+            lease_deadline = now + int(visibility_timeout_sec * 1000)
             row = conn.execute(
                 """
                 UPDATE tasks
@@ -277,7 +281,11 @@ class TaskQueue:
                             state = 'claimed'
                             AND (
                                 (lease_deadline IS NOT NULL AND lease_deadline <= ?)
-                                OR (claimed_at IS NOT NULL AND claimed_at < ?)
+                                OR (
+                                    lease_deadline IS NULL
+                                    AND claimed_at IS NOT NULL
+                                    AND claimed_at < ?
+                                )
                             )
                         )
                       )
@@ -683,8 +691,7 @@ def _canonical_packet_json(packet: dict[str, Any]) -> str:
 
     if not isinstance(packet, dict):
         raise TypeError("task packet must be a JSON object")
-    if any(not isinstance(key, str) for key in packet):
-        raise TypeError("task packet keys must be strings")
+    _validate_packet_json(packet)
     try:
         return json.dumps(
             packet,
@@ -695,3 +702,21 @@ def _canonical_packet_json(packet: dict[str, Any]) -> str:
         )
     except (TypeError, ValueError) as exc:
         raise ValueError("task packet must be strict canonical JSON") from exc
+
+
+def _validate_packet_json(value: object) -> None:
+    if value is None or isinstance(value, (str, bool, int, float)):
+        return
+    if isinstance(value, (list, tuple)):
+        for item in value:
+            _validate_packet_json(item)
+        return
+    if isinstance(value, dict):
+        if any(not isinstance(key, str) for key in value):
+            raise ValueError("task packet mapping keys must be strings")
+        for item in value.values():
+            _validate_packet_json(item)
+        return
+    raise ValueError(
+        f"task packet value is not representable as JSON: {type(value).__name__}"
+    )

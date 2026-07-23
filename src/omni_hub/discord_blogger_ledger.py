@@ -37,9 +37,10 @@ class BloggerLedger:
     ) -> str:
         task_number = _task_number(task_id)
         attempt_id = _attempt_id(task_number, claimed_by, lease_epoch)
-        now = _now_ms()
         with self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
+            # The lock wait may cross the authoritative lease deadline.
+            now = _now_ms()
             self._validate_lease(
                 conn,
                 task_id=task_number,
@@ -197,10 +198,12 @@ class BloggerLedger:
         )
         task_number = _task_number(task_id)
         attempt_id = _attempt_id(task_number, claimed_by, lease_epoch)
-        now = _now_ms()
 
         with self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
+            # Fence against expiry at the instant this transaction actually
+            # owns the writer lock, not when the caller started waiting.
+            now = _now_ms()
             self._validate_lease(
                 conn,
                 task_id=task_number,

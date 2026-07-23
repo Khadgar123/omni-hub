@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from uuid import uuid4
 
 from .audit import AuditLogger
@@ -33,7 +34,7 @@ class OperationRunner:
     def _receipts(self) -> OperationReceiptStore:
         if self.receipts is None:
             self.receipts = OperationReceiptStore(
-                self.audit.path.parent / "operation-receipts.sqlite3"
+                _default_receipt_path(self.audit.path)
             )
         return self.receipts
 
@@ -44,6 +45,30 @@ class OperationRunner:
         # spec is owned by the call site, not yet shared cross-thread.
         if not spec.trace_id:
             spec.trace_id = str(uuid4())
+
+        receipt_store: OperationReceiptStore | None = None
+        receipt_sha = ""
+        external_send = RiskLevel.parse(spec.risk_level) == RiskLevel.EXTERNAL_SEND
+        if spec.idempotency_key:
+            try:
+                receipt_store = self._receipts()
+                receipt_sha = canonical_operation_spec_sha256(spec)
+                replay = receipt_store.acquire(
+                    spec.name,
+                    spec.idempotency_key,
+                    receipt_sha,
+                    external_send=external_send,
+                    reserve=False,
+                )
+                if replay is not None:
+                    self.audit.record(
+                        "operation_replayed",
+                        spec,
+                        result=replay,
+                    )
+                    return replay
+            except (ReceiptConflict, UncommittedReceipt, ValueError, TypeError) as exc:
+                return self._receipt_failure(spec, exc)
 
         decision = self.policy.evaluate(spec)
         self.audit.record("policy_evaluated", spec, decision=decision)
@@ -80,6 +105,10 @@ class OperationRunner:
             result.audit_id = event.event_id
             return result
 
+        # Resolve the handler before reserving a new receipt.  Unknown
+        # operations must not strand a permanent "started" record.  The
+        # non-reserving preflight above still gives existing replay/collision
+        # receipts priority over registry changes.
         try:
             handler = self.registry.get(spec.name)
         except KeyError as exc:
@@ -93,15 +122,14 @@ class OperationRunner:
             result.audit_id = event.event_id
             return result
 
-        receipt_store: OperationReceiptStore | None = None
-        receipt_sha = ""
-        external_send = RiskLevel.parse(spec.risk_level) == RiskLevel.EXTERNAL_SEND
-        if spec.idempotency_key:
-            receipt_store = self._receipts()
-            receipt_sha = canonical_operation_spec_sha256(spec)
+        if receipt_store is not None and spec.idempotency_key:
             try:
-                replay = receipt_store.lookup(
-                    spec.name, spec.idempotency_key, receipt_sha
+                replay = receipt_store.acquire(
+                    spec.name,
+                    spec.idempotency_key,
+                    receipt_sha,
+                    external_send=external_send,
+                    reserve=True,
                 )
                 if replay is not None:
                     self.audit.record(
@@ -111,22 +139,8 @@ class OperationRunner:
                         result=replay,
                     )
                     return replay
-                receipt_store.begin(
-                    spec.name,
-                    spec.idempotency_key,
-                    receipt_sha,
-                    external_send=external_send,
-                )
             except (ReceiptConflict, UncommittedReceipt, ValueError, TypeError) as exc:
-                result = OperationResult(
-                    operation_id=spec.operation_id,
-                    status=OperationStatus.FAILED,
-                    error=str(exc),
-                    trace_id=spec.trace_id,
-                )
-                event = self.audit.record("operation_failed", spec, result=result)
-                result.audit_id = event.event_id
-                return result
+                return self._receipt_failure(spec, exc)
 
         # v0.18-A: when dry_run is set, audit uses a distinct event_kind so
         # log readers can filter previews out from real writes.
@@ -189,3 +203,28 @@ class OperationRunner:
         event = self.audit.record(finish_event_kind, spec, result=result)
         result.audit_id = event.event_id
         return result
+
+    def _receipt_failure(
+        self,
+        spec: OperationSpec,
+        error: Exception,
+    ) -> OperationResult:
+        result = OperationResult(
+            operation_id=spec.operation_id,
+            status=OperationStatus.FAILED,
+            error=str(error),
+            trace_id=spec.trace_id,
+        )
+        event = self.audit.record("operation_failed", spec, result=result)
+        result.audit_id = event.event_id
+        return result
+
+
+def _default_receipt_path(audit_path: Path | str) -> Path:
+    """Map every standard audit location to the workspace receipt namespace."""
+
+    path = Path(audit_path)
+    parent = path.parent
+    if parent.name == "audit" and parent.parent.name == ".omni":
+        return parent.parent / "operation-receipts.sqlite3"
+    return parent / "operation-receipts.sqlite3"

@@ -124,22 +124,30 @@ def load_baseline_run_contract(
             f"baseline contract fields mismatch: missing={missing}, unexpected={unexpected}"
         )
 
+    source_bytes: dict[str, bytes] = {}
     for source_name, hash_field in _BASELINE_SOURCE_FIELDS.items():
         if source_name not in source_paths:
             raise ValueError(f"missing baseline source path: {source_name}")
         source_path = Path(source_paths[source_name]).resolve()
         _require_under_root(source_path, workspace, source_name)
-        _require_file_sha(source_path, payload[hash_field], source_name)
-    target_snapshot = _read_json_object(
-        Path(source_paths["target_snapshot"]).resolve(), "target snapshot"
+        raw = _read_regular_file_bytes(source_path, source_name)
+        _require_bytes_sha(raw, payload[hash_field], source_name)
+        source_bytes[source_name] = raw
+    target_snapshot = _json_object_from_bytes(
+        source_bytes["target_snapshot"], "target snapshot"
     )
 
     inventory_relative = payload["inventory_path"]
     if not isinstance(inventory_relative, str) or not inventory_relative:
         raise ValueError("inventory_path must be a non-empty relative path")
+    if Path(inventory_relative).is_absolute():
+        raise ValueError("inventory_path must be relative to the run root")
     inventory_path = safe_workspace_path(workspace, inventory_relative)
-    _require_file_sha(inventory_path, payload["inventory_sha256"], "inventory")
-    inventory = _read_json_object(inventory_path, "inventory")
+    inventory_bytes = _read_regular_file_bytes(inventory_path, "inventory")
+    _require_bytes_sha(
+        inventory_bytes, payload["inventory_sha256"], "inventory"
+    )
+    inventory = _json_object_from_bytes(inventory_bytes, "inventory")
 
     corpus = _require_sha(payload["corpus_commitment"], "corpus commitment")
     inventory_corpus = _inventory_corpus_commitment(inventory)
@@ -225,7 +233,7 @@ def finalize_derivation_contract(
 
 
 def _read_canonical_object(path: Path, label: str) -> dict[str, object]:
-    raw = path.read_bytes()
+    raw = _read_regular_file_bytes(path, label)
     value = _decode_json(raw, label)
     if not isinstance(value, dict):
         raise ValueError(f"{label} must be a JSON object")
@@ -234,8 +242,8 @@ def _read_canonical_object(path: Path, label: str) -> dict[str, object]:
     return value
 
 
-def _read_json_object(path: Path, label: str) -> dict[str, object]:
-    value = _decode_json(path.read_bytes(), label)
+def _json_object_from_bytes(raw: bytes, label: str) -> dict[str, object]:
+    value = _decode_json(raw, label)
     if not isinstance(value, dict):
         raise ValueError(f"{label} must be a JSON object")
     _validate_json_value(value)
@@ -281,11 +289,15 @@ def _require_sha(value: object, label: str) -> str:
     return value
 
 
-def _require_file_sha(path: Path, expected: object, label: str) -> None:
-    expected_sha = _require_sha(expected, f"{label} SHA-256")
+def _read_regular_file_bytes(path: Path, label: str) -> bytes:
     if not path.is_file() or path.is_symlink():
         raise ValueError(f"{label} input must be a regular file")
-    actual = hashlib.sha256(path.read_bytes()).hexdigest()
+    return path.read_bytes()
+
+
+def _require_bytes_sha(raw: bytes, expected: object, label: str) -> None:
+    expected_sha = _require_sha(expected, f"{label} SHA-256")
+    actual = hashlib.sha256(raw).hexdigest()
     if actual != expected_sha:
         raise ValueError(f"{label} SHA-256 drift")
 

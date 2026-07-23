@@ -5,6 +5,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from omni_hub.discord_blogger_contract import (
     BaselineRunContract,
@@ -121,8 +122,9 @@ class BaselineRunContractTests(unittest.TestCase):
                     source_paths=source_paths,
                     expected_target_ids=("10", "20"),
                 )
-
-            source_paths["plan"].write_bytes(_canonical({"kind": "plan", "version": 1}))
+            source_paths["plan"].write_bytes(
+                _canonical({"kind": "plan", "version": 1})
+            )
             payload["inventory_path"] = "../inventory.json"
             contract_path.write_bytes(_canonical(payload))
             with self.assertRaises(PermissionError):
@@ -132,6 +134,65 @@ class BaselineRunContractTests(unittest.TestCase):
                     source_paths=source_paths,
                     expected_target_ids=("10", "20"),
                 )
+
+    def test_rejects_root_contained_absolute_inventory_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            contract_path, source_paths, payload = self._fixture(root)
+            payload["inventory_path"] = str((root / "inputs/inventory.json").resolve())
+            contract_path.write_bytes(_canonical(payload))
+            with self.assertRaisesRegex(ValueError, "relative"):
+                load_baseline_run_contract(
+                    contract_path,
+                    root=root,
+                    source_paths=source_paths,
+                    expected_target_ids=("10", "20"),
+                )
+
+    def test_hash_and_parse_use_one_snapshot_of_each_bound_json_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            contract_path, source_paths, _ = self._fixture(root)
+            inventory_path = (root / "inputs/inventory.json").resolve()
+            snapshot_path = source_paths["target_snapshot"].resolve()
+            inventory_first = inventory_path.read_bytes()
+            snapshot_first = snapshot_path.read_bytes()
+            inventory_second = _canonical(
+                {
+                    **json.loads(inventory_first),
+                    "unbound_substitution": True,
+                }
+            )
+            snapshot_second = _canonical(
+                {
+                    **json.loads(snapshot_first),
+                    "unbound_substitution": True,
+                }
+            )
+            original_read_bytes = Path.read_bytes
+            counts = {inventory_path: 0, snapshot_path: 0}
+
+            def changing_read(path: Path) -> bytes:
+                resolved = path.resolve()
+                if resolved in counts:
+                    counts[resolved] += 1
+                    if counts[resolved] > 1:
+                        return (
+                            inventory_second
+                            if resolved == inventory_path
+                            else snapshot_second
+                        )
+                return original_read_bytes(path)
+
+            with patch.object(Path, "read_bytes", changing_read):
+                load_baseline_run_contract(
+                    contract_path,
+                    root=root,
+                    source_paths=source_paths,
+                    expected_target_ids=("10", "20"),
+                )
+            self.assertEqual(counts[inventory_path], 1)
+            self.assertEqual(counts[snapshot_path], 1)
 
     def test_rejects_duplicate_missing_or_unexpected_target_ids(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

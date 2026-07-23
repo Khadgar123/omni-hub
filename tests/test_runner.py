@@ -7,14 +7,134 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from omni_hub.audit import AuditLogger
 from omni_hub.builtins import build_default_registry
-from omni_hub.models import OperationSpec, OperationStatus, RiskLevel
+from omni_hub.models import (
+    OperationResult,
+    OperationSpec,
+    OperationStatus,
+    RiskLevel,
+)
 from omni_hub.runner import OperationRunner
-from omni_hub.operation_receipts import OperationReceiptStore
+from omni_hub.operation_receipts import (
+    OperationReceiptStore,
+    canonical_operation_spec_sha256,
+)
 from omni_hub.policy import PolicyConfig, PolicyEngine
 from omni_hub.registry import OperationRegistry
 
 
 class OperationRunnerTests(unittest.TestCase):
+    def test_committed_replay_precedes_changed_policy_and_missing_registry(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = OperationReceiptStore(Path(tmpdir) / "receipts.sqlite3")
+            registry = OperationRegistry()
+            registry.register("once", lambda spec: {"committed": True})
+            first_runner = OperationRunner(
+                registry,
+                audit=AuditLogger(Path(tmpdir) / "first-audit.jsonl"),
+                receipts=store,
+            )
+            make_spec = lambda: OperationSpec(
+                name="once",
+                action="write",
+                payload={"value": 1},
+                risk_level=RiskLevel.LOCAL_WRITE,
+                idempotency_key="priority-key",
+            )
+            first = first_runner.run(make_spec())
+            self.assertEqual(first.status, OperationStatus.SUCCEEDED)
+
+            changed_runner = OperationRunner(
+                OperationRegistry(),
+                policy=PolicyEngine(
+                    PolicyConfig(auto_approve_until=RiskLevel.READ_ONLY)
+                ),
+                audit=AuditLogger(Path(tmpdir) / "changed-audit.jsonl"),
+                receipts=store,
+            )
+            replay = changed_runner.run(make_spec())
+            self.assertEqual(replay.status, OperationStatus.SUCCEEDED)
+            self.assertEqual(replay.output, {"committed": True})
+
+    def test_collision_precedes_approval_and_registry_failures(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = OperationReceiptStore(Path(tmpdir) / "receipts.sqlite3")
+            registry = OperationRegistry()
+            registry.register("once", lambda spec: {"committed": True})
+            first_runner = OperationRunner(
+                registry,
+                audit=AuditLogger(Path(tmpdir) / "first-audit.jsonl"),
+                receipts=store,
+            )
+            first_runner.run(
+                OperationSpec(
+                    name="once",
+                    action="write",
+                    payload={"value": 1},
+                    risk_level=RiskLevel.LOCAL_WRITE,
+                    idempotency_key="priority-key",
+                )
+            )
+            changed_runner = OperationRunner(
+                OperationRegistry(),
+                policy=PolicyEngine(
+                    PolicyConfig(auto_approve_until=RiskLevel.READ_ONLY)
+                ),
+                audit=AuditLogger(Path(tmpdir) / "changed-audit.jsonl"),
+                receipts=store,
+            )
+            collision = changed_runner.run(
+                OperationSpec(
+                    name="once",
+                    action="write",
+                    payload={"value": 2},
+                    risk_level=RiskLevel.LOCAL_WRITE,
+                    idempotency_key="priority-key",
+                )
+            )
+            self.assertEqual(collision.status, OperationStatus.FAILED)
+            self.assertIn("idempotency key collision", collision.error)
+
+    def test_concurrent_commit_between_preflight_and_reserve_replays(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = OperationReceiptStore(Path(tmpdir) / "receipts.sqlite3")
+            spec = OperationSpec(
+                name="once",
+                action="write",
+                payload={"value": 1},
+                risk_level=RiskLevel.LOCAL_WRITE,
+                idempotency_key="race-key",
+            )
+            spec_hash = canonical_operation_spec_sha256(spec)
+            committed = OperationResult(
+                operation_id="other-runner",
+                status=OperationStatus.SUCCEEDED,
+                output={"winner": "other"},
+            )
+
+            class CommitDuringPolicy(PolicyEngine):
+                def evaluate(self, evaluated_spec):
+                    store.begin(
+                        "once", "race-key", spec_hash, external_send=False
+                    )
+                    store.commit("once", "race-key", spec_hash, committed)
+                    return super().evaluate(evaluated_spec)
+
+            registry = OperationRegistry()
+            registry.register(
+                "once",
+                lambda evaluated_spec: self.fail(
+                    "handler must not run after concurrent receipt commit"
+                ),
+            )
+            runner = OperationRunner(
+                registry,
+                policy=CommitDuringPolicy(),
+                audit=AuditLogger(Path(tmpdir) / "audit.jsonl"),
+                receipts=store,
+            )
+            result = runner.run(spec)
+            self.assertEqual(result.status, OperationStatus.SUCCEEDED)
+            self.assertEqual(result.output, {"winner": "other"})
     def test_same_idempotency_key_and_spec_replays_without_calling_handler(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             calls = []
